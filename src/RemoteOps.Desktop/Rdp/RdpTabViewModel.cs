@@ -20,6 +20,9 @@ public sealed class RdpTabViewModel : SessionTabViewModel
     // 0 = idle, 1 = connecting/prepared, 2 = connected (ActiveX OnConnected)
     private int _connectionState;
 
+    private readonly object _prepareLock = new();
+    private Task<RdpConnectionConfig>? _prepareTask;
+
     public RdpTabViewModel(
         string id,
         string title,
@@ -45,11 +48,27 @@ public sealed class RdpTabViewModel : SessionTabViewModel
     /// Resolve endpoint/usuário e audita início. Chamado pela View ao carregar o
     /// WindowsFormsHost, ANTES de aplicar Server/UserName no controle MSTSCAX.
     /// </summary>
-    public async Task<RdpConnectionConfig> PrepareAsync(CancellationToken ct = default)
+    public Task<RdpConnectionConfig> PrepareAsync(CancellationToken ct = default)
     {
-        if (Interlocked.CompareExchange(ref _connectionState, 1, 0) != 0)
-            return ConnectionConfig!;
+        lock (_prepareLock)
+        {
+            // Uma tentativa anterior que já falhou/foi cancelada não deve ser
+            // reaproveitada: descarta o cache para permitir nova tentativa.
+            // (Não é seguro limpar o cache de dentro de PrepareCoreAsync: se
+            // o provider falhar de forma síncrona, o catch rodaria antes da
+            // atribuição abaixo terminar e o null seria sobrescrito pelo
+            // próprio Task com falha.)
+            if (_prepareTask is { IsFaulted: true } or { IsCanceled: true })
+                _prepareTask = null;
 
+            _prepareTask ??= PrepareCoreAsync(ct);
+            return _prepareTask;
+        }
+    }
+
+    private async Task<RdpConnectionConfig> PrepareCoreAsync(CancellationToken ct)
+    {
+        Interlocked.CompareExchange(ref _connectionState, 1, 0);
         try
         {
             _handle = await _provider.OpenAsync(_baseRequest, ct);

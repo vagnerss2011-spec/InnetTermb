@@ -43,6 +43,22 @@ public sealed class RdpTabViewModelTests
     }
 
     [Fact]
+    public async Task PrepareAsync_CalledTwiceConcurrently_BothCallersGetTheResolvedConfig()
+    {
+        var provider = new FakeRdpSessionProvider();
+        var credResolver = new FakeRdpCredentialResolver();
+        var vm = new RdpTabViewModel("id1", "Host (RDP)", "rdp", provider, credResolver, MakeRequest());
+
+        var results = await Task.WhenAll(vm.PrepareAsync(), vm.PrepareAsync());
+
+        Assert.NotNull(results[0]);
+        Assert.NotNull(results[1]);
+        Assert.Equal("10.0.0.5", results[0].Host);
+        Assert.Equal("10.0.0.5", results[1].Host);
+        Assert.Same(results[0], results[1]);
+    }
+
+    [Fact]
     public async Task PrepareAsync_OnFailure_ResetsStateForRetry()
     {
         var provider = new FakeRdpSessionProvider { ShouldThrowOnOpen = true };
