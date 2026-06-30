@@ -4,6 +4,18 @@
     <RootNamespace>RemoteOps.Sync</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>RemoteOps.UnitTests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\RemoteOps.Contracts\RemoteOps.Contracts.csproj" />
+    <ProjectReference Include="..\RemoteOps.Security\RemoteOps.Security.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- SQLCipher: DB criptografado via AES-256-CBC (ADR-008). Usar .Core + bundle_sqlcipher
+         em vez do meta-package Microsoft.Data.Sqlite para substituir o engine padrão. -->
+    <PackageReference Include="Microsoft.Data.Sqlite.Core" Version="9.0.6" />
+    <PackageReference Include="SQLitePCLRaw.bundle_sqlcipher" Version="2.1.10" />
   </ItemGroup>
 </Project>
