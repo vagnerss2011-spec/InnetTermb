@@ -1,0 +1,26 @@
+# Normaliza fim de linha entre Windows/Linux/macOS.
+* text=auto
+
+# Scripts shell DEVEM ter LF mesmo no Windows, senão o bash quebra
+# (ex.: "set: pipefail / invalid option name"). Não mexer.
+*.sh text eol=lf
+
+# Scripts PowerShell ficam com CRLF.
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Código e config com LF.
+*.cs   text eol=lf
+*.csproj text eol=lf
+*.sln  text eol=lf
+*.json text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.md   text eol=lf
+
+# Binários (não normalizar).
+*.png binary
+*.jpg binary
+*.exe binary
+*.dll binary
