@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://remoteops.local/contracts/sync-change.schema.json",
+  "title": "SyncChange",
+  "type": "object",
+  "required": ["entityType", "entityId", "operation", "baseVersion", "patch"],
+  "properties": {
+    "clientChangeId": { "type": "string" },
+    "entityType": { "type": "string" },
+    "entityId": { "type": "string" },
+    "operation": { "enum": ["created", "updated", "deleted"] },
+    "baseVersion": { "type": "integer", "minimum": 0 },
+    "patch": { "type": "object" }
+  }
+}

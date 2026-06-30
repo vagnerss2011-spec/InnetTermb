@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://remoteops.local/contracts/ndesk-permission-grant.schema.json",
+  "title": "NDeskPermissionGrant",
+  "type": "object",
+  "required": ["sessionId", "ticketId", "grantedBy", "grantedAt", "permissions", "mode"],
+  "additionalProperties": false,
+  "properties": {
+    "sessionId": { "type": "string" },
+    "ticketId": { "type": "string" },
+    "grantedBy": {
+      "type": "object",
+      "required": ["displayName", "machineName"],
+      "additionalProperties": false,
+      "properties": {
+        "displayName": { "type": "string" },
+        "windowsUser": { "type": "string" },
+        "machineName": { "type": "string" }
+      }
+    },
+    "grantedAt": { "type": "string", "format": "date-time" },
+    "mode": { "enum": ["basic", "control", "file", "administrator"] },
+    "permissions": {
+      "type": "array",
+      "items": { "enum": ["view", "control", "fileTransfer", "adminElevation"] },
+      "uniqueItems": true
+    },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "revokedAt": { "type": ["string", "null"], "format": "date-time" },
+    "revokedBy": { "type": ["string", "null"] },
+    "consentTextVersion": { "type": "string" }
+  }
+}

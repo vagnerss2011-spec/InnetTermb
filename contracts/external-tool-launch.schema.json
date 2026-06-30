@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://remoteops.local/contracts/external-tool-launch.schema.json",
+  "title": "ExternalToolLaunchRequest",
+  "type": "object",
+  "required": ["id", "workspaceId", "tool", "target", "requestedBy", "requestedAt"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string" },
+    "workspaceId": { "type": "string" },
+    "tool": { "enum": ["winbox"] },
+    "hostId": { "type": "string" },
+    "target": {
+      "type": "object",
+      "required": ["address", "port"],
+      "additionalProperties": false,
+      "properties": {
+        "address": { "type": "string" },
+        "addressFamily": { "enum": ["ipv4", "ipv6", "dns"] },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "preferIpv6": { "type": "boolean" }
+      }
+    },
+    "login": { "type": "string" },
+    "credentialRefId": { "type": "string" },
+    "includePasswordArgument": { "type": "boolean", "default": false },
+    "workspaceName": { "type": "string" },
+    "romon": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "agent": { "type": "string" },
+        "connectTo": { "type": "string" }
+      }
+    },
+    "requestedBy": { "type": "string" },
+    "requestedAt": { "type": "string", "format": "date-time" },
+    "policyDecisionId": { "type": "string" }
+  }
+}

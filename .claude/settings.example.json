@@ -1,0 +1,27 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(rm -rf *|del /s *|Remove-Item * -Recurse*)",
+            "command": "echo 'Comando destrutivo bloqueado pelo projeto RemoteOps' && exit 2"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'Arquivo alterado: revise testes, docs e ausência de segredos.'"
+          }
+        ]
+      }
+    ]
+  }
+}

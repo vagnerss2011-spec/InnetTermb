@@ -1,0 +1,86 @@
+name: automerge
+
+# Auto-merge de frentes com CI verde, respeitando a ordem de dependência.
+# Pré-requisitos no repositório (Settings):
+#   - "Allow auto-merge" habilitado.
+#   - Branch protection em main com os checks obrigatórios do workflow "ci"
+#     (dotnet, docs-contracts, secret-scan, security-gate) marcados como required.
+# Ver docs/24-orquestracao-multiagente-paralela.md.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, edited, ready_for_review]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  merge-guard:
+    name: merge guard (Depends-on order)
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify declared dependencies are already in base branch
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          python - <<'PY'
+          import json, os, re, subprocess, sys
+
+          event = json.load(open(os.environ["GITHUB_EVENT_PATH"]))
+          body = (event.get("pull_request", {}).get("body") or "")
+          base = os.environ["BASE_REF"]
+
+          deps = re.findall(r"(?im)^\s*Depends-on:\s*(\S+)\s*$", body)
+          if not deps:
+              print("Nenhuma dependência declarada (Depends-on). OK.")
+              sys.exit(0)
+
+          subprocess.run(["git", "fetch", "origin", base, "--quiet"], check=False)
+
+          def remote_branch_exists(b):
+              r = subprocess.run(["git", "ls-remote", "--heads", "origin", b],
+                                 capture_output=True, text=True)
+              return bool(r.stdout.strip())
+
+          blocked = []
+          for dep in deps:
+              dep = dep.strip().lstrip("/")
+              if not remote_branch_exists(dep):
+                  # Branch ausente no remoto => assumimos mergeada/encerrada.
+                  print(f"OK  {dep}: ausente no remoto (provavelmente já mergeada).")
+                  continue
+              subprocess.run(["git", "fetch", "origin", dep, "--quiet"], check=False)
+              merged = subprocess.run(
+                  ["git", "merge-base", "--is-ancestor", f"origin/{dep}", f"origin/{base}"]
+              ).returncode == 0
+              if merged:
+                  print(f"OK  {dep}: já é ancestral de {base}.")
+              else:
+                  print(f"BLOQUEADO  {dep}: ainda não está em {base}.", file=sys.stderr)
+                  blocked.append(dep)
+
+          if blocked:
+              print("::error::Dependências não satisfeitas: " + ", ".join(blocked), file=sys.stderr)
+              sys.exit(1)
+          print("Todas as dependências satisfeitas.")
+          PY
+
+  enable-automerge:
+    name: enable auto-merge
+    runs-on: ubuntu-latest
+    needs: merge-guard
+    if: github.event.pull_request.draft == false
+    steps:
+      - name: Enable GitHub auto-merge (squash)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          # GitHub mergeia sozinho quando todos os checks obrigatórios ficarem verdes.
+          gh pr merge "$PR_URL" --auto --squash || \
+            echo "Não foi possível habilitar auto-merge (verifique 'Allow auto-merge' e branch protection)."

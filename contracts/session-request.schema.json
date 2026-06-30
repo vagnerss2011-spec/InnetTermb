@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://remoteops.local/contracts/session-request.schema.json",
+  "title": "SessionRequest",
+  "type": "object",
+  "required": ["sessionId", "protocol", "endpointId", "credentialRefId"],
+  "properties": {
+    "sessionId": { "type": "string" },
+    "protocol": { "enum": ["ssh", "telnet", "rdp", "mikrotik", "ndesk"] },
+    "endpointId": { "type": "string" },
+    "credentialRefId": { "type": "string" },
+    "preferIpv6": { "type": "boolean", "default": true },
+    "terminal": {
+      "type": "object",
+      "properties": {
+        "cols": { "type": "integer", "minimum": 20 },
+        "rows": { "type": "integer", "minimum": 5 },
+        "encoding": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,0 +1,17 @@
+# CODEOWNERS inicial — ajuste os usuários/times após criar o repositório
+
+/docs/ @remoteops/architecture
+/adr/ @remoteops/architecture
+/contracts/ @remoteops/architecture @remoteops/backend
+/CHANGELOG.md @remoteops/release
+/VERSIONING.md @remoteops/release
+/src/RemoteOps.Security/ @remoteops/security
+/src/RemoteOps.NDesk.Viewer/ @remoteops/security @remoteops/ndesk
+/src/RemoteOps.NDesk.Agent/ @remoteops/security @remoteops/ndesk
+/src/RemoteOps.NDesk.Relay/ @remoteops/security @remoteops/ndesk @remoteops/backend
+/src/RemoteOps.MikroTik/ @remoteops/mikrotik @remoteops/security
+/src/RemoteOps.Cloud/ @remoteops/backend
+/src/RemoteOps.Rdp/ @remoteops/desktop @remoteops/architecture
+/tools/winbox/ @remoteops/mikrotik @remoteops/security
+/installer/ @remoteops/devops @remoteops/security
+/.github/ @remoteops/devops

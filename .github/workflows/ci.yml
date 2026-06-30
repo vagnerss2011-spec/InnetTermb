@@ -1,0 +1,157 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+jobs:
+  dotnet:
+    name: .NET build and test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      # Guards mantidos enquanto o skeleton .NET não existe (frente feature/contracts-skeleton).
+      # Quando RemoteOps.sln entrar em main, remover os "if (Test-Path *.sln)".
+      - name: Restore
+        shell: pwsh
+        run: |
+          if (Test-Path *.sln) { dotnet restore }
+      - name: Build
+        shell: pwsh
+        run: |
+          if (Test-Path *.sln) { dotnet build --configuration Release --no-restore }
+      - name: Test
+        shell: pwsh
+        run: |
+          if (Test-Path *.sln) { dotnet test --configuration Release --no-build --logger trx }
+      - name: Format check
+        shell: pwsh
+        run: |
+          if (Test-Path *.sln) { dotnet format --verify-no-changes --verbosity diagnostic }
+
+  native-ndesk-placeholder:
+    name: NDesk native build placeholder
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build native agent when present
+        shell: pwsh
+        run: |
+          if (Test-Path src/RemoteOps.NDesk.Agent/CMakeLists.txt) {
+            cmake -S src/RemoteOps.NDesk.Agent -B build/ndesk-agent -A x64
+            cmake --build build/ndesk-agent --config Release
+            ctest --test-dir build/ndesk-agent -C Release
+          } else {
+            Write-Host "NDesk native agent not present yet; skipping."
+          }
+
+  docs-contracts:
+    name: docs and contracts sanity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check required markdown files exist
+        run: |
+          test -f README.md
+          test -f CLAUDE.md
+          test -f AGENTS.md
+          test -f CHANGELOG.md
+          test -f VERSIONING.md
+          test -d docs
+          test -d adr
+      - name: Validate JSON contracts
+        run: |
+          python - <<'PY'
+          import json, pathlib, sys
+          failed = False
+          for path in pathlib.Path('contracts').glob('*.json'):
+              try:
+                  json.loads(path.read_text())
+                  print(f'valid {path}')
+              except Exception as exc:
+                  failed = True
+                  print(f'invalid {path}: {exc}', file=sys.stderr)
+          sys.exit(1 if failed else 0)
+          PY
+      - name: Check changelog has a planning/release section
+        run: |
+          grep -Eq "planning|## \[[0-9]+\.[0-9]+\.[0-9]+" CHANGELOG.md
+
+  secret-scan:
+    name: secret scan (no plaintext secrets)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan source/config for plaintext secrets
+        run: |
+          python - <<'PY'
+          import re, pathlib, sys
+
+          # Padrões de segredo real (valores atribuídos), não a palavra "senha" em prosa.
+          patterns = {
+              "private key block": re.compile(r"-----BEGIN (RSA|OPENSSH|EC|DSA|PGP) PRIVATE KEY-----"),
+              "aws access key": re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+              "assigned password": re.compile(r"(?i)\b(password|passwd|pwd|senha)\s*[:=]\s*[\"'][^\"'\s]{6,}[\"']"),
+              "assigned secret/token": re.compile(r"(?i)\b(secret|token|api[_-]?key|apikey)\s*[:=]\s*[\"'][^\"'\s]{12,}[\"']"),
+              "connection password": re.compile(r"(?i)password=[^;\"'\s]{6,}"),
+          }
+
+          # Docs/markdown/ADR são prosa sobre credenciais -> não escaneados aqui.
+          skip_suffixes = {".md", ".mmd"}
+          skip_dirs = {".git", "docs", "adr", "node_modules", "build", "bin", "obj"}
+
+          findings = []
+          for path in pathlib.Path(".").rglob("*"):
+              if not path.is_file():
+                  continue
+              if any(part in skip_dirs for part in path.parts):
+                  continue
+              if path.suffix.lower() in skip_suffixes:
+                  continue
+              try:
+                  text = path.read_text(errors="ignore")
+              except Exception:
+                  continue
+              for name, rx in patterns.items():
+                  for m in rx.finditer(text):
+                      findings.append(f"{path}: possível {name}: {m.group(0)[:40]}...")
+
+          if findings:
+              print("Possíveis segredos em texto puro encontrados:", file=sys.stderr)
+              for f in findings:
+                  print("  " + f, file=sys.stderr)
+              sys.exit(1)
+          print("Nenhum segredo em texto puro encontrado.")
+          PY
+
+  security-gate:
+    name: security review gate (sensitive paths)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    env:
+      HAS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'security-reviewed') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require security-reviewed label when touching sensitive paths
+        run: |
+          git fetch origin "${{ github.base_ref }}" --quiet
+          CHANGED=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")
+          echo "Arquivos alterados:"; echo "$CHANGED"
+          SENSITIVE=$(echo "$CHANGED" | grep -E '^src/RemoteOps\.Security/|^src/RemoteOps\.NDesk|^contracts/' || true)
+          if [ -n "$SENSITIVE" ]; then
+            echo "PR toca pastas sensíveis:"; echo "$SENSITIVE"
+            if [ "${HAS_LABEL}" != "true" ]; then
+              echo "::error::PR sensível sem label 'security-reviewed'. Rode /security-review e adicione o label antes do merge." >&2
+              exit 1
+            fi
+            echo "Label 'security-reviewed' presente. OK."
+          else
+            echo "Nenhuma pasta sensível alterada; gate não exigido."
+          fi
