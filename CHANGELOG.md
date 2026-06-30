@@ -2,6 +2,30 @@
 
 Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.com/) e versionamento SemVer interno.
 
+## [0.5.0-security-vault] - 2026-06-29
+
+### Adicionado
+
+- Camada de cofre de credenciais em `src/RemoteOps.Security` com envelope encryption por workspace e proteção da chave local por DPAPI no Windows (ver `docs/25-credential-vault.md`).
+  - `Vault/`: `IVault`/`CredentialVault` (API rica: store/retrieve/rotate/revoke com `ReadOnlyMemory<char>` e contexto de auditoria), `SecretEnvelope`, `VaultSecret` (IDisposable que zera o buffer, `ToString()` redigido), `VaultModels`, `VaultException`.
+  - `Crypto/`: `EnvelopeCipher` (CEK por segredo em AES-256-GCM, embrulhada pela Workspace Data Key; AAD ligando envelope/workspace/versão), `IWorkspaceKeyRing`/`WorkspaceKeyRing`, `WorkspaceKey`, `ILocalKeyProtector`, `DpapiKeyProtector` (P/Invoke a `crypt32.dll`, escopo CurrentUser, sem NuGet externo).
+  - `Storage/`: `ICredentialStore`, `IWorkspaceKeyStore`, `InMemoryStores`, `FileVaultStore`.
+  - `Audit/`: `IVaultAuditSink`, `VaultAuditEvent`, `InMemoryVaultAuditSink` — auditoria estruturada sem segredo.
+- Suíte de testes `tests/RemoteOps.UnitTests/Security/`: round-trip, ausência de plaintext, detecção de adulteração (AEAD), persistência após restart, isolamento usuário/máquina, rotação/revogação, auditoria sem segredo e DPAPI real (Windows).
+
+### Alterado
+
+- `src/RemoteOps.Security/ICredentialVault.cs`: removido TODO; documentado que o contrato fino é implementado por `CredentialVault` (assinaturas inalteradas — sem mudança de contrato público).
+- `adr/ADR-003-credenciais-e2ee.md`: status `Proposta inicial` → `Aceita`; adicionada seção de implementação (hierarquia de chaves, AAD, DPAPI, rotação/revogação, alternativas).
+- `docs/13-plano-testes-qa.md`: registrado o plano de testes do cofre na seção de Segurança.
+
+### Segurança
+
+- Nenhum segredo, senha ou chave privada em texto puro: plaintext só vive dentro de `VaultSecret` (zerado no `Dispose`); buffers transitórios alugados de `ArrayPool` e zerados no `finally`.
+- WDK nunca persistida em claro — apenas blob protegido por DPAPI (CurrentUser + entropia por workspace) → cache local não abre em outro usuário/máquina.
+- AAD impede troca/replay de envelope entre workspaces e downgrade de versão.
+- Auditoria, exceções e `ToString()` não contêm segredo; erros DPAPI expõem apenas o código Win32.
+
 ## [0.4.0-skeleton] - 2026-06-29
 
 ### Adicionado
