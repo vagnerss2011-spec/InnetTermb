@@ -1,7 +1,9 @@
 namespace RemoteOps.Security;
 
-// TODO: Implementar na frente feature/security-vault (ver ADR-003).
-// Responsável por envelope encryption + DPAPI. Nunca expõe segredo em logs.
+// Contrato fino cross-module do cofre. Implementado por
+// RemoteOps.Security.Vault.CredentialVault (envelope encryption + DPAPI, ADR-003).
+// Para a API rica do módulo (ReadOnlyMemory<char>, rotação, contexto de auditoria)
+// use RemoteOps.Security.Vault.IVault. Nunca expõe segredo em logs.
 public interface ICredentialVault
 {
     Task<string?> RetrieveSecretAsync(string envelopeId, CancellationToken ct = default);
