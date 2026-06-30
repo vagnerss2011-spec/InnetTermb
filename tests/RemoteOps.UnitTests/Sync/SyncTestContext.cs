@@ -13,6 +13,7 @@ internal sealed class SyncTestContext : IDisposable
     private readonly string _dir;
 
     public LocalSyncClient Client { get; }
+    public WorkspaceContext Workspace { get; }
     public FakeCredentialVault Vault { get; }
     public LocalSyncClientFactory Factory { get; }
     public string DbPath { get; }
@@ -20,6 +21,7 @@ internal sealed class SyncTestContext : IDisposable
 
     private SyncTestContext(
         LocalSyncClient client,
+        WorkspaceContext workspace,
         FakeCredentialVault vault,
         LocalSyncClientFactory factory,
         string dir,
@@ -27,6 +29,7 @@ internal sealed class SyncTestContext : IDisposable
         string keyRefPath)
     {
         Client = client;
+        Workspace = workspace;
         Vault = vault;
         Factory = factory;
         _dir = dir;
@@ -41,10 +44,11 @@ internal sealed class SyncTestContext : IDisposable
 
         var vault = new FakeCredentialVault();
         var factory = new LocalSyncClientFactory(vault, dir);
-        LocalSyncClient client = await factory.CreateForWorkspaceAsync(workspaceId);
+        WorkspaceContext workspace = await factory.OpenWorkspaceAsync(workspaceId);
+        var client = (LocalSyncClient)workspace.SyncClient;
 
         return new SyncTestContext(
-            client, vault, factory, dir,
+            client, workspace, vault, factory, dir,
             factory.DbPath(workspaceId),
             factory.KeyRefPath(workspaceId));
     }

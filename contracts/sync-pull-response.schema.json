@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://remoteops.local/contracts/sync-pull-response.schema.json",
+  "title": "PullResponse",
+  "type": "object",
+  "required": ["changes", "nextCursor", "hasMore"],
+  "properties": {
+    "changes": {
+      "type": "array",
+      "items": { "$ref": "sync-change.schema.json" }
+    },
+    "nextCursor": { "type": "integer" },
+    "hasMore": { "type": "boolean" }
+  }
+}

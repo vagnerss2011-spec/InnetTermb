@@ -17,5 +17,7 @@
          em vez do meta-package Microsoft.Data.Sqlite para substituir o engine padrão. -->
     <PackageReference Include="Microsoft.Data.Sqlite.Core" Version="9.0.6" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlcipher" Version="2.1.10" />
+    <!-- Cliente SignalR para os hints workspace.changed (ADR-010/ADR-013). -->
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.0" />
   </ItemGroup>
 </Project>

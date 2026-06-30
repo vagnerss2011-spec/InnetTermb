@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://remoteops.local/contracts/sync-push-request.schema.json",
+  "title": "PushRequest",
+  "type": "object",
+  "required": ["workspaceId", "changes"],
+  "properties": {
+    "workspaceId": { "type": "string", "description": "GUID do workspace no servidor." },
+    "changes": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "sync-change.schema.json" }
+    }
+  }
+}

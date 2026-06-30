@@ -246,6 +246,30 @@ compartilhando a chave AES-256 derivada pelo vault. Toda mutação nas tabelas d
 `ISyncClient.PullAsync(fromCursor, limit)` retorna linhas com `id > fromCursor`, ordenadas
 por `id ASC`, e atualiza `CurrentCursor` ao máximo lido.
 
+### Cliente de sincronização remoto (INT-5, ADR-013)
+
+O cliente de sync (`RemoteOps.Sync/Remote`) adiciona, por migração **aditiva e idempotente**
+(`ALTER TABLE ... ADD COLUMN` guardado por `PRAGMA table_info`):
+
+```sql
+-- cursor do outbox já confirmado pelo servidor (além do cursor do servidor já existente)
+ALTER TABLE sync_cursor ADD COLUMN outbox_cursor INTEGER NOT NULL DEFAULT 0;
+
+-- detalhes do ConflictDetail devolvido pelo servidor (sem segredo nem patch)
+ALTER TABLE conflicts ADD COLUMN client_change_id TEXT;
+ALTER TABLE conflicts ADD COLUMN base_version     INTEGER;
+ALTER TABLE conflicts ADD COLUMN current_version  INTEGER;
+ALTER TABLE conflicts ADD COLUMN reason           TEXT;
+```
+
+- `sync_cursor.cursor` = último `changelog.id` do servidor aplicado; `sync_cursor.outbox_cursor`
+  = último `local_outbox.id` confirmado no push.
+- `conflicts` passa a guardar o `ConflictDetail`; as colunas legadas `local_patch_json`/
+  `server_patch_json` recebem `'{}'` quando a origem é um conflito do servidor.
+- O **applier** (`LocalEntitiesChangeApplier`) aplica as mudanças puxadas em `local_entities` de
+  forma idempotente/monotônica (UPSERT com guarda `version >=`) e **sem** re-emitir no outbox.
+- `SecretEnvelope` nunca sofre auto-merge no cliente (espelha `secret-envelope.no-auto-merge`).
+
 ## Algoritmo de sync
 
 ### Pull
