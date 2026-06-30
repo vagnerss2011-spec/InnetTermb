@@ -38,7 +38,7 @@ Adotar **`Microsoft.Extensions.DependencyInjection`** como container DI no Deskt
 | Microsoft.Extensions.Hosting | Overhead de `IHost`/`IHostedService` desnecessário em WPF sem background services |
 | Pure DI (código gerado) | Produtividade baixa; pouco benefício sobre MEDI no escopo do projeto |
 
-**`Microsoft.Extensions.DependencyInjection` está incluído no runtime .NET 10** (`Microsoft.NETCore.App`) sem PackageReference adicional — sem dependência nova, sem ADR de lib.
+**`Microsoft.Extensions.DependencyInjection`** é adicionado via `PackageReference` (versão 10.0.0). Diferente do ASP.NET Core (que o traz no shared framework `Microsoft.AspNetCore.App`), o WPF (`Microsoft.WindowsDesktop.App`) **não** inclui o container — o pacote é necessário. É uma lib oficial Microsoft alinhada ao runtime .NET 10, sem dependências transitivas relevantes.
 
 ---
 

@@ -60,7 +60,7 @@ internal static class AppCompositionRoot
         // validateOnBuild: false — ISshConnectionFactory/ITelnetConnectionFactory são internal
         // em RemoteOps.Terminal; os providers públicos usam null como factory (real default).
         // Cobertura equivalente via CompositionRootSmokeTests.
-        return services.BuildServiceProvider(validateOnBuild: false);
+        return services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = false });
     }
 
     private static WinBoxToolManifest BuildWinBoxManifest(IServiceProvider _)

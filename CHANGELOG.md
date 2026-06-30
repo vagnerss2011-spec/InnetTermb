@@ -7,7 +7,7 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 ### Adicionado
 
 - **Composition root com DI** em `App.xaml.cs` via `AppCompositionRoot` (ADR-011): substitui `new InMemoryLocalStore()` manual por `ServiceCollection`/`ServiceProvider`. Shutdown faz `Dispose` do provider.
-- **`Microsoft.Extensions.DependencyInjection`** — incluído no runtime .NET 10 (sem PackageReference extra); project references novas para `RemoteOps.Security`, `RemoteOps.Terminal` e `RemoteOps.MikroTik` adicionadas ao Desktop.
+- **`Microsoft.Extensions.DependencyInjection`** via `PackageReference` 10.0.0 (DI não faz parte do framework WPF, só do ASP.NET Core); project references novas para `RemoteOps.Security`, `RemoteOps.Terminal` e `RemoteOps.MikroTik` adicionadas ao Desktop.
 - **Adaptadores em `src/RemoteOps.Desktop/Integration/`:**
   - `LocalStoreEndpointResolver` — resolve `EndpointId` via `ILocalStore.GetEndpointAsync`.
   - `StoreCredentialRefResolver` — resolve `CredentialRefId` via `ILocalStore.GetCredentialRefAsync`.

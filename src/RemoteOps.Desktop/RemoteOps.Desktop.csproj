@@ -12,6 +12,10 @@
     <InternalsVisibleTo Include="RemoteOps.UnitTests" />
   </ItemGroup>
   <ItemGroup>
+    <!-- DI NÃO faz parte do framework do WPF (só do ASP.NET Core); precisa do pacote. -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\RemoteOps.Contracts\RemoteOps.Contracts.csproj" />
     <ProjectReference Include="..\RemoteOps.Security\RemoteOps.Security.csproj" />
     <ProjectReference Include="..\RemoteOps.Terminal\RemoteOps.Terminal.csproj" />
