@@ -2,6 +2,33 @@
 
 Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.com/) e versionamento SemVer interno.
 
+## [0.8.0-mikrotik-winbox-v2] - 2026-06-30
+
+### Adicionado
+
+- Re-integração do WinBox Runner na estrutura canônica do repositório (branch `feature/mikrotik-winbox-v2`):
+  - `WinBoxRunner : IWinBoxRunner` — implementa `LaunchAsync(ExternalToolLaunchRequest, CancellationToken)` com `ProcessStartInfo.ArgumentList`, `UseShellExecute=false`.
+  - `WinBoxToolManifest` — valida SHA-256 do executável; fail-closed quando sha256 ausente, inválido ou placeholder (nunca `NullReferenceException`).
+  - `WinBoxArgumentBuilder` — monta argumentos posicionais IPv4/IPv6 sem `ArgumentList.Add(string.Empty)`.
+  - `WinBoxPolicy` / `LocalWinBoxPolicyProvider` — política com deny real por workspace/host; `PasswordArgumentAllowed=false` por padrão (Modo A).
+  - `IWinBoxAuditSink` / `IWinBoxCredentialResolver` / `IWinBoxProcessLauncher` — interfaces injetáveis para produção e testes.
+  - Eventos de auditoria: `winbox_tool_validated`, `winbox_open_requested`, `winbox_open_started`, `winbox_open_failed`, `winbox_password_argument_used`, `winbox_ipv6_target_used`; nenhum com segredo.
+- Testes em `tests/RemoteOps.UnitTests/MikroTik/`:
+  - `WinBoxArgumentBuilderTests` — IPv4/IPv6 global/link-local, porta, sem `argv` vazio, senha vazia/espaços/policy-deny.
+  - `WinBoxRunnerTests` — manifesto sem sha256, manifesto placeholder, policy deny (host/workspace/senha), RoMON recusado, IPv6 audit event, no-password-in-audit-events.
+
+### Alterado
+
+- `adr/ADR-006-mikrotik-winbox-externo.md` — documentadas decisões de deferimento (workspace posicional e RoMON não confirmados contra CLI oficial), risco de exposição de senha em tabela de processos e controles implementados. Sign-off do `security-agent` pendente para merge.
+
+### Segurança
+
+- **FIX 1 — sem argv vazio**: senha só é adicionada quando `!string.IsNullOrEmpty(password)` AND login presente AND política permite; nunca há placeholder `""` nos argumentos.
+- **FIX 2 — RoMON deferido**: `Romon.Enabled=true` é recusado com `WinBoxValidationException` auditada (`reason=romon_not_confirmed_official_cli`) até validação da sintaxe oficial.
+- **FIX 3 — manifesto fail-closed**: sha256 nulo, vazio ou com menos de 64 hex chars → exceção de validação + evento auditado; nunca `NullReferenceException`.
+- **FIX 4 — policy deny real**: `LocalWinBoxPolicyProvider` nega por workspace/host; `IncludePasswordArgument=true` sem `PasswordArgumentAllowed` na política lança exceção explícita e auditada.
+- Senha via argumento de processo documentada como risco na ADR-006 (visível na tabela de processos local); desativada por padrão; Modo B requer habilitação explícita por política de workspace.
+
 ## [Não Lançado] — feature/terminal-ssh-telnet-v2
 
 ### Adicionado
