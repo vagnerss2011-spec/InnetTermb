@@ -1,3 +1,5 @@
+using System.IO;
+
 using RemoteOps.Security.Storage;
 using RemoteOps.Security.Vault;
 
