@@ -454,8 +454,13 @@ public sealed class SqlCipherLocalStoreTests
             var vault = new FakeCredentialVault();
             var factory = new LocalSyncClientFactory(vault, dir);
 
-            await factory.OpenWorkspaceAsync("ws-1");
-            await factory.OpenWorkspaceAsync("ws-2");
+            WorkspaceContext c1 = await factory.OpenWorkspaceAsync("ws-1");
+            WorkspaceContext c2 = await factory.OpenWorkspaceAsync("ws-2");
+
+            // O arquivo .db é criado preguiçosamente na primeira operação do store;
+            // uma mutação em cada workspace materializa os dois bancos separados.
+            await new SqlCipherLocalStore(c1).AddGroupAsync("ws-1", "g1");
+            await new SqlCipherLocalStore(c2).AddGroupAsync("ws-2", "g2");
 
             Assert.True(File.Exists(Path.Combine(dir, "sync-ws-1.db")));
             Assert.True(File.Exists(Path.Combine(dir, "sync-ws-2.db")));

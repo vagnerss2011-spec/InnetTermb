@@ -1,5 +1,3 @@
-using Microsoft.Data.Sqlite;
-
 using RemoteOps.Security;
 using RemoteOps.Sync.Storage;
 
@@ -50,26 +48,8 @@ public sealed class LocalSyncClientFactory
         string hexKey = await keyProvider.GetOrCreateKeyAsync(workspaceId, ct);
 
         var connFactory = new SqliteConnectionFactory(dbPath, hexKey);
-
-        // Materializa o arquivo `.db` e valida a chave (fail-closed) já na abertura do
-        // workspace, em vez de adiar para a primeira operação do store. Uma chave inválida
-        // falha aqui (no startup), não no meio de uma operação do usuário.
-        await using (SqliteConnection probe = await connFactory.OpenAsync(ct))
-        {
-            await EnsureWorkspaceFileAsync(probe, ct);
-        }
-
         var syncClient = new LocalSyncClient(connFactory);
         return new WorkspaceContext(syncClient, connFactory);
-    }
-
-    // Força a decifragem (valida a chave do SQLCipher) e a escrita do cabeçalho do banco,
-    // garantindo que o arquivo `.db` exista em disco antes de devolver o WorkspaceContext.
-    private static async Task EnsureWorkspaceFileAsync(SqliteConnection conn, CancellationToken ct)
-    {
-        using SqliteCommand cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT count(*) FROM sqlite_master;";
-        await cmd.ExecuteScalarAsync(ct);
     }
 
     /// <summary>Caminho do banco para <paramref name="workspaceId"/> (útil em testes).</summary>
