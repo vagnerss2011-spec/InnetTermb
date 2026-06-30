@@ -48,28 +48,28 @@ Vantagem: N sessões trabalham ao mesmo tempo sem pisar uma na outra, porque cad
 - **Codex** → módulos de protocolo bem-delimitados: Terminal, MikroTik, RDP (usar `AGENTS.md`).
 - **Antigravity (Google)** → backend Cloud/Sync e tooling de DevOps/CI.
 
-## Orquestrador e auto-merge
+## Orquestrador e merge
 
 O **orquestrador** é a sessão principal no papel `remoteops-architect`, com acesso ao GitHub (MCP/gh). Fluxo por frente:
 
 1. O agente da frente implementa no seu worktree, roda testes locais, commita e faz push da branch.
 2. O orquestrador abre o PR usando o template (`.github/PULL_REQUEST_TEMPLATE.md`) e dispara `code-review` + `security-review`.
 3. O CI roda os **gates obrigatórios** (ver abaixo).
-4. **Auto-merge**: quando todos os checks ficam verdes, o PR é mergeado automaticamente (ver `.github/workflows/automerge.yml`), respeitando a ordem topológica garantida pelo merge-guard.
+4. **Merge manual pelo orquestrador**: com todos os checks verdes E a revisão aprovada, o orquestrador faz o merge respeitando a ordem topológica (o `merge-guard` apenas sinaliza violações de ordem).
 5. O orquestrador envia ao usuário um resumo: frente mergeada, bloqueada ou com falha.
 
-### Por que "CI verde" é seguro
+> **Auto-merge está DESLIGADO de propósito.** Auto-merge em CI verde já causou `main` quebrada (o PR #8 foi mergeado antes dos commits de correção de segurança/build chegarem, exigindo o PR #11 de remediação). Por isso o merge é uma decisão humana/orquestrada, não automática.
 
-O auto-merge total só é aceitável porque o **CI é o portão real**. São gates obrigatórios:
+### Por que os gates de CI importam
+
+Mesmo com merge manual, o **CI é o portão**: nenhum PR é mergeado sem estes gates verdes:
 
 - `build` + `test` + `dotnet format --verify-no-changes` no Windows;
 - validação de `contracts/*.json`;
 - **secret scanning** + checagem de "sem segredo em log/fixture";
-- **security-review** das pastas sensíveis (`Security`, `MikroTik`, `NDesk`);
+- **security-gate**: pastas sensíveis (`Security`, `MikroTik`, `NDesk`, `contracts`) exigem o label `security-reviewed`;
 - checagem de `CHANGELOG.md`;
-- **merge-guard**: falha se as dependências declaradas no PR ainda não estão em `main`.
-
-> Endurecimento opcional recomendado: exigir aprovação humana (CODEOWNERS) apenas para PRs que tocam `src/RemoteOps.Security/**` e `src/RemoteOps.NDesk.*/**`, mantendo auto-merge nas demais frentes.
+- **merge-guard**: sinaliza se as dependências declaradas no PR ainda não estão em `main`.
 
 ## Convenção `Depends-on:`
 
@@ -80,7 +80,7 @@ Depends-on: feature/contracts-skeleton
 Depends-on: feature/security-vault
 ```
 
-O job `merge-guard` lê essas linhas e **bloqueia o merge** enquanto a branch dependente não tiver sido mergeada em `main`. Isso garante a ordem das ondas mesmo com auto-merge ligado.
+O job `merge-guard` lê essas linhas e **sinaliza (check vermelho)** enquanto a branch dependente não tiver sido mergeada em `main` — reconhecendo merges via squash (consulta PR mergeado, não ancestralidade). O orquestrador respeita esse sinal no merge manual.
 
 ## Definition of Done por frente
 
