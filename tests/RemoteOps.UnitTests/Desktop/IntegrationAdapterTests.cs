@@ -59,7 +59,7 @@ public sealed class IntegrationAdapterTests
             Id = "cred-1",
             Name = "Credencial SSH",
             Type = "ssh-password",
-            Username = "admin",
+            Metadata = new CredentialMetadata { Username = "admin" },
             SecretEnvelopeId = "env-abc",
         };
         await _store.AddCredentialRefAsync(credRef);
@@ -118,7 +118,7 @@ public sealed class IntegrationAdapterTests
             Id = "cred-resolve",
             Name = "Admin WinBox",
             Type = "winbox-password",
-            Username = "admin",
+            Metadata = new CredentialMetadata { Username = "admin" },
             SecretEnvelopeId = "env-xyz",
         };
         await _store.AddCredentialRefAsync(credRef);

@@ -3,6 +3,7 @@ using RemoteOps.Desktop.Infrastructure;
 using RemoteOps.Desktop.Integration;
 using RemoteOps.Desktop.ViewModels;
 using RemoteOps.MikroTik;
+using RemoteOps.Security;
 using RemoteOps.Security.Vault;
 using RemoteOps.Terminal;
 using Xunit;
