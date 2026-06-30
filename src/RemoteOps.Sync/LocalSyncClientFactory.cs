@@ -25,6 +25,22 @@ public sealed class LocalSyncClientFactory
     public async Task<LocalSyncClient> CreateForWorkspaceAsync(
         string workspaceId, CancellationToken ct = default)
     {
+        WorkspaceContext ctx = await OpenWorkspaceAsync(workspaceId, ct);
+        return (LocalSyncClient)ctx.SyncClient;
+    }
+
+    /// <summary>
+    /// Abre (ou cria) o banco SQLCipher para <paramref name="workspaceId"/> e retorna
+    /// um <see cref="WorkspaceContext"/> que expõe o <see cref="ISyncClient"/> e
+    /// a abertura de conexões para o mesmo banco — reutilizável por SqlCipherLocalStore.
+    /// A chave AES-256 é derivada uma única vez via vault (ADR-003/ADR-008).
+    /// </summary>
+    public async Task<WorkspaceContext> OpenWorkspaceAsync(
+        string workspaceId, CancellationToken ct = default)
+    {
+        if (workspaceId.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            throw new ArgumentException("workspaceId contains invalid path characters.", nameof(workspaceId));
+
         string dbPath = DbPath(workspaceId);
         string keyRefPath = KeyRefPath(workspaceId);
 
@@ -32,7 +48,8 @@ public sealed class LocalSyncClientFactory
         string hexKey = await keyProvider.GetOrCreateKeyAsync(workspaceId, ct);
 
         var connFactory = new SqliteConnectionFactory(dbPath, hexKey);
-        return new LocalSyncClient(connFactory);
+        var syncClient = new LocalSyncClient(connFactory);
+        return new WorkspaceContext(syncClient, connFactory);
     }
 
     /// <summary>Caminho do banco para <paramref name="workspaceId"/> (útil em testes).</summary>
