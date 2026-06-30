@@ -21,6 +21,7 @@
     <ProjectReference Include="..\RemoteOps.Terminal\RemoteOps.Terminal.csproj" />
     <ProjectReference Include="..\RemoteOps.MikroTik\RemoteOps.MikroTik.csproj" />
     <ProjectReference Include="..\RemoteOps.Sync\RemoteOps.Sync.csproj" />
+    <ProjectReference Include="..\RemoteOps.Rdp\RemoteOps.Rdp.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2849.39" />
