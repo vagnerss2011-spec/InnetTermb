@@ -46,9 +46,20 @@ public sealed class WorkspaceKeyRing : IWorkspaceKeyRing
             }
 
             byte[] fresh = RandomNumberGenerator.GetBytes(WorkspaceKeySize);
-            byte[] protectedBlob = _protector.Protect(fresh, Entropy(workspaceId));
-            await _store.SaveAsync(workspaceId, protectedBlob, ct).ConfigureAwait(false);
-            return new WorkspaceKey(fresh);
+            try
+            {
+                byte[] protectedBlob = _protector.Protect(fresh, Entropy(workspaceId));
+                await _store.SaveAsync(workspaceId, protectedBlob, ct).ConfigureAwait(false);
+                return new WorkspaceKey(fresh);
+            }
+            catch
+            {
+                // Se a proteção/persistência falhar, a WDK bruta não chega ao
+                // WorkspaceKey (que a zeraria no Dispose): zere aqui para não deixar
+                // material de chave órfão na heap.
+                CryptographicOperations.ZeroMemory(fresh);
+                throw;
+            }
         }
         finally
         {

@@ -22,6 +22,8 @@ public sealed class WorkspaceKey : IDisposable
         }
     }
 
+    public override string ToString() => "WorkspaceKey(***)";
+
     public void Dispose()
     {
         if (_disposed)

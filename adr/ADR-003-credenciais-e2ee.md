@@ -55,10 +55,10 @@ DPAPI (CurrentUser) ── protege ──> Workspace Data Key (WDK, AES-256)
 
 O AAD liga cada ciphertext à sua identidade lógica e impede troca/replay:
 
-- Conteúdo: `env|{envelopeId}|{workspaceId}|v{version}`.
+- Conteúdo: `env|{envelopeId}|{workspaceId}|v{version}|{type}`.
 - Wrap da CEK: `wdk|{workspaceId}`.
 
-Adulterar campo, trocar envelope entre workspaces ou fazer downgrade de versão quebra a verificação do tag → `CryptographicException`.
+Adulterar campo (incluindo `type`), trocar envelope entre workspaces ou fazer downgrade de versão quebra a verificação do tag → `CryptographicException`.
 
 ### Proteção da chave local (DPAPI)
 
@@ -82,7 +82,15 @@ Adulterar campo, trocar envelope entre workspaces ou fazer downgrade de versão 
 - `System.Security.Cryptography.ProtectedData` (NuGet): rejeitado para evitar dependência externa não coberta por ADR. O P/Invoke direto entrega o mesmo DPAPI sem nova dependência.
 - AES-CBC + HMAC: rejeitado em favor de GCM (AEAD in-box, AAD nativo, menos margem para erro de composição).
 
+### Limitações conhecidas (revisão de segurança da PR)
+
+- **Contrato fino `ICredentialVault` usa `string`**: `string` é imutável e não pode ser zerada — o segredo vive na heap até o GC. É aceitável só para a fronteira cross-module; RBAC/UI devem usar `IVault` com `ReadOnlyMemory<char>`/`VaultSecret`.
+- **`FileVaultStore` herda os ACLs do diretório**: é store de referência (a produção usa SQLCipher). O caminho deve ser privado do usuário (`%APPDATA%\RemoteOps\`); ACL explícita fica como hardening rastreado.
+- **Auditoria obrigatória**: o `CredentialVault` exige um `IVaultAuditSink` explícito; descartar eventos requer passar `NullVaultAuditSink.Instance` conscientemente.
+
 ### Pendências fora deste escopo
 
 - Persistência SQLCipher real (hoje há `FileVaultStore`/in-memory para a camada e testes) — issue a abrir.
 - Gatilho de "revelar senha exige permissão especial" via RBAC (`docs/18`) na camada de aplicação — issue a abrir.
+- ACL restritiva no `FileVaultStore` (defesa em profundidade sobre o DPAPI) — issue a abrir.
+- Teste validando que o blob DPAPI não abre em escopo `LocalMachine` — issue a abrir.
