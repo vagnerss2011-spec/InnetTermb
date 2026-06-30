@@ -101,4 +101,36 @@ public sealed class CompositionRootSmokeTests : IDisposable
         var b = _provider.GetRequiredService<ILocalStore>();
         Assert.Same(a, b);
     }
+
+    // Feature flags ---------------------------------------------------------
+
+    [Fact]
+    public void Resolve_IFeatureFlags() =>
+        Assert.NotNull(_provider.GetRequiredService<IFeatureFlags>());
+
+    // RDP -------------------------------------------------------------------
+
+    [Fact]
+    public void Resolve_IRdpEndpointResolver() =>
+        Assert.NotNull(_provider.GetRequiredService<RemoteOps.Rdp.IRdpEndpointResolver>());
+
+    [Fact]
+    public void Resolve_IRdpCredentialRefResolver() =>
+        Assert.NotNull(_provider.GetRequiredService<RemoteOps.Rdp.IRdpCredentialRefResolver>());
+
+    [Fact]
+    public void Resolve_IRdpCredentialResolver() =>
+        Assert.NotNull(_provider.GetRequiredService<RemoteOps.Rdp.IRdpCredentialResolver>());
+
+    [Fact]
+    public void Resolve_IRdpAuditSink() =>
+        Assert.NotNull(_provider.GetRequiredService<RemoteOps.Rdp.IRdpAuditSink>());
+
+    [Fact]
+    public void Resolve_IRdpSecurityContext() =>
+        Assert.NotNull(_provider.GetRequiredService<RemoteOps.Rdp.IRdpSecurityContext>());
+
+    [Fact]
+    public void Resolve_RdpSessionProvider_ByKey() =>
+        Assert.NotNull(_provider.GetRequiredKeyedService<RemoteOps.Rdp.IRdpSessionProvider>("rdp"));
 }

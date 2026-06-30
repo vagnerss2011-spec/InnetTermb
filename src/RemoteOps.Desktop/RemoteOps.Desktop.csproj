@@ -3,6 +3,7 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>RemoteOps.Desktop</RootNamespace>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
@@ -10,6 +11,14 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="RemoteOps.UnitTests" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- UseWPF + UseWindowsForms together make the SDK inject BOTH namespaces as
+         implicit global usings, colliding on UserControl/Application (CS0104) across
+         every existing WPF file. This project is overwhelmingly WPF; WinForms is only
+         needed to host WindowsFormsHost/MSTSCAX in Rdp/RdpTabView.xaml.cs, which
+         qualifies WinForms types explicitly instead of relying on the global using. -->
+    <Using Remove="System.Windows.Forms" />
   </ItemGroup>
   <ItemGroup>
     <!-- DI NÃO faz parte do framework do WPF (só do ASP.NET Core); precisa do pacote. -->
@@ -21,9 +30,27 @@
     <ProjectReference Include="..\RemoteOps.Terminal\RemoteOps.Terminal.csproj" />
     <ProjectReference Include="..\RemoteOps.MikroTik\RemoteOps.MikroTik.csproj" />
     <ProjectReference Include="..\RemoteOps.Sync\RemoteOps.Sync.csproj" />
+    <ProjectReference Include="..\RemoteOps.Rdp\RemoteOps.Rdp.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2849.39" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Plain <Reference> items (as opposed to PackageReference) are NOT transitive across
+         ProjectReference boundaries in SDK-style projects, so RemoteOps.Rdp.csproj referencing
+         these assemblies does not make them visible here — Rdp/RdpTabView.xaml.cs needs its
+         own direct reference. See RemoteOps.Rdp.csproj for the rationale on checked-in interop
+         assemblies instead of <COMReference>. -->
+    <Reference Include="MSTSCLib">
+      <HintPath>..\RemoteOps.Rdp\lib\MSTSCLib.dll</HintPath>
+      <Private>true</Private>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+    </Reference>
+    <Reference Include="AxMSTSCLib">
+      <HintPath>..\RemoteOps.Rdp\lib\AxInterop.MSTSCLib.dll</HintPath>
+      <Private>true</Private>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+    </Reference>
   </ItemGroup>
   <!-- Terminal wwwroot assets: copied to output so the virtual host can serve them -->
   <ItemGroup>

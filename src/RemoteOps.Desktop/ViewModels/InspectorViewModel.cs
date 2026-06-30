@@ -10,6 +10,7 @@ public sealed class InspectorViewModel : BaseViewModel
 {
     private readonly ILocalStore _store;
     private readonly IWinBoxRunner? _winBoxRunner;
+    private readonly IFeatureFlags? _featureFlags;
     private AssetViewModel? _asset;
     private string _newEndpointProtocol = RemoteProtocol.Ssh;
     private string _newEndpointAddress = string.Empty;
@@ -17,10 +18,11 @@ public sealed class InspectorViewModel : BaseViewModel
     private bool _isBusy;
     private string? _winBoxError;
 
-    public InspectorViewModel(ILocalStore store, IWinBoxRunner? winBoxRunner = null)
+    public InspectorViewModel(ILocalStore store, IWinBoxRunner? winBoxRunner = null, IFeatureFlags? featureFlags = null)
     {
         _store = store;
         _winBoxRunner = winBoxRunner;
+        _featureFlags = featureFlags;
 
         AddEndpointCommand = new RelayCommand(
             () => _ = AddEndpointAsync(),
@@ -48,6 +50,7 @@ public sealed class InspectorViewModel : BaseViewModel
             WinBoxError = null;
             RaisePropertyChanged(nameof(HasAsset));
             RaisePropertyChanged(nameof(IsMikroTikHost));
+            RaisePropertyChanged(nameof(CanOpenRdp));
             AddEndpointCommand.RaiseCanExecuteChanged();
             OpenSessionCommand.RaiseCanExecuteChanged();
             OpenWinBoxCommand.RaiseCanExecuteChanged();
@@ -58,6 +61,11 @@ public sealed class InspectorViewModel : BaseViewModel
 
     public bool IsMikroTikHost =>
         _asset?.Asset.Endpoints.Any(e => e.Protocol == RemoteProtocol.MikroTik) ?? false;
+
+    /// <summary>RDP real disponível: flag rdp.enabled ligada E o host tem endpoint rdp.</summary>
+    public bool CanOpenRdp =>
+        (_featureFlags?.IsEnabled(FeatureFlagNames.RdpEnabled) ?? false)
+        && (_asset?.Asset.Endpoints.Any(e => e.Protocol == RemoteProtocol.Rdp) ?? false);
 
     public string? WinBoxError
     {

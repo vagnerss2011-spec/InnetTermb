@@ -2,8 +2,32 @@
   <PropertyGroup>
     <TargetFramework>net10.0-windows</TargetFramework>
     <RootNamespace>RemoteOps.Rdp</RootNamespace>
+    <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\RemoteOps.Contracts\RemoteOps.Contracts.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Microsoft Terminal Services Client Control (mstscax.dll) — ADR-004/ADR-014.
+         <COMReference> (ResolveComReference/tlbimp via MSBuild) is NOT supported by the
+         .NET Core/SDK-style MSBuild used by `dotnet build` (MSB4803) — only the full
+         .NET Framework MSBuild that ships with Visual Studio implements that task. Since
+         this repo's CI and local builds use `dotnet build`/`dotnet test`, we instead
+         check in pre-generated interop assemblies (generated once via TlbImp.exe/AxImp.exe
+         from the .NET Framework 4.8.1 SDK tools against the local mstscax.dll) and
+         reference them as plain assemblies. Regenerate only if the MSTSCAX COM surface
+         changes (new Windows RDP client version) — see docs/08-rdp-terminal-server.md.
+         Typelib GUID for reference: {8c11efa1-92c3-11d1-bc1e-00c04fa31489}. -->
+    <Reference Include="MSTSCLib">
+      <HintPath>lib\MSTSCLib.dll</HintPath>
+      <Private>true</Private>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+    </Reference>
+    <Reference Include="AxMSTSCLib">
+      <HintPath>lib\AxInterop.MSTSCLib.dll</HintPath>
+      <Private>true</Private>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+    </Reference>
   </ItemGroup>
 </Project>

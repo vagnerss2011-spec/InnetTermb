@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using RemoteOps.Contracts.Sessions;
 using RemoteOps.Desktop.Infrastructure;
 using RemoteOps.MikroTik;
+using RemoteOps.Rdp;
 using RemoteOps.Security;
 using RemoteOps.Security.Audit;
 using RemoteOps.Security.Crypto;
@@ -66,9 +67,20 @@ internal static class AppCompositionRoot
         services.AddSingleton<IHostKeyConfirmation, ModalHostKeyConfirmation>();
         services.AddSingleton<ITelnetConsentProvider, ModalTelnetConsentProvider>();
 
+        // Feature flags (default OFF — REMOTEOPS_FEATURE_FLAGS env var)
+        services.AddSingleton<IFeatureFlags, EnvironmentFeatureFlags>();
+
+        // Adaptadores Desktop→RDP (ADR-014)
+        services.AddSingleton<IRdpEndpointResolver, LocalStoreRdpEndpointResolver>();
+        services.AddSingleton<IRdpCredentialRefResolver, LocalStoreRdpCredentialRefResolver>();
+        services.AddSingleton<IRdpCredentialResolver, RdpCredentialResolver>();
+        services.AddSingleton<IRdpAuditSink, StructuredRdpAuditSink>();
+        services.AddSingleton<IRdpSecurityContext, AppTerminalSecurityContext>();
+
         // Provedores de sessão terminal (chaveados por protocolo — ADR-009)
         services.AddKeyedSingleton<ITerminalSessionProvider, SshSessionProvider>(RemoteProtocol.Ssh);
         services.AddKeyedSingleton<ITerminalSessionProvider, TelnetSessionProvider>(RemoteProtocol.Telnet);
+        services.AddKeyedSingleton<IRdpSessionProvider, RdpSessionProvider>(RemoteProtocol.Rdp);
 
         // WinBox / MikroTik (ADR-006)
         services.AddSingleton<IWinBoxAuditSink, StructuredWinBoxAuditSink>();

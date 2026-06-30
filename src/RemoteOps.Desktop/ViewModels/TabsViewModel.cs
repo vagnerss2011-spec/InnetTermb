@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using RemoteOps.Desktop.Rdp;
 using RemoteOps.Desktop.Terminal;
 
 namespace RemoteOps.Desktop.ViewModels;
@@ -47,6 +48,14 @@ public sealed class TabsViewModel : BaseViewModel
         RaisePropertyChanged(nameof(HasTabs));
     }
 
+    /// <summary>Adiciona uma aba RDP pré-construída e a ativa.</summary>
+    public void OpenRdpTab(RdpTabViewModel tab)
+    {
+        Tabs.Add(tab);
+        ActiveTab = tab;
+        RaisePropertyChanged(nameof(HasTabs));
+    }
+
     private void CloseTab(SessionTabViewModel? tab)
     {
         if (tab == null || tab.IsPinned)
@@ -57,6 +66,8 @@ public sealed class TabsViewModel : BaseViewModel
         // Close the underlying session (fire-and-forget; pump cancellation is fast)
         if (tab is TerminalTabViewModel ttvm)
             _ = ttvm.CloseAsync();
+        else if (tab is RdpTabViewModel rtvm)
+            _ = rtvm.CloseAsync();
 
         int idx = Tabs.IndexOf(tab);
         Tabs.Remove(tab);

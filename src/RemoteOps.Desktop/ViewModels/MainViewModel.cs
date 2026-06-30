@@ -2,8 +2,10 @@ using Microsoft.Extensions.DependencyInjection;
 
 using RemoteOps.Contracts.Sessions;
 using RemoteOps.Desktop.Infrastructure;
+using RemoteOps.Desktop.Rdp;
 using RemoteOps.Desktop.Terminal;
 using RemoteOps.MikroTik;
+using RemoteOps.Rdp;
 using RemoteOps.Terminal;
 
 namespace RemoteOps.Desktop.ViewModels;
@@ -18,27 +20,36 @@ public sealed class MainViewModel : BaseViewModel
 
     private readonly ITerminalSessionProvider? _sshProvider;
     private readonly ITerminalSessionProvider? _telnetProvider;
+    private readonly IRdpSessionProvider? _rdpProvider;
+    private readonly IRdpCredentialResolver? _rdpCredentialResolver;
+    private readonly IFeatureFlags? _featureFlags;
 
     private string _syncStatus = "Offline";
     private string _searchText = string.Empty;
 
     /// <summary>
-    /// Ctor de produção. Os provedores SSH/Telnet são resolvidos pelo
+    /// Ctor de produção. Os provedores SSH/Telnet/RDP são resolvidos pelo
     /// <c>AppCompositionRoot</c> como keyed services (por <see cref="RemoteProtocol"/>);
     /// o WinBox runner vem do INT-4.
     /// </summary>
     public MainViewModel(
         ILocalStore store,
         IWinBoxRunner? winBoxRunner = null,
+        IFeatureFlags? featureFlags = null,
         [FromKeyedServices(RemoteProtocol.Ssh)] ITerminalSessionProvider? sshProvider = null,
-        [FromKeyedServices(RemoteProtocol.Telnet)] ITerminalSessionProvider? telnetProvider = null)
+        [FromKeyedServices(RemoteProtocol.Telnet)] ITerminalSessionProvider? telnetProvider = null,
+        [FromKeyedServices(RemoteProtocol.Rdp)] IRdpSessionProvider? rdpProvider = null,
+        IRdpCredentialResolver? rdpCredentialResolver = null)
     {
         _sshProvider = sshProvider;
         _telnetProvider = telnetProvider;
+        _rdpProvider = rdpProvider;
+        _rdpCredentialResolver = rdpCredentialResolver;
+        _featureFlags = featureFlags;
 
         Sidebar = new SidebarViewModel(store, DefaultWorkspaceId);
         HostList = new HostListViewModel(store, DefaultWorkspaceId);
-        Inspector = new InspectorViewModel(store, winBoxRunner);
+        Inspector = new InspectorViewModel(store, winBoxRunner, featureFlags);
         Tabs = new TabsViewModel();
 
         Sidebar.GroupSelected += (_, groupVm) =>
@@ -79,6 +90,35 @@ public sealed class MainViewModel : BaseViewModel
 
     private void OnSessionRequested(object? sender, OpenSessionRequest req)
     {
+        bool rdpEnabled = _featureFlags?.IsEnabled(FeatureFlagNames.RdpEnabled) ?? false;
+
+        if (req.Protocol == RemoteProtocol.Rdp
+            && rdpEnabled
+            && _rdpProvider != null
+            && _rdpCredentialResolver != null
+            && req.EndpointId != null
+            && req.CredentialRefId != null)
+        {
+            var rdpSessionRequest = new SessionRequest
+            {
+                SessionId = Guid.NewGuid().ToString("n"),
+                Protocol = req.Protocol,
+                EndpointId = req.EndpointId,
+                CredentialRefId = req.CredentialRefId,
+            };
+
+            var rdpTab = new RdpTabViewModel(
+                id: rdpSessionRequest.SessionId,
+                title: $"{req.AssetName} ({req.Protocol.ToUpperInvariant()})",
+                protocol: req.Protocol,
+                provider: _rdpProvider,
+                credentialResolver: _rdpCredentialResolver,
+                baseRequest: rdpSessionRequest);
+
+            Tabs.OpenRdpTab(rdpTab);
+            return;
+        }
+
         var provider = req.Protocol switch
         {
             RemoteProtocol.Ssh => _sshProvider,
@@ -107,7 +147,7 @@ public sealed class MainViewModel : BaseViewModel
         }
         else
         {
-            // Fallback: placeholder tab for RDP/MikroTik or missing endpoint
+            // Fallback: placeholder tab for RDP (flag off / missing wiring), MikroTik, ou endpoint ausente
             Tabs.OpenTab(req.AssetName, req.Protocol);
         }
     }

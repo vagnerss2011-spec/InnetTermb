@@ -2,6 +2,31 @@
 
 Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.com/) e versionamento SemVer interno.
 
+## [0.9.0-integration-rdp] - 2026-06-30
+
+### Adicionado
+
+- **INT-RDP — Sessão RDP real (MSTSCAX/ActiveX) em aba viva, atrás da feature flag `rdp.enabled` (default OFF):**
+  - `RdpConnectionConfigBuilder`/`RdpConnectionConfig`/`RdpRedirectionPolicy` (`src/RemoteOps.Rdp/`): camada pura de configuração de conexão (host/porta/usuário/redirecionamentos) — sem COM, testável em qualquer CI.
+  - `RdpSessionProvider`: resolve endpoint/usuário, audita `SessionOpened`/`SessionClosed` via `IRdpAuditSink`, devolve `SessionHandle`; **nunca toca o vault**.
+  - `RdpTabViewModel`/`RdpTabView` (`src/RemoteOps.Desktop/Rdp/`): ciclo de vida da aba; `RdpTabView.xaml.cs` hospeda `AxMSTSCLib.AxMsRdpClient9NotSafeForScripting` via `WindowsFormsHost`, aplica `RdpConnectionConfig` 1:1 em `AdvancedSettings9`.
+  - Feature flag `rdp.enabled` (`IFeatureFlags`/`EnvironmentFeatureFlags`, lida de `REMOTEOPS_FEATURE_FLAGS`) gateia visibilidade do botão "Conectar RDP" no Inspector **e** o roteamento em `MainViewModel.OnSessionRequested` — defesa em profundidade.
+  - DI wiring em `AppCompositionRoot`; `TabsView.xaml` ganha DataTemplate para `RdpTabViewModel`.
+- `adr/ADR-014-rdp-hospedagem-activex-e-politicas.md`: hospedagem ActiveX, lifetime de senha, políticas de redirecionamento (default OFF), NLA obrigatório/certificado, feature flag, e o pivot de empacotamento do interop COM (Decisão 6) com os comandos de regeneração via uma única invocação de `AxImp.exe` (ver ADR-014 Decisão 6 para os comandos exatos).
+
+### Alterado
+
+- ADR-004 status: Proposta inicial → Aceita, com seção "Implementação MVP" deixando explícito que o spike FreeRDP não foi executado nesta frente.
+- `docs/08-rdp-terminal-server.md`: nova seção "Status de implementação" cobrindo o que está real vs. pendente (auditoria de certificado, USB redirection, verificação manual end-to-end) e referência aos comandos de regeneração do interop.
+- `RemoteOps.Rdp.csproj`/`RemoteOps.Desktop.csproj`: interop MSTSCAX consumido via `<Reference>`/`HintPath` apontando para binários checados em `src/RemoteOps.Rdp/lib/` (`MSTSCLib.dll`, `AxInterop.MSTSCLib.dll`) — **não** `<COMReference>`, que não é suportado por `dotnet build` (`MSB4803`); ver ADR-014. `RemoteOps.Desktop.csproj` ganha `<Using Remove="System.Windows.Forms" />` para resolver ambiguidade `CS0104` (`UserControl`/`Application`) introduzida por `UseWindowsForms=true` + `UseWPF=true` simultâneos.
+
+### Segurança
+
+- Senha RDP resolvida do vault apenas no momento do connect real (`RdpTabViewModel.ResolvePasswordAsync`, dentro de `RdpTabView.InitAndConnectAsync`), nunca retida em campo de ViewModel — mesma mitigação de lifetime mínimo do ADR-009 §FIX-3.
+- Redirecionamentos (clipboard/drive/printer/áudio) OFF por padrão (`RdpRedirectionPolicy.Default`); aplicados sempre 1:1 a partir da política resolvida, nunca hardcoded "on". USB redirection permanece sem efeito (gap de MVP de wiring rastreado — `IMsRdpClientAdvancedSettings8` já expõe `RedirectDevices`/`RedirectPOSDevices`, equivalente PnP mais próximo de USB neste controle; `RdpTabView` só ainda não conecta `UsbRedirectionEnabled` a essa propriedade — ver ADR-014 Decisão 3/Decisão 7).
+- NLA obrigatório (`EnableCredSspSupport=true`) e `AuthenticationLevel=2`; prompt nativo de certificado inválido nunca suprimido. **Pendência:** auditoria de aceitar/rejeitar certificado (`RdpActions.CertificateAccepted/Rejected`) ainda não emitida — gancho de evento MSTSCAX não confirmado/conectado nesta frente.
+- Guards de `IsLoaded` após os `await` de `RdpTabView.InitAndConnectAsync` fecham a sessão corretamente (`RdpTabViewModel.CloseAsync()`) se a aba for fechada em pleno connect, evitando orfanar uma conexão credenciada viva.
+- Habilitar `rdp.enabled` em produção requer revisão do `security-agent` (CLAUDE.md §Atualizações de arquitetura v2); verificação manual end-to-end contra host/lab real ainda não realizada (pendência, ver ADR-014).
 ## [0.9.0-integration-cloud-sync] - 2026-06-30
 
 ### Adicionado
