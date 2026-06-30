@@ -36,6 +36,18 @@
 - Testar host key/cert alterado.
 - Testar permissões negadas.
 
+#### Cofre de credenciais (vault)
+
+Plano registrado em `docs/25-credential-vault.md` (tabela de rastreabilidade critério → teste). Cobertura em `tests/RemoteOps.UnitTests/Security/`:
+
+- Round-trip criptografa/descriptografa, inclusive segredo vazio.
+- Envelope persistido nunca contém o plaintext (varredura de JSON e de bytes).
+- Adulteração de ciphertext é detectada pelo AEAD (GCM).
+- Restart de processo preserva o segredo (mesma identidade DPAPI).
+- Outro usuário/máquina NÃO abre o segredo (modelado cross-platform; DPAPI real no `windows-latest`).
+- Rotação incrementa versão e revoga o envelope anterior; revogação impede recuperação.
+- Auditoria registra o ciclo de vida sem nenhum segredo; `VaultSecret` redigido e seguro após `Dispose`.
+
 ### NDesk
 
 - Consentimento obrigatório.
