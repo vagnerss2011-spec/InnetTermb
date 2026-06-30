@@ -97,6 +97,10 @@ public sealed class RdpTabViewModel : SessionTabViewModel
     public void MarkDisconnected(string? reason)
     {
         Interlocked.Exchange(ref _connectionState, 0);
+        // Invalida o cache de preparo: uma reconexão subsequente (PrepareAsync)
+        // deve reabrir a sessão de verdade, não reaproveitar a config antiga.
+        lock (_prepareLock)
+            _prepareTask = null;
         if (reason != null) ConnectFailed?.Invoke(reason);
     }
 
@@ -108,5 +112,9 @@ public sealed class RdpTabViewModel : SessionTabViewModel
         await _provider.CloseAsync(_handle, CancellationToken.None);
         _handle = null;
         Interlocked.Exchange(ref _connectionState, 0);
+        // Idem MarkDisconnected: um PrepareAsync futuro (reabrir a aba) precisa
+        // de uma nova chamada a OpenAsync, não da Task em cache da sessão fechada.
+        lock (_prepareLock)
+            _prepareTask = null;
     }
 }
