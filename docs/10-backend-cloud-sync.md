@@ -1,5 +1,18 @@
 # 10 — Backend cloud, sync e broker
 
+> **Estado atual (feature/cloud-backend):** EF Core + Npgsql, JWT Bearer, SignalR e endpoints auth/sync implementados em `src/RemoteOps.Cloud`. Ver `adr/ADR-008-backend-ef-npgsql-signalr.md` e `CHANGELOG.md [0.7.0-cloud-backend]` para detalhes de implementação.
+
+## Configuração obrigatória (variáveis de ambiente)
+
+| Variável | Descrição |
+|---|---|
+| `ConnectionStrings__Default` | Connection string PostgreSQL. Nunca em appsettings. |
+| `Jwt__SigningKey` | Chave HMAC-SHA256 (≥ 32 bytes). Nunca commitada. |
+| `Jwt__Issuer` | Issuer do JWT (ex.: `remoteops-cloud`). Pode estar em appsettings. |
+| `Jwt__Audience` | Audience do JWT (ex.: `remoteops-desktop`). Pode estar em appsettings. |
+
+
+
 ## Objetivo
 
 Fornecer backend central para autenticação, multiusuário, sincronização, auditoria e broker de assistência remota.
