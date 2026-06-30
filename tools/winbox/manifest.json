@@ -1,0 +1,10 @@
+{
+  "tool": "winbox",
+  "version": "4.x-approved",
+  "vendor": "MikroTik",
+  "file": "winbox64.exe",
+  "sha256": "REPLACE_WITH_OFFICIAL_SHA256_FROM_MIKROTIK_RELEASE_NOTES",
+  "approvedAt": "2026-06-30T00:00:00Z",
+  "approvedBy": "security-lead",
+  "notes": "Substitua sha256 pelo valor oficial antes de usar. Obtenha em https://mikrotik.com/download (HTTPS). Calcule com: certutil -hashfile winbox64.exe SHA256"
+}

@@ -2,6 +2,41 @@
 
 Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.com/) e versionamento SemVer interno.
 
+## [0.4.0-sprint04] - 2026-06-30
+
+### Adicionado
+
+- **`src/RemoteOps.MikroTik/`** — módulo C#/.NET 10 do WinBox Runner:
+  - `Models/MikroTikHostProfile.cs` — perfil de host MikroTik com IPv4, IPv6, porta, usuário, credencial, workspace e política de senha.
+  - `Models/WinBoxLaunchRequest.cs` — request tipada (record) alinhada ao contrato `external-tool-launch.schema.json`, com suporte a RoMON.
+  - `WinBoxToolManifest.cs` — lê `tools/winbox/manifest.json` e valida SHA-256 do executável antes do spawn.
+  - `WinBoxArgumentBuilder.cs` — monta `ProcessStartInfo.ArgumentList` de forma segura: IPv6 com colchetes (RFC 3986), porta customizada, workspace, RoMON; senha nunca interpolada em string.
+  - `WinBoxPolicy.cs` — `IWinBoxPolicyProvider` e implementação MVP `LocalWinBoxPolicyProvider`; senha por argumento requer flag global E flag da request simultaneamente.
+  - `Audit/WinBoxAuditEvent.cs` — evento imutável com todos os campos de auditoria necessários; **nunca contém senha, token ou chave privada**.
+  - `Audit/ConsoleWinBoxAuditSink.cs` — sink estruturado via `ILogger`; campos sensíveis nunca chegam ao log.
+  - `WinBoxRunner.cs` — orquestrador: validação de hash → decisão de política → `Process.Start(UseShellExecute=false)` → eventos de auditoria.
+
+- **`tests/RemoteOps.MikroTik.Tests/`** — testes xUnit cobrindo:
+  - IPv4 padrão, IPv4 porta custom, IPv6 global, IPv6 link-local, IPv6 porta custom.
+  - Senha omitida quando política nega (assert de ausência na lista de args).
+  - Senha com espaço passada de forma segura via `ArgumentList`.
+  - RoMON: `--romon <agent> <connect-to>` preposto corretamente.
+  - Runner: executável não encontrado → falha auditada.
+  - Runner: hash mismatch → falha auditada.
+  - Runner: evento de auditoria nunca contém senha.
+  - Runner: evento IPv6 emitido quando alvo é IPv6.
+
+- **`tools/winbox/manifest.json`** — template de manifesto com campo `sha256` a ser substituído pelo hash oficial antes do uso em produção.
+
+- **`RemoteOps.sln`** — solution unindo o módulo e seus testes.
+
+### Segurança
+
+- Senha jamais é passada por concatenação de string — usa-se `ProcessStartInfo.ArgumentList`.
+- Hash SHA-256 do `winbox64.exe` é validado pelo manifesto antes de qualquer spawn.
+- Todos os eventos de auditoria são verificados por ausência de segredos nos testes.
+- Política de senha por argumento desativada por padrão; exige duas flags simultâneas.
+
 ## [0.3.0-planning] - 2026-06-29
 
 ### Adicionado
