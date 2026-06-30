@@ -174,24 +174,24 @@ public partial class TerminalTabView : UserControl
             switch (type)
             {
                 case "input":
-                {
-                    string? b64 = root.GetProperty("data").GetString();
-                    if (b64 != null)
                     {
-                        byte[] bytes = Convert.FromBase64String(b64);
-                        _ = _vm.SendInputAsync(bytes);
+                        string? b64 = root.GetProperty("data").GetString();
+                        if (b64 != null)
+                        {
+                            byte[] bytes = Convert.FromBase64String(b64);
+                            _ = _vm.SendInputAsync(bytes);
+                        }
+                        break;
                     }
-                    break;
-                }
                 case "resize":
-                {
-                    int cols = root.GetProperty("cols").GetInt32();
-                    int rows = root.GetProperty("rows").GetInt32();
-                    // SEC-006: reject out-of-range dimensions before forwarding to PTY
-                    if (cols is >= 1 and <= 500 && rows is >= 1 and <= 500)
-                        _ = _vm.ResizeAsync(cols, rows);
-                    break;
-                }
+                    {
+                        int cols = root.GetProperty("cols").GetInt32();
+                        int rows = root.GetProperty("rows").GetInt32();
+                        // SEC-006: reject out-of-range dimensions before forwarding to PTY
+                        if (cols is >= 1 and <= 500 && rows is >= 1 and <= 500)
+                            _ = _vm.ResizeAsync(cols, rows);
+                        break;
+                    }
             }
         }
         catch (Exception ex)
