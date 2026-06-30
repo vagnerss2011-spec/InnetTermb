@@ -15,24 +15,18 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      # Guards mantidos enquanto o skeleton .NET não existe (frente feature/contracts-skeleton).
-      # Quando RemoteOps.sln entrar em main, remover os "if (Test-Path *.sln)".
       - name: Restore
         shell: pwsh
-        run: |
-          if (Test-Path *.sln) { dotnet restore }
+        run: dotnet restore
       - name: Build
         shell: pwsh
-        run: |
-          if (Test-Path *.sln) { dotnet build --configuration Release --no-restore }
+        run: dotnet build --configuration Release --no-restore
       - name: Test
         shell: pwsh
-        run: |
-          if (Test-Path *.sln) { dotnet test --configuration Release --no-build --logger trx }
+        run: dotnet test --configuration Release --no-build --logger trx
       - name: Format check
         shell: pwsh
-        run: |
-          if (Test-Path *.sln) { dotnet format --verify-no-changes --verbosity diagnostic }
+        run: dotnet format --verify-no-changes --verbosity diagnostic
 
   native-ndesk-placeholder:
     name: NDesk native build placeholder
