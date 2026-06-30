@@ -2,6 +2,32 @@
 
 Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.com/) e versionamento SemVer interno.
 
+## [0.9.0-integration-mikrotik-desktop] - 2026-06-30
+
+### Adicionado
+
+- `OpenWinBoxCommand` no `InspectorViewModel` (INT-4):
+  - Visível apenas quando o asset tem pelo menos um endpoint com protocolo `mikrotik`.
+  - Monta `ExternalToolLaunchRequest` a partir do `Asset`/`Endpoint` (IPv4/IPv6/FQDN, porta, credentialRefId).
+  - Endereço IPv6 encaminhado com família `"ipv6"` para `WinBoxArgumentBuilder` adicionar colchetes.
+  - `IncludePasswordArgument = false` por padrão (Modo A); senha nunca passada automaticamente sem política explícita.
+  - `WinBoxValidationException` exibida na UI via propriedade `WinBoxError`/`HasWinBoxError`; nunca propagada silenciosamente.
+  - Erro de validação limpo automaticamente ao selecionar outro host.
+  - `RequestedBy = "local-user"` (placeholder até autenticação de usuário).
+- Botão "Abrir WinBox" em `InspectorView.xaml` (protocolo `mikrotik` → visível; demais → collapsed), com feedback de erro em vermelho abaixo dos botões de ação.
+- `tools/winbox/manifest.json` com `sha256: null` — fail-closed em dev; instrução de substituição documentada no campo `_note`.
+- 8 novos casos de teste em `InspectorViewModelTests`: sem runner, sem endpoint mikrotik, endpoint mikrotik detectado, WinBoxValidationException → WinBoxError, sucesso limpa erro, request com endereço correto, IPv6 com família correta, troca de asset limpa erro anterior.
+
+### Alterado
+
+- `MainViewModel` aceita `IWinBoxRunner?` opcional e repassa ao `InspectorViewModel`. O `IWinBoxRunner` é resolvido pelo `AppCompositionRoot` (INT-1, `WinBoxRunner.Create` com manifesto por variável de ambiente) e injetado no `MainViewModel` via DI — sem fiação manual em `App.xaml.cs`. A referência a `RemoteOps.MikroTik` no `RemoteOps.Desktop.csproj` já vem do INT-1.
+
+### Segurança
+
+- Senha via argumento bloqueada por padrão (`IncludePasswordArgument = false`) — Modo A conforme ADR-006.
+- Auditoria delegada ao `IWinBoxRunner` (nenhum segredo na camada de ViewModel).
+- Manifesto sem sha256 válido bloqueia execução (fail-closed) antes de iniciar processo.
+
 ## [0.9.0-storage-encrypted] - 2026-06-30
 
 ### Adicionado

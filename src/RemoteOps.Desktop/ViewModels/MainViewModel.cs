@@ -1,4 +1,5 @@
 using RemoteOps.Desktop.Infrastructure;
+using RemoteOps.MikroTik;
 
 namespace RemoteOps.Desktop.ViewModels;
 
@@ -13,11 +14,11 @@ public sealed class MainViewModel : BaseViewModel
     private string _syncStatus = "Offline";
     private string _searchText = string.Empty;
 
-    public MainViewModel(ILocalStore store)
+    public MainViewModel(ILocalStore store, IWinBoxRunner? winBoxRunner = null)
     {
         Sidebar = new SidebarViewModel(store, DefaultWorkspaceId);
         HostList = new HostListViewModel(store, DefaultWorkspaceId);
-        Inspector = new InspectorViewModel(store);
+        Inspector = new InspectorViewModel(store, winBoxRunner);
         Tabs = new TabsViewModel();
 
         // Quando um grupo é selecionado na sidebar, filtra a lista de hosts.

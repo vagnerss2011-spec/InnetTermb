@@ -43,11 +43,41 @@
             <TextBlock Text="{Binding Asset.Name}" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8"/>
 
             <TextBlock Text="Ações rápidas:" FontWeight="SemiBold" Margin="0,0,0,4"/>
-            <WrapPanel Margin="0,0,0,8">
+            <WrapPanel Margin="0,0,0,4">
                 <Button Content="SSH"     Command="{Binding OpenSessionCommand}" CommandParameter="ssh"      Margin="0,0,4,4" Padding="8,2"/>
                 <Button Content="Telnet"  Command="{Binding OpenSessionCommand}" CommandParameter="telnet"   Margin="0,0,4,4" Padding="8,2"/>
                 <Button Content="RDP"     Command="{Binding OpenSessionCommand}" CommandParameter="rdp"      Margin="0,0,4,4" Padding="8,2"/>
+                <Button Content="Abrir WinBox"
+                        Command="{Binding OpenWinBoxCommand}"
+                        Margin="0,0,4,4" Padding="8,2">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsMikroTikHost}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
             </WrapPanel>
+            <TextBlock Text="{Binding WinBoxError}"
+                       Foreground="Red"
+                       TextWrapping="Wrap"
+                       Margin="0,0,0,8"
+                       FontSize="11">
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding HasWinBoxError}" Value="True">
+                                <Setter Property="Visibility" Value="Visible"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
 
             <Separator Margin="0,4"/>
 
