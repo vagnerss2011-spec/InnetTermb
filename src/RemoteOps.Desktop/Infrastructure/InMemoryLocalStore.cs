@@ -97,6 +97,9 @@ public sealed class InMemoryLocalStore : ILocalStore
         return Task.CompletedTask;
     }
 
+    public Task<Asset?> GetAssetAsync(string id, CancellationToken ct = default)
+        => Task.FromResult(_assets.TryGetValue(id, out Asset? asset) ? asset : null);
+
     // Endpoints -------------------------------------------------------------
 
     public Task<Endpoint> AddEndpointAsync(Endpoint endpoint, CancellationToken ct = default)

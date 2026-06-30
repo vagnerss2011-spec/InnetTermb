@@ -38,9 +38,9 @@ public sealed class InspectorViewModelTests
     }
 
     [Fact]
-    public async Task AddEndpoint_StoresEndpoint()
+    public async Task AddEndpoint_StoresEndpointAndRefreshesAsset()
     {
-        var (vm, _) = await BuildWithAsset();
+        var (vm, asset) = await BuildWithAsset();
         vm.NewEndpointProtocol = RemoteProtocol.Ssh;
         vm.NewEndpointAddress = "192.168.1.1";
         vm.NewEndpointPort = 22;
@@ -48,6 +48,43 @@ public sealed class InspectorViewModelTests
         await vm.AddEndpointAsync();
 
         Assert.Equal(string.Empty, vm.NewEndpointAddress);
+        // O AssetViewModel exibido deve refletir o endpoint recém-criado (sem reload).
+        var ep = Assert.Single(asset.Asset.Endpoints);
+        Assert.Equal(RemoteProtocol.Ssh, ep.Protocol);
+        Assert.Equal("192.168.1.1", ep.Ipv4);
+        Assert.Null(ep.Ipv6);
+        Assert.Null(ep.Fqdn);
+        Assert.Equal(22, ep.Port);
+        Assert.Equal("192.168.1.1", asset.PrimaryAddress);
+    }
+
+    [Fact]
+    public async Task AddEndpoint_Ipv6Address_GoesToIpv6Field()
+    {
+        var (vm, asset) = await BuildWithAsset();
+        vm.NewEndpointProtocol = RemoteProtocol.Ssh;
+        vm.NewEndpointAddress = "2001:db8::1";
+
+        await vm.AddEndpointAsync();
+
+        var ep = Assert.Single(asset.Asset.Endpoints);
+        Assert.Equal("2001:db8::1", ep.Ipv6);
+        Assert.Null(ep.Ipv4);
+        Assert.Null(ep.Fqdn);
+    }
+
+    [Fact]
+    public async Task AddEndpoint_Fqdn_GoesToFqdnField()
+    {
+        var (vm, asset) = await BuildWithAsset();
+        vm.NewEndpointAddress = "router.example.com";
+
+        await vm.AddEndpointAsync();
+
+        var ep = Assert.Single(asset.Asset.Endpoints);
+        Assert.Equal("router.example.com", ep.Fqdn);
+        Assert.Null(ep.Ipv4);
+        Assert.Null(ep.Ipv6);
     }
 
     [Fact]

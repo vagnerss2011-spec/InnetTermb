@@ -17,6 +17,7 @@ public interface ILocalStore
 
     // Ativos (hosts)
     Task<IReadOnlyList<Asset>> GetAssetsAsync(string workspaceId, string? groupId = null, CancellationToken ct = default);
+    Task<Asset?> GetAssetAsync(string id, CancellationToken ct = default);
     Task<Asset> AddAssetAsync(AddAssetRequest request, CancellationToken ct = default);
     Task<Asset> UpdateAssetAsync(Asset asset, CancellationToken ct = default);
     Task DeleteAssetAsync(string id, CancellationToken ct = default);

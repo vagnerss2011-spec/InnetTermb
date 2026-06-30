@@ -91,7 +91,8 @@ public sealed class InspectorViewModel : BaseViewModel
 
     public async Task AddEndpointAsync()
     {
-        if (Asset == null || string.IsNullOrWhiteSpace(NewEndpointAddress))
+        var assetVm = Asset;
+        if (assetVm == null || string.IsNullOrWhiteSpace(NewEndpointAddress))
         {
             return;
         }
@@ -99,19 +100,31 @@ public sealed class InspectorViewModel : BaseViewModel
         IsBusy = true;
         try
         {
-            // Endereço: detectar se é FQDN ou IPv4 de forma simples
-            bool isIp = System.Net.IPAddress.TryParse(NewEndpointAddress, out _);
+            // Endereço: detectar FQDN vs IPv4 vs IPv6 pela família do IP.
+            bool isIp = System.Net.IPAddress.TryParse(NewEndpointAddress, out var parsedIp);
+            bool isIpv6 = isIp && parsedIp!.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6;
+            bool isIpv4 = isIp && parsedIp!.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork;
             var ep = new Endpoint
             {
                 Id = Guid.NewGuid().ToString("n"),
-                AssetId = Asset.Id,
+                AssetId = assetVm.Id,
                 Protocol = NewEndpointProtocol,
                 Port = NewEndpointPort,
-                Ipv4 = isIp ? NewEndpointAddress : null,
+                Ipv4 = isIpv4 ? NewEndpointAddress : null,
+                Ipv6 = isIpv6 ? NewEndpointAddress : null,
                 Fqdn = isIp ? null : NewEndpointAddress,
             };
 
             await _store.AddEndpointAsync(ep);
+
+            // Reflete o endpoint recém-criado no AssetViewModel exibido (DataGrid/Inspector),
+            // sem exigir reload da lista.
+            var updated = await _store.GetAssetAsync(assetVm.Id);
+            if (updated != null)
+            {
+                assetVm.Refresh(updated);
+            }
+
             NewEndpointAddress = string.Empty;
         }
         finally
