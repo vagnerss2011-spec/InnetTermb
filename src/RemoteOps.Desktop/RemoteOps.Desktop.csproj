@@ -35,6 +35,23 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2849.39" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Plain <Reference> items (as opposed to PackageReference) are NOT transitive across
+         ProjectReference boundaries in SDK-style projects, so RemoteOps.Rdp.csproj referencing
+         these assemblies does not make them visible here — Rdp/RdpTabView.xaml.cs needs its
+         own direct reference. See RemoteOps.Rdp.csproj for the rationale on checked-in interop
+         assemblies instead of <COMReference>. -->
+    <Reference Include="MSTSCLib">
+      <HintPath>..\RemoteOps.Rdp\lib\MSTSCLib.dll</HintPath>
+      <Private>true</Private>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+    </Reference>
+    <Reference Include="AxMSTSCLib">
+      <HintPath>..\RemoteOps.Rdp\lib\AxInterop.MSTSCLib.dll</HintPath>
+      <Private>true</Private>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+    </Reference>
+  </ItemGroup>
   <!-- Terminal wwwroot assets: copied to output so the virtual host can serve them -->
   <ItemGroup>
     <Content Include="Terminal\wwwroot\index.html">
