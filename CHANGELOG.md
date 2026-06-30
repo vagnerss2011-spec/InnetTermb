@@ -2,6 +2,18 @@
 
 Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.com/) e versionamento SemVer interno.
 
+## [0.6.0-orchestration-fix] - 2026-06-30
+
+### Alterado
+
+- `merge-guard` (`.github/workflows/automerge.yml`) reconhece dependências mergeadas via **squash** (consulta PR mergeado em vez de ancestralidade) — corrige falso-negativo que bloqueava PRs com `Depends-on:` mesmo com a dependência já em `main`.
+- **Auto-merge desligado**: o merge passa a ser **manual, feito pelo orquestrador**, com CI verde + revisão. O workflow foi renomeado de `automerge` para `merge-guard`.
+- `docs/24-orquestracao-multiagente-paralela.md` e `CONTRIBUTING.md` atualizados para o fluxo de merge manual.
+
+### Segurança
+
+- Reduz risco de `main` quebrada por merge automático prematuro — auto-merge em CI verde já havia mergeado o vault (#8) antes das correções de segurança/build, exigindo o PR de remediação #11.
+
 ## [0.5.0-security-vault] - 2026-06-29
 
 ### Adicionado

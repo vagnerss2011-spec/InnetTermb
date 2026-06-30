@@ -45,19 +45,23 @@ Ondas: **0** contracts+skeleton+security → **1** desktop ‖ sync → **2** te
 - Documentação do módulo atualizada quando aplicável.
 - Critérios de aceite da fase satisfeitos (`docs/12-roadmap-fases.md`).
 
-## CI e auto-merge
+## CI e merge
 
 Gates obrigatórios (em `.github/workflows/ci.yml`): build/test/format no Windows, validação de
 contratos JSON, `secret-scan`, `security-gate` (PRs sensíveis exigem o label `security-reviewed`)
-e checagem de changelog. PR com todos os checks verdes é mergeado automaticamente
-(`.github/workflows/automerge.yml`).
+e checagem de changelog. O `merge-guard` (`.github/workflows/automerge.yml`) sinaliza violações da
+ordem `Depends-on:`.
 
-### Configuração necessária no GitHub (Settings)
+**Auto-merge está DESLIGADO de propósito** (auto-merge em CI verde já quebrou a `main`: #8 → #11).
+O merge é **manual, feito pelo orquestrador** com todos os checks verdes + revisão aprovada,
+respeitando a ordem das ondas.
 
-1. **Allow auto-merge** habilitado.
-2. **Branch protection** em `main` com os checks obrigatórios: `dotnet`, `docs-contracts`,
-   `secret-scan`, `security-gate`, `merge-guard`.
-3. Para PRs tocando `src/RemoteOps.Security/**` ou `src/RemoteOps.NDesk.*/**`: rode
+### Configuração recomendada no GitHub (Settings)
+
+1. **Branch protection** em `main` com os checks obrigatórios: `dotnet`, `docs-contracts`,
+   `secret-scan`, `security-gate`, `merge guard (Depends-on order)`.
+2. **Allow auto-merge** deve ficar **desabilitado**.
+3. Para PRs tocando `src/RemoteOps.Security/**`, `src/RemoteOps.NDesk.*/**` ou `contracts/`: rode
    `/security-review`, depois adicione o label `security-reviewed`.
 
 ## Hooks e permissões de sessão (recomendado)
