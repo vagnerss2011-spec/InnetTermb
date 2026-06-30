@@ -1,3 +1,4 @@
+using System.IO;
 using RemoteOps.Sync;
 
 namespace RemoteOps.UnitTests.Sync;
