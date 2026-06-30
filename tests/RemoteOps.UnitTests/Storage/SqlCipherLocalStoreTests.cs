@@ -373,6 +373,9 @@ public sealed class SqlCipherLocalStoreTests
         Asset a = await ctx.Store.AddAssetAsync(
             new AddAssetRequest { WorkspaceId = ctx.WorkspaceId, Name = "to-delete" });
 
+        // O cursor só avança no Pull (Push apenas grava no outbox). Consome o "created"
+        // para que o Pull seguinte traga somente o "deleted".
+        await ctx.Ctx.SyncClient.PullAsync(0);
         long cursorAfterAdd = ctx.Ctx.SyncClient.CurrentCursor;
 
         await ctx.Store.DeleteAssetAsync(a.Id);
