@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://remoteops.local/contracts/ndesk-session-telemetry.schema.json",
+  "title": "NDeskSessionTelemetry",
+  "type": "object",
+  "required": ["sessionId", "timestamp", "route", "rttMs", "bitrateKbps", "fpsDelivered"],
+  "additionalProperties": false,
+  "properties": {
+    "sessionId": { "type": "string" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "route": { "enum": ["direct", "turn", "relayTcp", "unknown"] },
+    "rttMs": { "type": "number", "minimum": 0 },
+    "packetLossPercent": { "type": "number", "minimum": 0, "maximum": 100 },
+    "bitrateKbps": { "type": "number", "minimum": 0 },
+    "fpsCaptured": { "type": "number", "minimum": 0 },
+    "fpsDelivered": { "type": "number", "minimum": 0 },
+    "width": { "type": "integer", "minimum": 1 },
+    "height": { "type": "integer", "minimum": 1 },
+    "codec": { "type": "string" },
+    "agentCpuPercent": { "type": "number", "minimum": 0, "maximum": 100 },
+    "agentMemoryMb": { "type": "number", "minimum": 0 },
+    "qualityProfile": { "enum": ["auto", "lowBandwidth", "balanced", "highQuality"] }
+  }
+}

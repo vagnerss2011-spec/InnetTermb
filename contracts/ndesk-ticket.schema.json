@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://remoteops.local/contracts/ndesk-ticket.schema.json",
+  "title": "NDeskTicket",
+  "type": "object",
+  "required": [
+    "id",
+    "workspaceId",
+    "expiresAt",
+    "status"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "workspaceId": {
+      "type": "string"
+    },
+    "createdBy": {
+      "type": "string"
+    },
+    "expiresAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "status": {
+      "enum": [
+        "waiting",
+        "connected",
+        "expired",
+        "closed",
+        "denied"
+      ]
+    },
+    "permissionsRequested": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "view",
+          "control",
+          "fileTransfer",
+          "adminElevation"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "requestedMode": {
+      "enum": [
+        "basic",
+        "control",
+        "file",
+        "administrator"
+      ]
+    },
+    "agentCompatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "minimumWindows": {
+          "type": "string"
+        },
+        "allowWindows7Legacy": {
+          "type": "boolean"
+        },
+        "requiresInstall": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

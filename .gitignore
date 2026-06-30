@@ -1,0 +1,19 @@
+# .NET
+bin/
+obj/
+*.user
+.vs/
+artifacts/
+TestResults/
+
+# Node (terminal WebView2/xterm)
+node_modules/
+dist/
+
+# Build nativo (NDesk)
+build/
+
+# Local / sessão
+.claude/settings.local.json
+.DS_Store
+Thumbs.db
