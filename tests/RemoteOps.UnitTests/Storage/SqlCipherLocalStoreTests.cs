@@ -225,7 +225,10 @@ public sealed class SqlCipherLocalStoreTests
         string epId = Guid.NewGuid().ToString("n");
         await ctx.Store.AddEndpointAsync(new Endpoint
         {
-            Id = epId, AssetId = asset.Id, Protocol = "ssh", Port = 22,
+            Id = epId,
+            AssetId = asset.Id,
+            Protocol = "ssh",
+            Port = 22,
         });
 
         await ctx.Store.DeleteEndpointAsync(epId);
@@ -268,13 +271,17 @@ public sealed class SqlCipherLocalStoreTests
 
         var scoped = new CredentialRef
         {
-            Id = Guid.NewGuid().ToString("n"), Name = "scoped-cred",
-            Type = "password", Scope = ctx.WorkspaceId,
+            Id = Guid.NewGuid().ToString("n"),
+            Name = "scoped-cred",
+            Type = "password",
+            Scope = ctx.WorkspaceId,
         };
         var global = new CredentialRef
         {
-            Id = Guid.NewGuid().ToString("n"), Name = "global-cred",
-            Type = "password", Scope = null,
+            Id = Guid.NewGuid().ToString("n"),
+            Name = "global-cred",
+            Type = "password",
+            Scope = null,
         };
 
         await ctx.Store.AddCredentialRefAsync(scoped);
@@ -291,7 +298,10 @@ public sealed class SqlCipherLocalStoreTests
 
         var cred = new CredentialRef
         {
-            Id = Guid.NewGuid().ToString("n"), Name = "temp", Type = "password", Scope = ctx.WorkspaceId,
+            Id = Guid.NewGuid().ToString("n"),
+            Name = "temp",
+            Type = "password",
+            Scope = ctx.WorkspaceId,
         };
         await ctx.Store.AddCredentialRefAsync(cred);
         await ctx.Store.DeleteCredentialRefAsync(cred.Id);
@@ -310,7 +320,9 @@ public sealed class SqlCipherLocalStoreTests
         AssetGroup g = await ctx.Store.AddGroupAsync(ctx.WorkspaceId, "Backbone");
         Asset a = await ctx.Store.AddAssetAsync(new AddAssetRequest
         {
-            WorkspaceId = ctx.WorkspaceId, GroupId = g.Id, Name = "core-rtr",
+            WorkspaceId = ctx.WorkspaceId,
+            GroupId = g.Id,
+            Name = "core-rtr",
         });
 
         // "Restart": second store over the same DB (same vault + same keyref file)

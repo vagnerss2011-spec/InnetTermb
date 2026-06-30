@@ -283,9 +283,13 @@ public sealed class SqlCipherLocalStore : ILocalStore
         await PushChangeAsync("asset", id, "created",
             new()
             {
-                ["id"] = id, ["workspace_id"] = request.WorkspaceId,
-                ["group_id"] = request.GroupId, ["name"] = request.Name,
-                ["vendor"] = request.Vendor, ["model"] = request.Model, ["site"] = request.Site,
+                ["id"] = id,
+                ["workspace_id"] = request.WorkspaceId,
+                ["group_id"] = request.GroupId,
+                ["name"] = request.Name,
+                ["vendor"] = request.Vendor,
+                ["model"] = request.Model,
+                ["site"] = request.Site,
             }, baseVersion: 0, ct);
 
         return new Asset
@@ -326,8 +330,11 @@ public sealed class SqlCipherLocalStore : ILocalStore
         await PushChangeAsync("asset", asset.Id, "updated",
             new()
             {
-                ["group_id"] = asset.GroupId, ["name"] = asset.Name,
-                ["vendor"] = asset.Vendor, ["model"] = asset.Model, ["site"] = asset.Site,
+                ["group_id"] = asset.GroupId,
+                ["name"] = asset.Name,
+                ["vendor"] = asset.Vendor,
+                ["model"] = asset.Model,
+                ["site"] = asset.Site,
             }, asset.Version, ct);
 
         return asset;
@@ -406,8 +413,10 @@ public sealed class SqlCipherLocalStore : ILocalStore
         await PushChangeAsync("endpoint", endpoint.Id, "created",
             new()
             {
-                ["id"] = endpoint.Id, ["asset_id"] = endpoint.AssetId,
-                ["protocol"] = endpoint.Protocol, ["port"] = endpoint.Port,
+                ["id"] = endpoint.Id,
+                ["asset_id"] = endpoint.AssetId,
+                ["protocol"] = endpoint.Protocol,
+                ["port"] = endpoint.Port,
             }, baseVersion: 0, ct);
 
         return endpoint;
@@ -496,8 +505,10 @@ public sealed class SqlCipherLocalStore : ILocalStore
         await PushChangeAsync("credential_ref", credentialRef.Id, "created",
             new()
             {
-                ["id"] = credentialRef.Id, ["name"] = credentialRef.Name,
-                ["type"] = credentialRef.Type, ["scope"] = credentialRef.Scope,
+                ["id"] = credentialRef.Id,
+                ["name"] = credentialRef.Name,
+                ["type"] = credentialRef.Type,
+                ["scope"] = credentialRef.Scope,
                 ["secret_envelope_id"] = credentialRef.SecretEnvelopeId,
             }, credentialRef.Version, ct);
 
