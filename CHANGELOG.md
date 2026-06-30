@@ -31,6 +31,32 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 - `src/RemoteOps.Sync` — dono: `cloud-sync-agent`
 - Depends-on: `feature/contracts-skeleton`, `feature/security-vault`
+## [0.7.0-desktop-shell] - 2026-06-30
+
+### Corrigido
+
+- Endpoint com endereço **IPv6** agora é gravado no campo `Ipv6` (antes ia para `Ipv4`, pois `IPAddress.TryParse` aceita literais IPv6); detecção por `AddressFamily`.
+- Endpoint recém-adicionado **reflete imediatamente** no `AssetViewModel`/DataGrid via novo `ILocalStore.GetAssetAsync` + `AssetViewModel.Refresh` (antes só aparecia após reload).
+- Teste `AddEndpoint_StoresEndpoint` fortalecido (verifica persistência e campos, não só limpeza do input) e novos casos para IPv6 e FQDN.
+
+### Adicionado
+
+- Shell WPF/MVVM inicial em `src/RemoteOps.Desktop/`:
+  - **Janela principal** com 4 regiões redimensionáveis (GridSplitter): sidebar de grupos, lista de hosts, área de abas de sessão, inspector.
+  - **Domain:** `AssetGroup` (grupo local), `AddAssetRequest`.
+  - **Infrastructure:** `ILocalStore` + `InMemoryLocalStore` — CRUD de grupo/host/endpoint/credentialRef em memória; sem segredo.
+  - **ViewModels:** `BaseViewModel` (INotifyPropertyChanged), `RelayCommand` (ICommand), `SidebarViewModel`, `AssetGroupViewModel`, `HostListViewModel`, `AssetViewModel`, `InspectorViewModel`, `TabsViewModel`, `SessionTabViewModel`, `MainViewModel` (mediador).
+  - **Views (UserControls):** `SidebarView` (árvore de grupos), `HostListView` (DataGrid de hosts com filtro e CRUD), `InspectorView` (detalhes + adicionar endpoint + ações rápidas SSH/Telnet/RDP), `TabsView` (TabControl de sessões placeholder).
+  - `App.xaml.cs` instancia `InMemoryLocalStore` + `MainViewModel` sem DI externo.
+- Testes de ViewModel em `tests/RemoteOps.UnitTests/Desktop/`:
+  - `SidebarViewModelTests`, `HostListViewModelTests`, `InspectorViewModelTests`, `TabsViewModelTests`, `MainViewModelTests`.
+  - Projeto de testes migrado para `net10.0-windows` (necessário para referenciar projeto WPF; DPAPI tests já têm guard `OperatingSystem.IsWindows()`).
+
+### Restrições respeitadas
+
+- Nenhuma dependência de protocolo real; usa `IRemoteSessionProvider` apenas como interface de contratos.
+- Nenhum segredo em log ou UI; credencial exibe apenas nome e metadata (nunca senha).
+- Sem nova dependência NuGet externa (sem ADR necessária).
 
 ## [0.6.0-orchestration-fix] - 2026-06-30
 
