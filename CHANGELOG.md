@@ -2,6 +2,38 @@
 
 Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.com/) e versionamento SemVer interno.
 
+## [0.9.0-integration-composition] - 2026-06-30
+
+### Adicionado
+
+- **Composition root com DI** em `App.xaml.cs` via `AppCompositionRoot` (ADR-011): substitui `new InMemoryLocalStore()` manual por `ServiceCollection`/`ServiceProvider`. Shutdown faz `Dispose` do provider.
+- **`Microsoft.Extensions.DependencyInjection`** via `PackageReference` 10.0.0 (DI não faz parte do framework WPF, só do ASP.NET Core); project references novas para `RemoteOps.Security`, `RemoteOps.Terminal` e `RemoteOps.MikroTik` adicionadas ao Desktop.
+- **Adaptadores em `src/RemoteOps.Desktop/Integration/`:**
+  - `LocalStoreEndpointResolver` — resolve `EndpointId` via `ILocalStore.GetEndpointAsync`.
+  - `StoreCredentialRefResolver` — resolve `CredentialRefId` via `ILocalStore.GetCredentialRefAsync`.
+  - `AppTerminalSecurityContext` — contexto de segurança MVP (`local-user` / hostname); substituível em INT-3.
+  - `StructuredTerminalAuditSink` — auditoria de sessões SSH/Telnet em `Trace` sem segredos.
+  - `ModalHostKeyConfirmation` — diálogo WPF TOFU assíncrono via `TaskCompletionSource`; destaca `isChanged=true` com ícone de aviso (ADR-009 §FIX-1).
+  - `ModalTelnetConsentProvider` — consentimento WPF bloqueante antes de qualquer conexão TCP Telnet (ADR-009 §FIX-2).
+  - `StoreWinBoxCredentialResolver` — resolve senha WinBox via vault; `VaultSecret` descartado imediatamente (ADR-009 §FIX-3).
+  - `StructuredWinBoxAuditSink` — auditoria WinBox em `Trace` sem senhas.
+- **`ILocalStore` estendido** com `GetEndpointAsync(string endpointId)` e `GetCredentialRefAsync(string credentialRefId)`; `InMemoryLocalStore` implementa os novos métodos.
+- **Provedores SSH e Telnet registrados** como `ITerminalSessionProvider` com chave de protocolo (keyed services, `AddKeyedSingleton`).
+- **`IWinBoxRunner` registrado** via `WinBoxRunner.Create()` com manifesto configurável por variável de ambiente (`WINBOX_EXE_PATH`, `WINBOX_SHA256`).
+- **`adr/ADR-011-dependency-injection-desktop.md`** — documenta adoção de DI, regras de uso e alternativas consideradas.
+- **`CompositionRootSmokeTests`** em `tests/RemoteOps.UnitTests/Desktop/`: 16 testes verificando resolução completa do grafo sem abrir sessão real.
+- **`IntegrationAdapterTests`** — testes unitários para os dois novos métodos do `ILocalStore` e caminhos de erro dos adaptadores.
+- `InternalsVisibleTo("RemoteOps.UnitTests")` no Desktop para acesso a `AppCompositionRoot` nos testes.
+
+### Segurança
+
+- Segredos nunca registrados como instâncias no container; credenciais só via `IVault`.
+- `StructuredTerminalAuditSink` e `StructuredWinBoxAuditSink` auditam sem segredo: `TerminalAuditEvent` e `AuditEvent` excluem campos de senha por construção.
+- `ModalHostKeyConfirmation` usa `TaskCompletionSource` assíncrono para evitar deadlock no thread de conexão SSH (ADR-009 §FIX-1).
+- `ModalTelnetConsentProvider` bloqueia conexão TCP até ack explícito do usuário (ADR-009 §FIX-2).
+- `StoreWinBoxCredentialResolver` usa `using var secret` (lifetime mínimo) ao revelar o vault secret (ADR-009 §FIX-3).
+- Nenhuma sessão remota aberta nesta frente (INT-2 pendente).
+
 ## [0.8.0-mikrotik-winbox-v2] - 2026-06-30
 
 ### Adicionado

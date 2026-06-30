@@ -23,11 +23,13 @@ public interface ILocalStore
     Task DeleteAssetAsync(string id, CancellationToken ct = default);
 
     // Endpoints
+    Task<Endpoint?> GetEndpointAsync(string endpointId, CancellationToken ct = default);
     Task<Endpoint> AddEndpointAsync(Endpoint endpoint, CancellationToken ct = default);
     Task DeleteEndpointAsync(string id, CancellationToken ct = default);
 
     // Referências de credencial (metadados — sem segredo)
     Task<IReadOnlyList<CredentialRef>> GetCredentialRefsAsync(string workspaceId, CancellationToken ct = default);
+    Task<CredentialRef?> GetCredentialRefAsync(string credentialRefId, CancellationToken ct = default);
     Task<CredentialRef> AddCredentialRefAsync(CredentialRef credentialRef, CancellationToken ct = default);
     Task DeleteCredentialRefAsync(string id, CancellationToken ct = default);
 }
