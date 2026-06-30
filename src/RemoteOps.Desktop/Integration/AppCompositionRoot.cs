@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using RemoteOps.Contracts.Sessions;
 using RemoteOps.Desktop.Infrastructure;
 using RemoteOps.MikroTik;
+using RemoteOps.Security;
 using RemoteOps.Security.Audit;
 using RemoteOps.Security.Crypto;
 using RemoteOps.Security.Storage;
