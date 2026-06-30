@@ -102,6 +102,12 @@ public sealed class InMemoryLocalStore : ILocalStore
 
     // Endpoints -------------------------------------------------------------
 
+    public Task<Endpoint?> GetEndpointAsync(string endpointId, CancellationToken ct = default)
+    {
+        _endpoints.TryGetValue(endpointId, out Endpoint? endpoint);
+        return Task.FromResult(endpoint);
+    }
+
     public Task<Endpoint> AddEndpointAsync(Endpoint endpoint, CancellationToken ct = default)
     {
         _endpoints[endpoint.Id] = endpoint;
@@ -141,6 +147,12 @@ public sealed class InMemoryLocalStore : ILocalStore
             .OrderBy(c => c.Name)
             .ToList();
         return Task.FromResult(result);
+    }
+
+    public Task<CredentialRef?> GetCredentialRefAsync(string credentialRefId, CancellationToken ct = default)
+    {
+        _credentialRefs.TryGetValue(credentialRefId, out CredentialRef? credRef);
+        return Task.FromResult(credRef);
     }
 
     public Task<CredentialRef> AddCredentialRefAsync(CredentialRef credentialRef, CancellationToken ct = default)

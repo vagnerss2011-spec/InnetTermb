@@ -9,6 +9,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="RemoteOps.UnitTests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\RemoteOps.Contracts\RemoteOps.Contracts.csproj" />
+    <ProjectReference Include="..\RemoteOps.Security\RemoteOps.Security.csproj" />
+    <ProjectReference Include="..\RemoteOps.Terminal\RemoteOps.Terminal.csproj" />
+    <ProjectReference Include="..\RemoteOps.MikroTik\RemoteOps.MikroTik.csproj" />
   </ItemGroup>
 </Project>
