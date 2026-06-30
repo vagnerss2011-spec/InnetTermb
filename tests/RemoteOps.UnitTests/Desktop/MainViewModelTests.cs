@@ -1,4 +1,5 @@
 using RemoteOps.Contracts.Sessions;
+using RemoteOps.Desktop.Domain;
 using RemoteOps.Desktop.Infrastructure;
 using RemoteOps.Desktop.ViewModels;
 
@@ -13,7 +14,7 @@ public sealed class MainViewModelTests
     {
         var store = new InMemoryLocalStore();
         await store.AddGroupAsync("ws-local", "DC1");
-        await store.AddAssetAsync(new Domain.AddAssetRequest { WorkspaceId = "ws-local", Name = "router-01" });
+        await store.AddAssetAsync(new AddAssetRequest { WorkspaceId = "ws-local", Name = "router-01" });
 
         var vm = new MainViewModel(store);
         await vm.InitializeAsync();
@@ -27,8 +28,8 @@ public sealed class MainViewModelTests
     {
         var store = new InMemoryLocalStore();
         var g = await store.AddGroupAsync("ws-local", "Core");
-        await store.AddAssetAsync(new Domain.AddAssetRequest { WorkspaceId = "ws-local", GroupId = g.Id, Name = "sw-core-01" });
-        await store.AddAssetAsync(new Domain.AddAssetRequest { WorkspaceId = "ws-local", Name = "dmz-fw-01" });
+        await store.AddAssetAsync(new AddAssetRequest { WorkspaceId = "ws-local", GroupId = g.Id, Name = "sw-core-01" });
+        await store.AddAssetAsync(new AddAssetRequest { WorkspaceId = "ws-local", Name = "dmz-fw-01" });
 
         var vm = new MainViewModel(store);
         await vm.InitializeAsync();
@@ -46,7 +47,7 @@ public sealed class MainViewModelTests
     public async Task SelectHost_PopulatesInspector()
     {
         var store = new InMemoryLocalStore();
-        await store.AddAssetAsync(new Domain.AddAssetRequest { WorkspaceId = "ws-local", Name = "ntp-01" });
+        await store.AddAssetAsync(new AddAssetRequest { WorkspaceId = "ws-local", Name = "ntp-01" });
 
         var vm = new MainViewModel(store);
         await vm.InitializeAsync();
@@ -60,7 +61,7 @@ public sealed class MainViewModelTests
     public async Task OpenSession_ViaInspector_CreatesTab()
     {
         var store = new InMemoryLocalStore();
-        await store.AddAssetAsync(new Domain.AddAssetRequest { WorkspaceId = "ws-local", Name = "router-core" });
+        await store.AddAssetAsync(new AddAssetRequest { WorkspaceId = "ws-local", Name = "router-core" });
 
         var vm = new MainViewModel(store);
         await vm.InitializeAsync();
@@ -76,8 +77,8 @@ public sealed class MainViewModelTests
     public async Task SearchText_FiltersHostList()
     {
         var store = new InMemoryLocalStore();
-        await store.AddAssetAsync(new Domain.AddAssetRequest { WorkspaceId = "ws-local", Name = "router-alfa" });
-        await store.AddAssetAsync(new Domain.AddAssetRequest { WorkspaceId = "ws-local", Name = "switch-beta" });
+        await store.AddAssetAsync(new AddAssetRequest { WorkspaceId = "ws-local", Name = "router-alfa" });
+        await store.AddAssetAsync(new AddAssetRequest { WorkspaceId = "ws-local", Name = "switch-beta" });
 
         var vm = new MainViewModel(store);
         await vm.InitializeAsync();
