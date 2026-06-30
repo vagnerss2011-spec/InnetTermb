@@ -1,0 +1,323 @@
+using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
+using System.Threading.Channels;
+
+using RemoteOps.Contracts.Assets;
+using RemoteOps.Contracts.Sessions;
+using RemoteOps.Security.Vault;
+
+namespace RemoteOps.Terminal.Ssh;
+
+/// <summary>
+/// Adaptador SSH para ITerminalSessionProvider. Consolida SSH em RemoteOps.Terminal
+/// (Opção A do layout — ver ADR-008 §Decisão de layout).
+/// </summary>
+public sealed class SshSessionProvider : ITerminalSessionProvider
+{
+    private readonly IEndpointResolver _endpointResolver;
+    private readonly ICredentialRefResolver _credentialRefResolver;
+    private readonly IVault _vault;
+    private readonly ITerminalSecurityContext _securityContext;
+    private readonly IHostKeyConfirmation _hostKeyConfirmation;
+    private readonly ITerminalAuditSink _auditSink;
+    private readonly ISshConnectionFactory _factory;
+    private readonly HostKeyStore _hostKeyStore = new();
+    private readonly ConcurrentDictionary<string, SshSessionState> _sessions = new();
+
+    public string Protocol => RemoteProtocol.Ssh;
+
+    public SshSessionProvider(
+        IEndpointResolver endpointResolver,
+        ICredentialRefResolver credentialRefResolver,
+        IVault vault,
+        ITerminalSecurityContext securityContext,
+        IHostKeyConfirmation hostKeyConfirmation,
+        ITerminalAuditSink auditSink,
+        ISshConnectionFactory? factory = null)
+    {
+        _endpointResolver = endpointResolver;
+        _credentialRefResolver = credentialRefResolver;
+        _vault = vault;
+        _securityContext = securityContext;
+        _hostKeyConfirmation = hostKeyConfirmation;
+        _auditSink = auditSink;
+        _factory = factory ?? new RenciSshConnectionFactory();
+    }
+
+    public async Task<SessionHandle> OpenAsync(SessionRequest request, CancellationToken ct)
+    {
+        var endpoint = await _endpointResolver.ResolveAsync(request.EndpointId, ct);
+        var credRef = await _credentialRefResolver.ResolveAsync(request.CredentialRefId, ct);
+
+        string host = ResolveHost(endpoint, request.PreferIpv6);
+        int port = endpoint.Port > 0 ? endpoint.Port : 22;
+        string username = credRef.Metadata?.Username
+            ?? throw new InvalidOperationException(
+                $"CredentialRef '{request.CredentialRefId}' não tem username em Metadata.");
+        string envelopeId = credRef.SecretEnvelopeId
+            ?? throw new InvalidOperationException(
+                $"CredentialRef '{request.CredentialRefId}' não tem SecretEnvelopeId.");
+
+        int cols = request.Terminal?.Cols ?? 80;
+        int rows = request.Terminal?.Rows ?? 24;
+        string termType = "xterm-256color";
+
+        var vaultCtx = new VaultAccessContext
+        {
+            ActorUserId = _securityContext.ActorUserId,
+            DeviceId = _securityContext.DeviceId,
+        };
+
+        // FIX 3: VaultSecret é descartado logo após autenticação para zerar o buffer UTF-8.
+        // Renci.SshNet exige string em PasswordAuthenticationMethod — essa conversão é inevitável
+        // e está documentada no ADR-008 §FIX-3 com os mitigantes adotados.
+        using var secret = await _vault.RetrieveAsync(envelopeId, vaultCtx, ct);
+        string password = secret.RevealString();
+
+        var (connection, shell, channel, readerCts) =
+            await ConnectWithTofuAsync(host, port, username, password, cols, rows, termType, request.SessionId, ct);
+
+        // VaultSecret é zerado ao sair do using acima; password persiste em SSH.NET até GC (ADR-008).
+
+        var state = new SshSessionState(connection, shell, channel, readerCts);
+        _sessions[request.SessionId] = state;
+
+        await _auditSink.EmitAsync(new TerminalAuditEvent
+        {
+            Action = TerminalActions.SessionOpened,
+            SessionId = request.SessionId,
+            Host = host,
+            Protocol = RemoteProtocol.Ssh,
+            UserId = _securityContext.ActorUserId,
+            OccurredAt = DateTimeOffset.UtcNow,
+        }, ct);
+
+        return new SessionHandle
+        {
+            SessionId = request.SessionId,
+            Protocol = RemoteProtocol.Ssh,
+            EndpointId = request.EndpointId,
+            OpenedAt = DateTimeOffset.UtcNow,
+            IsOpen = true,
+        };
+    }
+
+    private async Task<(ISshConnection, ISshShell, Channel<ReadOnlyMemory<byte>>, CancellationTokenSource)>
+        ConnectWithTofuAsync(
+            string host, int port, string username, string password,
+            int cols, int rows, string termType, string sessionId, CancellationToken ct)
+    {
+        HostKeyRejectionReason? rejectionReason = null;
+        string? capturedFp = null;
+
+        ISshConnection? connection = null;
+        try
+        {
+            connection = _factory.Create(host, port, username, password);
+
+            // FIX 1: HostKeyValidator é callback síncrono — sem async/await/GetResult aqui.
+            // Capturamos fingerprint e motivo; o fluxo assíncrono ocorre FORA do callback.
+            connection.HostKeyValidator = fp =>
+            {
+                capturedFp = fp;
+                if (_hostKeyStore.IsKnown(host, fp)) return true;
+                rejectionReason = _hostKeyStore.HasAnyKey(host)
+                    ? HostKeyRejectionReason.KeyChanged
+                    : HostKeyRejectionReason.UnknownKey;
+                return false;
+            };
+
+            Exception? firstConnectEx = null;
+            try
+            {
+                await Task.Run(() => connection.Connect(), ct);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                firstConnectEx = ex;
+            }
+
+            if (firstConnectEx != null)
+            {
+                if (!rejectionReason.HasValue || capturedFp is null)
+                {
+                    // Falha de rede/protocolo não relacionada a host key — propaga.
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(firstConnectEx).Throw();
+                    throw new System.Diagnostics.UnreachableException(); // fluxo de análise
+                }
+
+                // Host key não confiada — tratamento assíncrono fora do callback (FIX 1).
+                bool isChanged = rejectionReason == HostKeyRejectionReason.KeyChanged;
+
+                if (isChanged)
+                {
+                    // FIX 5: auditar substituição de host key ANTES de perguntar ao usuário.
+                    await _auditSink.EmitAsync(new TerminalAuditEvent
+                    {
+                        Action = TerminalActions.HostKeyChanged,
+                        SessionId = sessionId,
+                        Host = host,
+                        Protocol = RemoteProtocol.Ssh,
+                        Fingerprint = capturedFp,
+                        UserId = _securityContext.ActorUserId,
+                        OccurredAt = DateTimeOffset.UtcNow,
+                    }, ct);
+                }
+
+                bool trusted = await _hostKeyConfirmation.ConfirmAsync(host, capturedFp!, isChanged, ct);
+
+                connection.Dispose();
+                connection = null;
+
+                if (!trusted)
+                {
+                    await _auditSink.EmitAsync(new TerminalAuditEvent
+                    {
+                        Action = TerminalActions.HostKeyRejected,
+                        SessionId = sessionId,
+                        Host = host,
+                        Protocol = RemoteProtocol.Ssh,
+                        Fingerprint = capturedFp,
+                        UserId = _securityContext.ActorUserId,
+                        OccurredAt = DateTimeOffset.UtcNow,
+                    }, ct);
+                    throw new InvalidOperationException(
+                        $"Host key para '{host}' rejeitada pelo usuário. Conexão abortada.");
+                }
+
+                _hostKeyStore.Trust(host, capturedFp!);
+
+                await _auditSink.EmitAsync(new TerminalAuditEvent
+                {
+                    Action = TerminalActions.HostKeyAccepted,
+                    SessionId = sessionId,
+                    Host = host,
+                    Protocol = RemoteProtocol.Ssh,
+                    Fingerprint = capturedFp,
+                    UserId = _securityContext.ActorUserId,
+                    OccurredAt = DateTimeOffset.UtcNow,
+                }, ct);
+
+                // Reconecta com key agora confiada no store.
+                connection = _factory.Create(host, port, username, password);
+                connection.HostKeyValidator = fp => _hostKeyStore.IsKnown(host, fp);
+                await Task.Run(() => connection.Connect(), ct);
+            }
+
+            // connection é não-nulo aqui: ou primeira conexão OK, ou TOFU reassigned.
+            var shell = connection!.OpenShell(termType, cols, rows);
+
+            var channel = Channel.CreateBounded<ReadOnlyMemory<byte>>(new BoundedChannelOptions(64)
+            {
+                FullMode = BoundedChannelFullMode.Wait,
+                SingleWriter = true,
+                SingleReader = false,
+            });
+
+            var readerCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            _ = PumpShellOutputAsync(shell.DataStream, channel.Writer, readerCts.Token);
+
+            return (connection!, shell, channel, readerCts);
+            // Transferência de ownership para o caller; catch NÃO deve dispor.
+        }
+        catch
+        {
+            connection?.Dispose();
+            throw;
+        }
+    }
+
+    private static async Task PumpShellOutputAsync(
+        Stream dataStream, ChannelWriter<ReadOnlyMemory<byte>> writer, CancellationToken ct)
+    {
+        var buffer = new byte[4096];
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                int read = await dataStream.ReadAsync(buffer, ct);
+                if (read == 0) break;
+                await writer.WriteAsync(buffer[..read].ToArray(), ct);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception) { }
+        finally
+        {
+            writer.TryComplete();
+        }
+    }
+
+    public async Task CloseAsync(SessionHandle handle, CancellationToken ct)
+    {
+        if (!_sessions.TryRemove(handle.SessionId, out var state)) return;
+
+        await state.DisposeAsync();
+        handle.IsOpen = false;
+
+        await _auditSink.EmitAsync(new TerminalAuditEvent
+        {
+            Action = TerminalActions.SessionClosed,
+            SessionId = handle.SessionId,
+            Host = handle.EndpointId,
+            Protocol = RemoteProtocol.Ssh,
+            UserId = _securityContext.ActorUserId,
+            OccurredAt = DateTimeOffset.UtcNow,
+        }, ct);
+    }
+
+    public async Task WriteAsync(SessionHandle handle, ReadOnlyMemory<byte> data, CancellationToken ct = default)
+    {
+        if (!_sessions.TryGetValue(handle.SessionId, out var state))
+            throw new InvalidOperationException($"Sessão '{handle.SessionId}' não encontrada.");
+
+        await state.Shell.DataStream.WriteAsync(data, ct);
+    }
+
+    public async IAsyncEnumerable<ReadOnlyMemory<byte>> ReadAsync(
+        SessionHandle handle,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        if (!_sessions.TryGetValue(handle.SessionId, out var state))
+            throw new InvalidOperationException($"Sessão '{handle.SessionId}' não encontrada.");
+
+        await foreach (var chunk in state.OutputChannel.Reader.ReadAllAsync(ct))
+            yield return chunk;
+    }
+
+    public Task ResizeAsync(SessionHandle handle, int cols, int rows, CancellationToken ct = default)
+    {
+        if (!_sessions.TryGetValue(handle.SessionId, out var state))
+            throw new InvalidOperationException($"Sessão '{handle.SessionId}' não encontrada.");
+
+        state.Shell.Resize((uint)cols, (uint)rows);
+        return Task.CompletedTask;
+    }
+
+    private static string ResolveHost(Endpoint endpoint, bool preferIpv6)
+    {
+        if (preferIpv6 && !string.IsNullOrWhiteSpace(endpoint.Ipv6)) return endpoint.Ipv6;
+        if (!string.IsNullOrWhiteSpace(endpoint.Ipv4)) return endpoint.Ipv4;
+        if (!string.IsNullOrWhiteSpace(endpoint.Fqdn)) return endpoint.Fqdn;
+        if (!string.IsNullOrWhiteSpace(endpoint.Ipv6)) return endpoint.Ipv6;
+        throw new InvalidOperationException($"Endpoint '{endpoint.Id}' não tem endereço resolvível.");
+    }
+}
+
+internal sealed class SshSessionState(
+    ISshConnection connection,
+    ISshShell shell,
+    Channel<ReadOnlyMemory<byte>> outputChannel,
+    CancellationTokenSource readerCts) : IAsyncDisposable
+{
+    public ISshShell Shell { get; } = shell;
+    public Channel<ReadOnlyMemory<byte>> OutputChannel { get; } = outputChannel;
+
+    public async ValueTask DisposeAsync()
+    {
+        await readerCts.CancelAsync();
+        readerCts.Dispose();
+        Shell.Dispose();
+        connection.Dispose();
+    }
+}

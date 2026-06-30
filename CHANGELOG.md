@@ -2,6 +2,46 @@
 
 Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.com/) e versionamento SemVer interno.
 
+## [Não Lançado] — feature/terminal-ssh-telnet-v2
+
+### Adicionado
+
+- Adaptadores SSH e Telnet re-integrados na estrutura canônica (`src/RemoteOps.Terminal`, Opção A):
+  - `SshSessionProvider` (SSH.NET 2024.x, `Renci.SshNet`): `Protocol`, `OpenAsync`, `CloseAsync`,
+    `WriteAsync`, `ReadAsync`, `ResizeAsync` conforme `ITerminalSessionProvider`.
+  - `TelnetSessionProvider` (TcpClient + IAC state-machine própria): mesma interface.
+- Interfaces públicas novas: `IEndpointResolver`, `ICredentialRefResolver`, `IHostKeyConfirmation`,
+  `ITelnetConsentProvider`, `ITerminalAuditSink`, `ITerminalSecurityContext`.
+- `TerminalAuditEvent` + `TerminalActions`: auditoria de sessão sem conteúdo de terminal.
+- `TelnetNegotiator`: parser RFC 854/855 (IAC/WILL/WONT/DO/DONT/SB, ECHO, SGA, NAWS).
+- `HostKeyStore`: cache em memória de host keys TOFU por sessão de provider.
+- Testes unitários em `tests/RemoteOps.UnitTests/Terminal/`: 12 casos cobrindo protocol,
+  OpenAsync, TOFU bloqueante, consentimento Telnet, resize, round-trip e auditoria sem segredo.
+- `adr/ADR-008-ssh-telnet-libs-e-credenciais.md`.
+
+### Segurança
+
+- **FIX 1 — TOFU assíncrono:** callback `HostKeyReceived` é síncrono (captura fingerprint e
+  rejeita); `ConfirmAsync` genuinamente assíncrono acontece **fora** do callback, sem
+  `.GetAwaiter().GetResult()`. Evita deadlock com UI thread do WebView2.
+- **FIX 2 — Consentimento Telnet bloqueante:** `ITelnetConsentProvider.RequestConsentAsync`
+  deve resolver via `TaskCompletionSource` da UI; a conexão TCP não é aberta até ack explícito.
+  Telnet desabilitado por padrão.
+- **FIX 3 — Higiene de senha:** `VaultSecret` descartado imediatamente após autenticação.
+  Limitação de Renci.SshNet (`PasswordAuthenticationMethod` exige `string`) documentada no
+  ADR-008 §FIX-3 com mitigantes adotados. Nenhum log/fixture/evento de auditoria contém senha.
+- **FIX 5 — Auditoria de host key alterada:** `terminal.hostkey.changed` emitido com fingerprint
+  **antes** de perguntar ao usuário. `terminal.hostkey.accepted/rejected` auditados.
+- **FIX 6 — `"default-group"` removido:** grupo vem do `ITerminalSecurityContext`; pendente issue
+  para conectar ao RBAC real (referenciada no ADR-008 §FIX-6).
+
+### Restrições respeitadas
+
+- Estrutura canônica preservada: root `RemoteOps.sln`, `src/RemoteOps.Contracts` inalterado.
+- Sem redefinição de `IRemoteSessionProvider`, `SessionRequest`, `SessionHandle`, `RemoteProtocol`.
+- Sem segredo em log, fixture ou commit.
+- `RemoteOps.Terminal` (`net10.0` cross-platform) não referencia nada Windows-specific.
+
 ## [0.7.0-desktop-shell] - 2026-06-30
 
 ### Corrigido
