@@ -31,5 +31,6 @@
     <ProjectReference Include="..\..\src\RemoteOps.MikroTik\RemoteOps.MikroTik.csproj" />
     <ProjectReference Include="..\..\src\RemoteOps.Sync\RemoteOps.Sync.csproj" />
     <ProjectReference Include="..\..\src\RemoteOps.Desktop\RemoteOps.Desktop.csproj" />
+    <ProjectReference Include="..\..\src\RemoteOps.Rdp\RemoteOps.Rdp.csproj" />
   </ItemGroup>
 </Project>
