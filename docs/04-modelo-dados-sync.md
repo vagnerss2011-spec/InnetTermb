@@ -146,7 +146,7 @@ Cada cliente mantém:
 - `sync_cursor`: último changelog aplicado.
 - `conflicts`: conflitos pendentes.
 
-### Schema local (implementado em `feature/sync-local`)
+### Schema local (implementado em `feature/sync-local` e `feature/integration-storage`)
 
 Banco SQLite/SQLCipher (ADR-008); chave protegida por vault DPAPI/envelope (ADR-003).
 
@@ -189,6 +189,58 @@ CREATE TABLE conflicts (
     detected_at        TEXT    NOT NULL
 );
 ```
+
+```sql
+-- Tabelas de entidades locais (SqlCipherLocalStore, feature/integration-storage)
+CREATE TABLE IF NOT EXISTS asset_groups (
+    id                        TEXT PRIMARY KEY,
+    workspace_id              TEXT NOT NULL,
+    parent_id                 TEXT,
+    name                      TEXT NOT NULL,
+    default_credential_ref_id TEXT,
+    version                   INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS assets (
+    id           TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    group_id     TEXT,
+    name         TEXT NOT NULL,
+    vendor       TEXT,
+    model        TEXT,
+    site         TEXT,
+    tags_json    TEXT NOT NULL DEFAULT '[]',
+    version      INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS endpoints (
+    id                TEXT PRIMARY KEY,
+    asset_id          TEXT NOT NULL,
+    protocol          TEXT NOT NULL,
+    fqdn              TEXT,
+    ipv4              TEXT,
+    ipv6              TEXT,
+    port              INTEGER NOT NULL DEFAULT 0,
+    prefer_ipv6       INTEGER NOT NULL DEFAULT 1,
+    credential_ref_id TEXT,
+    profile_json      TEXT,
+    version           INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS credential_refs (
+    id                 TEXT PRIMARY KEY,
+    name               TEXT NOT NULL,
+    type               TEXT NOT NULL,
+    scope              TEXT,           -- workspaceId ou NULL (global)
+    metadata_json      TEXT,
+    secret_envelope_id TEXT,           -- referência ao envelope; nunca o segredo
+    version            INTEGER NOT NULL DEFAULT 0
+);
+```
+
+Todas as tabelas de entidades ficam no mesmo arquivo `sync-{workspaceId}.db` que as tabelas de outbox acima,
+compartilhando a chave AES-256 derivada pelo vault. Toda mutação nas tabelas de entidades também grava no
+`local_outbox` via `ISyncClient.PushAsync` (outbox pattern — INT-5 sincroniza com o cloud).
 
 **Cursor monotônico**: `local_outbox.id` (AUTOINCREMENT) serve como cursor de Pull.
 `ISyncClient.PullAsync(fromCursor, limit)` retorna linhas com `id > fromCursor`, ordenadas

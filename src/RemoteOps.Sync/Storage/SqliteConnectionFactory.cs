@@ -37,7 +37,17 @@ internal sealed class SqliteConnectionFactory : IDbConnectionFactory
             // O formato x'...' passa bytes raw; evita a derivação PBKDF2 do modo passphrase.
             using var keyCmd = conn.CreateCommand();
             keyCmd.CommandText = $"PRAGMA key = \"x'{_hexKey}'\"";
-            await keyCmd.ExecuteNonQueryAsync(ct);
+            try
+            {
+                await keyCmd.ExecuteNonQueryAsync(ct);
+            }
+            catch (SqliteException ex)
+            {
+                // Re-throw without inner exception: SqliteException.Message may contain the
+                // CommandText verbatim (including the hex key). Strip it at the source.
+                throw new InvalidOperationException(
+                    $"Failed to open encrypted database (error {ex.SqliteErrorCode}).");
+            }
 
             return conn;
         }

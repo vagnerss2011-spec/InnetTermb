@@ -2,6 +2,46 @@
 
 Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.com/) e versionamento SemVer interno.
 
+## [0.9.0-storage-encrypted] - 2026-06-30
+
+### Adicionado
+
+- `SqlCipherLocalStore : ILocalStore` em `src/RemoteOps.Desktop/Infrastructure/`:
+  - Substituição persistente e criptografada do `InMemoryLocalStore` (ADR-008/ADR-003).
+  - Tables SQLCipher por workspace no mesmo banco `sync-{workspaceId}.db`: `asset_groups`, `assets`, `endpoints`, `credential_refs`.
+  - Toda mutação grava simultaneamente no outbox `local_outbox` via `ISyncClient.PushAsync` com `ClientChangeId` único — pronto para consumo pelo INT-5 (cloud sync).
+  - **Metadados apenas**: `SecretEnvelopeId` é referência ao envelope; nenhum segredo persistido.
+  - Implementa `GetEndpointAsync` e `GetCredentialRefAsync` (contrato `ILocalStore` estendido pelo INT-1).
+- `WorkspaceContext` em `src/RemoteOps.Sync/`: classe pública que agrupa `ISyncClient` + `OpenConnectionAsync()`, expondo acesso ao banco sem vazar `IDbConnectionFactory` (internal) ao Desktop.
+- `LocalSyncClientFactory.OpenWorkspaceAsync()`: novo método público que derive a chave uma única vez (via `VaultDbKeyProvider`) e devolve `WorkspaceContext` com sync + conexão reutilizando a mesma chave.
+
+### Alterado
+
+- `src/RemoteOps.Desktop/App.xaml.cs`: `async void OnStartup` inicializa vault (DPAPI + `FileVaultStore`), `LocalSyncClientFactory` e `WorkspaceContext`, cria o `SqlCipherLocalStore` e o injeta — junto com o `CredentialVault` de produção — no `AppCompositionRoot.Build(vault, store)` (integração com ADR-011). O composition root resolve o restante do grafo (adapters de terminal/WinBox, providers keyed, `MainViewModel`).
+- `AppCompositionRoot`: novo overload `Build(CredentialVault vault, ILocalStore store)` que registra o vault e o store de produção como instâncias, mantendo `Build()` (in-memory) para os smoke tests. Sub-grafo de vault in-memory só no caminho de teste.
+- `RemoteOps.Desktop.csproj`: adicionada referência a `RemoteOps.Sync`.
+- `InMemoryLocalStore`: mantida para testes de ViewModel; não é mais usada na produção (`App.xaml.cs`).
+- `docs/04-modelo-dados-sync.md`: seção de schema local atualizada para incluir tabelas `asset_groups`, `assets`, `endpoints`, `credential_refs`.
+- `DeleteAssetAsync` agora executa os dois DELETEs (`endpoints` e `assets`) dentro de uma única transação SQLite — elimina janela de corrupção em caso de falha entre as duas instruções.
+- Exceção lançada pelo `PRAGMA key` em `SqliteConnectionFactory` agora é sanitizada antes de propagar: nova `InvalidOperationException` com código de erro SQLite mas sem `hexKey` na mensagem nem no inner exception — impede vazamento da chave via logs de exceção.
+- `LocalSyncClientFactory.OpenWorkspaceAsync` valida `workspaceId` contra `Path.GetInvalidFileNameChars()` antes de qualquer operação de arquivo — previne path traversal.
+- `GetAssetsAsync` agora lança `InvalidOperationException` descritiva ao exceder 900 ativos por workspace, evitando erro genérico do SQLite ao superar `SQLITE_LIMIT_VARIABLE_NUMBER`.
+
+### Segurança
+
+- Chave AES-256 do banco derivada uma única vez por `VaultDbKeyProvider` (DPAPI/envelope, ADR-003); `WorkspaceContext` mantém a fábrica em memória sem re-acessar o vault por operação.
+- `hexKey` nunca aparece em log, exceção, string de conexão ou commit (ADR-008 regras derivadas); `SqliteConnectionFactory` sanitiza exceção do PRAGMA key para garantir isso mesmo em falhas de abertura.
+- Banco ilegível sem a chave do vault — verificado por teste `Db_Is_Unreadable_Without_Key`.
+- `Pooling=False` preserva isolamento de chave por workspace (sem reuso de conexão já decifrada entre workspaces).
+- Queries todas parametrizadas (`$param`) — sem SQL injection.
+- `CredentialRef.SecretEnvelopeId` incluído no outbox patch como referência (não o segredo); `CredentialMetadata` serializada como JSON sem campos de segredo.
+- `workspaceId` validado contra path traversal (`../evil`) antes de montar caminhos de arquivo.
+
+### Módulo
+
+- `src/RemoteOps.Desktop/Infrastructure/SqlCipherLocalStore.cs` — dono: `cloud-sync-agent`
+- Depends-on: `feature/integration-composition`
+
 ## [0.9.0-integration-composition] - 2026-06-30
 
 ### Adicionado

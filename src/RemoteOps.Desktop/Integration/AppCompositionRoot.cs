@@ -15,20 +15,46 @@ namespace RemoteOps.Desktop.Integration;
 
 internal static class AppCompositionRoot
 {
-    internal static ServiceProvider Build()
+    /// <summary>
+    /// Caminho in-memory (testes/smoke): registra `InMemoryLocalStore` e um
+    /// `CredentialVault` volátil construído pelo container.
+    /// </summary>
+    internal static ServiceProvider Build() => BuildInternal(store: null, vault: null);
+
+    /// <summary>
+    /// Caminho de produção (INT-3): recebe o `CredentialVault` (DPAPI/FileVaultStore)
+    /// e o `SqlCipherLocalStore` já inicializados de forma assíncrona em `App.OnStartup`
+    /// — DI é síncrono e não pode abrir o workspace/vault. Ambos entram como instâncias.
+    /// </summary>
+    internal static ServiceProvider Build(CredentialVault vault, ILocalStore store)
+        => BuildInternal(store, vault);
+
+    private static ServiceProvider BuildInternal(ILocalStore? store, CredentialVault? vault)
     {
         var services = new ServiceCollection();
 
         // Infraestrutura local
-        services.AddSingleton<ILocalStore, InMemoryLocalStore>();
+        if (store is null)
+            services.AddSingleton<ILocalStore, InMemoryLocalStore>();
+        else
+            services.AddSingleton(store);
 
         // Segurança / vault (ADR-003)
-        services.AddSingleton<ILocalKeyProtector, DpapiKeyProtector>();
-        services.AddSingleton<IWorkspaceKeyStore, InMemoryWorkspaceKeyStore>();
-        services.AddSingleton<IWorkspaceKeyRing, WorkspaceKeyRing>();
-        services.AddSingleton<ICredentialStore, InMemoryCredentialStore>();
-        services.AddSingleton<IVaultAuditSink>(NullVaultAuditSink.Instance);
-        services.AddSingleton<CredentialVault>();
+        if (vault is null)
+        {
+            // Sub-grafo volátil — só no caminho in-memory (testes).
+            services.AddSingleton<ILocalKeyProtector, DpapiKeyProtector>();
+            services.AddSingleton<IWorkspaceKeyStore, InMemoryWorkspaceKeyStore>();
+            services.AddSingleton<IWorkspaceKeyRing, WorkspaceKeyRing>();
+            services.AddSingleton<ICredentialStore, InMemoryCredentialStore>();
+            services.AddSingleton<IVaultAuditSink>(NullVaultAuditSink.Instance);
+            services.AddSingleton<CredentialVault>();
+        }
+        else
+        {
+            services.AddSingleton(vault);
+        }
+
         services.AddSingleton<IVault>(sp => sp.GetRequiredService<CredentialVault>());
         services.AddSingleton<ICredentialVault>(sp => sp.GetRequiredService<CredentialVault>());
 
