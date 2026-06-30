@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using System.Security.Cryptography;
 
 using RemoteOps.Contracts.Audit;
@@ -198,8 +199,7 @@ public sealed class WinBoxRunnerTests : IDisposable
             foreach (var (key, value) in evt.Metadata)
             {
                 var valueStr = value?.ToString() ?? string.Empty;
-                Assert.DoesNotContain(secretPassword, valueStr,
-                    $"Evento '{evt.Action}' chave '{key}' contém a senha.");
+                Assert.DoesNotContain(secretPassword, valueStr);
             }
         }
     }
@@ -229,7 +229,7 @@ public sealed class WinBoxRunnerTests : IDisposable
     [Fact]
     public async Task LaunchAsync_PasswordArgumentUsed_EmitsPasswordAuditEvent()
     {
-        const string password = "P@ss123";
+        const string password = "P@ss123"; // pragma: allowlist secret
         var (manifest, _) = CreateValidManifest();
         var credResolver = new FakeCredentialResolver(() => password);
         var runner = BuildRunner(manifest, AllowPasswordPolicy(), credentialResolver: credResolver);

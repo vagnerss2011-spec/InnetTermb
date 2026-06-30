@@ -80,12 +80,12 @@ public sealed class WinBoxArgumentBuilderTests
     public void Build_ModoB_WithLogin_WithPassword_ThreeArgs()
     {
         var request = MakeRequest(address: "10.0.0.1", port: 0, login: "admin", includePassword: true);
-        var args = WinBoxArgumentBuilder.Build(request, password: "S3cret", passwordArgumentAllowed: true);
+        var args = WinBoxArgumentBuilder.Build(request, password: "S3cret", passwordArgumentAllowed: true); // pragma: allowlist secret
 
         Assert.Equal(3, args.Count);
         Assert.Equal("10.0.0.1", args[0]);
         Assert.Equal("admin", args[1]);
-        Assert.Equal("S3cret", args[2]);
+        Assert.Equal("S3cret", args[2]); // pragma: allowlist secret
     }
 
     [Fact]
@@ -123,11 +123,11 @@ public sealed class WinBoxArgumentBuilderTests
     public void Build_PolicyDeniesPassword_IgnoresIncludePassword()
     {
         var request = MakeRequest(address: "10.0.0.1", port: 0, login: "admin", includePassword: true);
-        var args = WinBoxArgumentBuilder.Build(request, password: "S3cret", passwordArgumentAllowed: false);
+        var args = WinBoxArgumentBuilder.Build(request, password: "S3cret", passwordArgumentAllowed: false); // pragma: allowlist secret
 
         // passwordArgumentAllowed=false → sem senha no argv
         Assert.Equal(2, args.Count);
-        Assert.DoesNotContain("S3cret", args);
+        Assert.DoesNotContain("S3cret", args); // pragma: allowlist secret
     }
 
     [Fact]
@@ -135,7 +135,7 @@ public sealed class WinBoxArgumentBuilderTests
     {
         // Sem login, senha não pode ser adicionada (deslocaria a posição)
         var request = MakeRequest(address: "10.0.0.1", port: 0, login: null, includePassword: true);
-        var args = WinBoxArgumentBuilder.Build(request, password: "S3cret", passwordArgumentAllowed: true);
+        var args = WinBoxArgumentBuilder.Build(request, password: "S3cret", passwordArgumentAllowed: true); // pragma: allowlist secret
 
         Assert.Single(args);
         Assert.DoesNotContain(string.Empty, args);
