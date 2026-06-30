@@ -2,6 +2,27 @@
 
 Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.com/) e versionamento SemVer interno.
 
+## [0.6.0-desktop-shell] - 2026-06-30
+
+### Adicionado
+
+- Shell WPF/MVVM inicial em `src/RemoteOps.Desktop/`:
+  - **Janela principal** com 4 regiões redimensionáveis (GridSplitter): sidebar de grupos, lista de hosts, área de abas de sessão, inspector.
+  - **Domain:** `AssetGroup` (grupo local), `AddAssetRequest`.
+  - **Infrastructure:** `ILocalStore` + `InMemoryLocalStore` — CRUD de grupo/host/endpoint/credentialRef em memória; sem segredo.
+  - **ViewModels:** `BaseViewModel` (INotifyPropertyChanged), `RelayCommand` (ICommand), `SidebarViewModel`, `AssetGroupViewModel`, `HostListViewModel`, `AssetViewModel`, `InspectorViewModel`, `TabsViewModel`, `SessionTabViewModel`, `MainViewModel` (mediador).
+  - **Views (UserControls):** `SidebarView` (árvore de grupos), `HostListView` (DataGrid de hosts com filtro e CRUD), `InspectorView` (detalhes + adicionar endpoint + ações rápidas SSH/Telnet/RDP), `TabsView` (TabControl de sessões placeholder).
+  - `App.xaml.cs` instancia `InMemoryLocalStore` + `MainViewModel` sem DI externo.
+- Testes de ViewModel em `tests/RemoteOps.UnitTests/Desktop/`:
+  - `SidebarViewModelTests`, `HostListViewModelTests`, `InspectorViewModelTests`, `TabsViewModelTests`, `MainViewModelTests`.
+  - Projeto de testes migrado para `net10.0-windows` (necessário para referenciar projeto WPF; DPAPI tests já têm guard `OperatingSystem.IsWindows()`).
+
+### Restrições respeitadas
+
+- Nenhuma dependência de protocolo real; usa `IRemoteSessionProvider` apenas como interface de contratos.
+- Nenhum segredo em log ou UI; credencial exibe apenas nome e metadata (nunca senha).
+- Sem nova dependência NuGet externa (sem ADR necessária).
+
 ## [0.5.0-security-vault] - 2026-06-29
 
 ### Adicionado

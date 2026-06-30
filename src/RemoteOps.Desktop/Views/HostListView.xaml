@@ -1,0 +1,57 @@
+<UserControl x:Class="RemoteOps.Desktop.Views.HostListView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <DockPanel>
+        <!-- Barra de ferramentas: filtro + adicionar -->
+        <Grid DockPanel.Dock="Top" Margin="4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBox Grid.Column="0"
+                     Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}"
+                     ToolTip="Buscar por nome ou tag"
+                     Margin="0,0,8,0"/>
+
+            <TextBox Grid.Column="1"
+                     Text="{Binding NewHostName, UpdateSourceTrigger=PropertyChanged}"
+                     ToolTip="Nome do novo host"
+                     Width="140"
+                     Margin="0,0,4,0"/>
+
+            <Button Grid.Column="2"
+                    Content="Adicionar"
+                    Command="{Binding AddHostCommand}"
+                    Padding="8,2"
+                    Margin="0,0,4,0"/>
+
+            <Button Grid.Column="3"
+                    Content="Remover"
+                    Command="{Binding DeleteHostCommand}"
+                    Padding="8,2"/>
+        </Grid>
+
+        <!-- Lista de hosts -->
+        <DataGrid ItemsSource="{Binding Assets}"
+                  SelectedItem="{Binding SelectedAsset, Mode=TwoWay}"
+                  AutoGenerateColumns="False"
+                  IsReadOnly="True"
+                  HeadersVisibility="Column"
+                  GridLinesVisibility="Horizontal"
+                  SelectionMode="Single"
+                  BorderThickness="0"
+                  CanUserResizeRows="False">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Nome"     Binding="{Binding Name}"           Width="*"/>
+                <DataGridTextColumn Header="Protocolo" Binding="{Binding PrimaryProtocol}" Width="80"/>
+                <DataGridTextColumn Header="Endereço"  Binding="{Binding PrimaryAddress}"  Width="*"/>
+                <DataGridTextColumn Header="Vendor"    Binding="{Binding Vendor}"           Width="100"/>
+                <DataGridTextColumn Header="Tags"      Binding="{Binding Tags}"             Width="120"/>
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</UserControl>
