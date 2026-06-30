@@ -4,6 +4,15 @@
     <RootNamespace>RemoteOps.Terminal</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <!-- SSH.NET 2024.x (package ID: SSH.NET; namespace: Renci.SshNet). ADR-008 justifica. -->
+    <PackageReference Include="SSH.NET" Version="2024.2.0" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\RemoteOps.Contracts\RemoteOps.Contracts.csproj" />
+    <!-- IVault + VaultSecret para higiene de senha (FIX 3 / ADR-008). -->
+    <ProjectReference Include="..\RemoteOps.Security\RemoteOps.Security.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="RemoteOps.UnitTests" />
   </ItemGroup>
 </Project>
