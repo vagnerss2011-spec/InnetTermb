@@ -127,8 +127,13 @@ completo de cada decisão.
   OFF-por-padrão e aplicados 1:1 a partir da política resolvida — não há
   ainda UI/política para habilitá-los por grupo. Redirecionamento USB
   **não está conectado**: a interface MSTSCAX real disponível
-  (`IMsRdpClientAdvancedSettings8`) não expõe controle de USB nesse nível;
-  é um gap de MVP rastreado, não um TODO esquecido.
+  (`IMsRdpClientAdvancedSettings8`) já expõe `RedirectDevices`/
+  `RedirectPOSDevices` (o equivalente padrão do MSTSCAX a redirecionamento de
+  dispositivo via Plug-and-Play — o mais próximo disponível de "USB" neste
+  controle), mas `RdpTabView` ainda não faz esse wiring de
+  `UsbRedirectionEnabled`; é um gap de MVP de wiring pequeno e bem definido
+  (ver ADR-014 Decisão 3/Decisão 7), não uma limitação estrutural da
+  interface nem um TODO esquecido.
 - **NLA/certificado**: NLA obrigatório (`EnableCredSspSupport=true`,
   `AuthenticationLevel=2`); o prompt nativo de certificado inválido do
   MSTSCAX não é suprimido. **Auditoria de aceitar/rejeitar certificado ainda

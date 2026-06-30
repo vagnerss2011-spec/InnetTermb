@@ -12,7 +12,7 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   - `RdpTabViewModel`/`RdpTabView` (`src/RemoteOps.Desktop/Rdp/`): ciclo de vida da aba; `RdpTabView.xaml.cs` hospeda `AxMSTSCLib.AxMsRdpClient9NotSafeForScripting` via `WindowsFormsHost`, aplica `RdpConnectionConfig` 1:1 em `AdvancedSettings9`.
   - Feature flag `rdp.enabled` (`IFeatureFlags`/`EnvironmentFeatureFlags`, lida de `REMOTEOPS_FEATURE_FLAGS`) gateia visibilidade do botão "Conectar RDP" no Inspector **e** o roteamento em `MainViewModel.OnSessionRequested` — defesa em profundidade.
   - DI wiring em `AppCompositionRoot`; `TabsView.xaml` ganha DataTemplate para `RdpTabViewModel`.
-- `adr/ADR-014-rdp-hospedagem-activex-e-politicas.md`: hospedagem ActiveX, lifetime de senha, políticas de redirecionamento (default OFF), NLA obrigatório/certificado, feature flag, e o pivot de empacotamento do interop COM (Decisão 6) com os comandos de regeneração via `TlbImp.exe`/`AxImp.exe`.
+- `adr/ADR-014-rdp-hospedagem-activex-e-politicas.md`: hospedagem ActiveX, lifetime de senha, políticas de redirecionamento (default OFF), NLA obrigatório/certificado, feature flag, e o pivot de empacotamento do interop COM (Decisão 6) com os comandos de regeneração via uma única invocação de `AxImp.exe` (ver ADR-014 Decisão 6 para os comandos exatos).
 
 ### Alterado
 
@@ -23,7 +23,7 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 ### Segurança
 
 - Senha RDP resolvida do vault apenas no momento do connect real (`RdpTabViewModel.ResolvePasswordAsync`, dentro de `RdpTabView.InitAndConnectAsync`), nunca retida em campo de ViewModel — mesma mitigação de lifetime mínimo do ADR-009 §FIX-3.
-- Redirecionamentos (clipboard/drive/printer/áudio) OFF por padrão (`RdpRedirectionPolicy.Default`); aplicados sempre 1:1 a partir da política resolvida, nunca hardcoded "on". USB redirection permanece sem efeito (gap de MVP rastreado — `IMsRdpClientAdvancedSettings8` não expõe esse controle).
+- Redirecionamentos (clipboard/drive/printer/áudio) OFF por padrão (`RdpRedirectionPolicy.Default`); aplicados sempre 1:1 a partir da política resolvida, nunca hardcoded "on". USB redirection permanece sem efeito (gap de MVP de wiring rastreado — `IMsRdpClientAdvancedSettings8` já expõe `RedirectDevices`/`RedirectPOSDevices`, equivalente PnP mais próximo de USB neste controle; `RdpTabView` só ainda não conecta `UsbRedirectionEnabled` a essa propriedade — ver ADR-014 Decisão 3/Decisão 7).
 - NLA obrigatório (`EnableCredSspSupport=true`) e `AuthenticationLevel=2`; prompt nativo de certificado inválido nunca suprimido. **Pendência:** auditoria de aceitar/rejeitar certificado (`RdpActions.CertificateAccepted/Rejected`) ainda não emitida — gancho de evento MSTSCAX não confirmado/conectado nesta frente.
 - Guards de `IsLoaded` após os `await` de `RdpTabView.InitAndConnectAsync` fecham a sessão corretamente (`RdpTabViewModel.CloseAsync()`) se a aba for fechada em pleno connect, evitando orfanar uma conexão credenciada viva.
 - Habilitar `rdp.enabled` em produção requer revisão do `security-agent` (CLAUDE.md §Atualizações de arquitetura v2); verificação manual end-to-end contra host/lab real ainda não realizada (pendência, ver ADR-014).

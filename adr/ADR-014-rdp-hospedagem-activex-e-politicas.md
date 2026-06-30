@@ -73,12 +73,18 @@ credenciada viva.
 hardcoded como "on"; tudo é config-driven a partir da política resolvida.
 
 `RdpRedirectionPolicy.UsbRedirectionEnabled` existe no record mas **não é
-aplicado em nenhum lugar do `RdpTabView`**: o surface real confirmado por
-reflexão no assembly gerado (`IMsRdpClientAdvancedSettings8`, retornado por
-`AdvancedSettings9` — ver Decisão 7) não expõe um controle de redirecionamento
-USB nesse nível de interface. Isso é um gap de MVP rastreado, não um bug —
-não há nenhuma chamada esquecida ou comentada; a propriedade simplesmente não
-tem onde ser conectada com a interface disponível.
+aplicado em nenhum lugar do `RdpTabView`**: isso é um gap de MVP rastreado, não
+um bug de implementação — não há nenhuma chamada esquecida ou comentada, o
+wiring simplesmente não foi feito ainda. Correção (confirmada por reflexão,
+ver Decisão 7): o surface real do assembly gerado
+(`IMsRdpClientAdvancedSettings8`, retornado por `AdvancedSettings9`) **expõe**
+`RedirectDevices`/`RedirectPOSDevices` — a propriedade padrão do MSTSCAX para
+redirecionamento de dispositivos Plug-and-Play, que é o equivalente mais
+próximo disponível neste controle a "redirecionamento USB" (clientes RDP
+modernos roteiam dispositivos classe USB via redirecionamento PnP, não uma API
+USB dedicada). Ou seja, o gap é puramente de wiring — a interface já em uso
+já tem onde conectar `UsbRedirectionEnabled` — não uma limitação estrutural da
+interface disponível.
 
 Não há perfil/política de override nesta PR — habilitar redirecionamentos
 para grupos específicos exige uma decisão de produto futura (RBAC por grupo,
@@ -221,12 +227,21 @@ ambiente.
 
 ## Decisão 7 — API real confirmada do MSTSCAX (via reflexão, não suposição)
 
-A classe instanciável é `AxMSTSCLib.AxMsRdpClient9NotSafeForScripting` — é o
-maior número de classe MSTSCAX **totalmente instanciável e registrada como
-controle ativável** presente no assembly gerado, mesmo a hierarquia de
-interfaces do interop bruto (`MSTSCLib`) indo até `MsRdpClient12...`: as
-classes de número mais alto existem como interfaces adicionais, mas não estão
-separadamente registradas como ActiveX ativável nesta `mstscax.dll`.
+A classe usada é `AxMSTSCLib.AxMsRdpClient9NotSafeForScripting`. **Correção
+(confirmada por reflexão sobre `AxInterop.MSTSCLib.dll`):** ao contrário do que
+uma versão anterior desta ADR afirmava, `AxMsRdpClient9NotSafeForScripting`
+**não** é a classe de número mais alto totalmente instanciável — as classes
+`AxMsRdpClient10NotSafeForScripting`, `AxMsRdpClient11NotSafeForScripting` e
+`AxMsRdpClient12NotSafeForScripting` também existem como classes públicas,
+não-abstratas, derivadas de `AxHost`, com construtor público sem parâmetros —
+exatamente tão instanciáveis quanto a Ax9. Ax9 foi escolhida não por ser o
+teto disponível, mas porque é uma versão estável e suficiente para as
+necessidades deste MVP: `AdvancedSettings9` retorna exatamente o mesmo tipo,
+`MSTSCLib.IMsRdpClientAdvancedSettings8`, tanto em `AxMsRdpClient9...` quanto
+em `AxMsRdpClient12...` — não há diferença funcional, para a superfície de
+propriedades que este código efetivamente usa, entre hospedar via Ax9 ou
+Ax12. Isso não muda nada em `RdpTabView.xaml.cs` (que continua correto ao usar
+Ax9) — só corrige a justificativa que esta ADR dava para essa escolha.
 
 `AxMsRdpClient9NotSafeForScripting.AdvancedSettings9` retorna o tipo
 `MSTSCLib.IMsRdpClientAdvancedSettings8` — o descompasso de número entre o
@@ -235,8 +250,10 @@ Microsoft, não erro de digitação. Essa interface expõe `RDPPort`,
 `ClearTextPassword`, `AuthenticationLevel`, `EnableCredSspSupport`,
 `NegotiateSecurityLayer`, `RedirectClipboard`, `RedirectDrives`,
 `RedirectPrinters`, `AudioRedirectionMode` (`uint`: `0` = tocar localmente,
-`2` = não tocar) — sem controle de redirecionamento USB neste nível de
-interface (ver Decisão 3).
+`2` = não tocar), e também `RedirectDevices`/`RedirectPOSDevices` (bool,
+leitura/escrita) — o equivalente mais próximo a um controle de
+redirecionamento USB disponível neste nível de interface (ver Decisão 3;
+ainda não conectado em `RdpTabView`, mas a propriedade existe).
 
 O evento real de desconexão é
 `OnDisconnected(object sender, IMsTscAxEvents_OnDisconnectedEvent e)`, com a
@@ -310,9 +327,11 @@ onde necessário).
   uma conexão de fato. Necessário antes de habilitar `rdp.enabled` em
   qualquer ambiente real.
 - `UsbRedirectionEnabled` em `RdpRedirectionPolicy` permanece sem efeito
-  prático (não há propriedade equivalente em `IMsRdpClientAdvancedSettings8`)
-  — decidir se remove o campo, documenta como sempre-OFF-por-limitação, ou
-  investiga uma interface MSTSCAX adicional que exponha USB redirection.
+  prático — mas conectar `RdpRedirectionPolicy.UsbRedirectionEnabled` →
+  `AdvancedSettings9.RedirectDevices` é um follow-up pequeno e bem definido (a
+  propriedade já existe na interface já em uso, `IMsRdpClientAdvancedSettings8`
+  — ver Decisão 3/Decisão 7), **não** um gap estrutural que exija investigar
+  uma interface MSTSCAX adicional.
 - Decidir se a aba RDP deve ser "pinned" para sobreviver a um re-template de
   troca de aba, ou se reconectar é aceitável no MVP — não decidido nesta
   frente.
