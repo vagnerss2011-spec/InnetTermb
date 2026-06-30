@@ -46,7 +46,21 @@
             <WrapPanel Margin="0,0,0,4">
                 <Button Content="SSH"     Command="{Binding OpenSessionCommand}" CommandParameter="ssh"      Margin="0,0,4,4" Padding="8,2"/>
                 <Button Content="Telnet"  Command="{Binding OpenSessionCommand}" CommandParameter="telnet"   Margin="0,0,4,4" Padding="8,2"/>
-                <Button Content="RDP"     Command="{Binding OpenSessionCommand}" CommandParameter="rdp"      Margin="0,0,4,4" Padding="8,2"/>
+                <Button Content="RDP"
+                        Command="{Binding OpenSessionCommand}"
+                        CommandParameter="rdp"
+                        Margin="0,0,4,4" Padding="8,2">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding CanOpenRdp}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
                 <Button Content="Abrir WinBox"
                         Command="{Binding OpenWinBoxCommand}"
                         Margin="0,0,4,4" Padding="8,2">
