@@ -25,7 +25,10 @@ internal sealed class SqliteConnectionFactory : IDbConnectionFactory
 
     public async Task<SqliteConnection> OpenAsync(CancellationToken ct = default)
     {
-        var conn = new SqliteConnection($"Data Source={_dbPath}");
+        // Pooling=False: conexões em pool retêm a chave do SQLCipher, o que permitiria
+        // reusar uma conexão já decifrada sem reapresentar a chave (quebra de isolamento
+        // por workspace). Desabilitar o pool garante que cada conexão reaplique o PRAGMA key.
+        var conn = new SqliteConnection($"Data Source={_dbPath};Pooling=False");
         try
         {
             await conn.OpenAsync(ct);
