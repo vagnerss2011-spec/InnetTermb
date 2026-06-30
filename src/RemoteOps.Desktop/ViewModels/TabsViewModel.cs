@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using RemoteOps.Desktop.Terminal;
 
 namespace RemoteOps.Desktop.ViewModels;
 
@@ -38,12 +39,24 @@ public sealed class TabsViewModel : BaseViewModel
         return tab;
     }
 
+    /// <summary>Adiciona uma aba de terminal pré-construída e a ativa.</summary>
+    public void OpenTerminalTab(TerminalTabViewModel tab)
+    {
+        Tabs.Add(tab);
+        ActiveTab = tab;
+        RaisePropertyChanged(nameof(HasTabs));
+    }
+
     private void CloseTab(SessionTabViewModel? tab)
     {
         if (tab == null || tab.IsPinned)
         {
             return;
         }
+
+        // Close the underlying session (fire-and-forget; pump cancellation is fast)
+        if (tab is TerminalTabViewModel ttvm)
+            _ = ttvm.CloseAsync();
 
         int idx = Tabs.IndexOf(tab);
         Tabs.Remove(tab);

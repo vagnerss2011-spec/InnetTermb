@@ -100,6 +100,46 @@ Os scripts de hook já estão em `.claude/hooks/`. Para ativar nas suas sessões
 - `PreToolUse` bloqueia comandos claramente destrutivos (`rm -rf /`, force-push em `main`, etc.).
 - A allowlist reduz prompts repetidos nas N sessões paralelas. Ajuste à vontade.
 
+## Frontend do Terminal (WebView2 / xterm.js)
+
+O módulo `src/RemoteOps.Desktop/Terminal/wwwroot/` contém assets front-end gerados via npm + esbuild.
+Os arquivos compilados (`js/terminal.bundle.js`, `css/xterm.css`) **são versionados no repositório**,
+portanto o build npm só precisa ser re-executado ao alterar dependências ou o `build.js`.
+
+### Primeiro setup (ou ao atualizar xterm.js)
+
+```powershell
+cd src\RemoteOps.Desktop\Terminal\wwwroot
+npm ci                # instala exatamente as versões de package-lock.json
+node build.js         # gera js/terminal.bundle.js e css/xterm.css
+```
+
+### Verificar a integridade dos assets gerados
+
+Após o build, confirme que os arquivos existem e não estão vazios:
+
+```powershell
+Get-Item js\terminal.bundle.js, css\xterm.css | Select-Object Name, Length
+```
+
+Saída esperada:
+
+```
+Name                 Length
+----                 ------
+terminal.bundle.js   ~420000
+xterm.css            ~5000
+```
+
+### Atualizar versão do xterm.js
+
+1. Edite `package.json` com a nova versão desejada.
+2. Execute `npm install` para regenerar `package-lock.json`.
+3. Execute `node build.js` para rearranjar o bundle.
+4. Adicione uma entrada no `CHANGELOG.md` e abra um ADR se a API mudar.
+
+> **Nota:** `node_modules/` está no `.gitignore` — nunca commite esta pasta.
+
 ## Subagentes
 
 Os agentes em `.claude/agents/` têm escrita habilitada (`Edit, Write`) e são donos de frentes

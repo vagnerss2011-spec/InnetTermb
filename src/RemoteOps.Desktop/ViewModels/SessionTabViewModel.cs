@@ -1,6 +1,6 @@
 namespace RemoteOps.Desktop.ViewModels;
 
-public sealed class SessionTabViewModel : BaseViewModel
+public class SessionTabViewModel : BaseViewModel
 {
     private string _title;
     private bool _isPinned;

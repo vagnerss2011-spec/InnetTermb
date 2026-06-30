@@ -10,6 +10,12 @@ TestResults/
 node_modules/
 dist/
 
+# SEC-008: compiled wwwroot bundles are build artefacts — generate via `npm ci && node build.js`
+# Committed once as a bootstrap; CI must regenerate and verify integrity.
+# Uncomment the lines below when CI generates these artefacts reliably:
+# src/RemoteOps.Desktop/Terminal/wwwroot/js/terminal.bundle.js
+# src/RemoteOps.Desktop/Terminal/wwwroot/css/xterm.css
+
 # Build nativo (NDesk)
 build/
 
