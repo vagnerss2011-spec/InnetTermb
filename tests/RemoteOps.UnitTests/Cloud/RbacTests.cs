@@ -220,9 +220,12 @@ public sealed class RbacTests
         // Segundo usuário sem membership
         var stranger = new UserEntity
         {
-            Id = Guid.NewGuid(), Email = "stranger@test.local",
-            DisplayName = "Stranger", Status = "active",
-            PasswordHash = "v1:x:x", CreatedAt = DateTimeOffset.UtcNow,
+            Id = Guid.NewGuid(),
+            Email = "stranger@test.local",
+            DisplayName = "Stranger",
+            Status = "active",
+            PasswordHash = "v1:x:x",
+            CreatedAt = DateTimeOffset.UtcNow,
         };
         ctx.Db.Users.Add(stranger);
         await ctx.Db.SaveChangesAsync();

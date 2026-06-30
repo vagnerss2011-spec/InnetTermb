@@ -37,8 +37,11 @@ public sealed class AuthTests
 
         var device = new DeviceEntity
         {
-            Id = Guid.NewGuid(), UserId = user.Id, Name = "Laptop Roubado",
-            Status = "active", RegisteredAt = DateTimeOffset.UtcNow,
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            Name = "Laptop Roubado",
+            Status = "active",
+            RegisteredAt = DateTimeOffset.UtcNow,
         };
         ctx.Db.Devices.Add(device);
 

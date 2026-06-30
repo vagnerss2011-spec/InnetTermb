@@ -78,9 +78,12 @@ public sealed class SyncTests
         // Usuário sem membership não deve conseguir pull
         var stranger = new UserEntity
         {
-            Id = Guid.NewGuid(), Email = "stranger2@test.local",
-            DisplayName = "Stranger2", Status = "active",
-            PasswordHash = "v1:x:x", CreatedAt = DateTimeOffset.UtcNow,
+            Id = Guid.NewGuid(),
+            Email = "stranger2@test.local",
+            DisplayName = "Stranger2",
+            Status = "active",
+            PasswordHash = "v1:x:x",
+            CreatedAt = DateTimeOffset.UtcNow,
         };
         ctx.Db.Users.Add(stranger);
         await ctx.Db.SaveChangesAsync();

@@ -45,24 +45,34 @@ internal sealed class CloudTestContext : IDisposable
     {
         var tenant = new TenantEntity
         {
-            Id = Guid.NewGuid(), Name = "Tenant Test", Status = "active",
+            Id = Guid.NewGuid(),
+            Name = "Tenant Test",
+            Status = "active",
             CreatedAt = DateTimeOffset.UtcNow,
         };
         var workspace = new WorkspaceEntity
         {
-            Id = Guid.NewGuid(), TenantId = tenant.Id, Name = "WS Test",
-            Status = "active", CreatedAt = DateTimeOffset.UtcNow,
+            Id = Guid.NewGuid(),
+            TenantId = tenant.Id,
+            Name = "WS Test",
+            Status = "active",
+            CreatedAt = DateTimeOffset.UtcNow,
         };
         var user = new UserEntity
         {
-            Id = Guid.NewGuid(), Email = $"user-{Guid.NewGuid()}@test.local",
-            DisplayName = "Test User", Status = "active",
-            PasswordHash = "v1:test:test", MfaRequired = false,
+            Id = Guid.NewGuid(),
+            Email = $"user-{Guid.NewGuid()}@test.local",
+            DisplayName = "Test User",
+            Status = "active",
+            PasswordHash = "v1:test:test",
+            MfaRequired = false,
             CreatedAt = DateTimeOffset.UtcNow,
         };
         var membership = new MembershipEntity
         {
-            WorkspaceId = workspace.Id, UserId = user.Id, Role = role,
+            WorkspaceId = workspace.Id,
+            UserId = user.Id,
+            Role = role,
         };
 
         Db.Tenants.Add(tenant);

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using RemoteOps.Cloud.Audit;
 using RemoteOps.Cloud.Data;
@@ -6,7 +7,6 @@ using RemoteOps.Cloud.Data.Entities;
 using RemoteOps.Cloud.Hubs;
 using RemoteOps.Cloud.Rbac;
 using RemoteOps.Contracts.Sync;
-using Microsoft.AspNetCore.SignalR;
 
 namespace RemoteOps.Cloud.Sync;
 
