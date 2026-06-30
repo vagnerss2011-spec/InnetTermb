@@ -1,0 +1,10 @@
+{
+  "_note": "Substitua sha256 pelo hash SHA-256 oficial do winbox64.exe antes de usar em produção. Sha256 nulo ou inválido bloqueia a execução (fail-closed).",
+  "tool": "winbox",
+  "version": "4.x",
+  "file": "winbox64.exe",
+  "sha256": null,
+  "executablePath": "tools\\winbox\\winbox64.exe",
+  "approvedBy": null,
+  "approvedAt": null
+}
