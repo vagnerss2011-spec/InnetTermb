@@ -1,3 +1,4 @@
+using System.IO;
 using System.IO.Pipelines;
 using RemoteOps.Terminal.Telnet;
 
