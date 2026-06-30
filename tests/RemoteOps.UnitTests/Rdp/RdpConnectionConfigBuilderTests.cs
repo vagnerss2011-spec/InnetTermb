@@ -11,15 +11,15 @@ public sealed class RdpConnectionConfigBuilderTests
         string? ipv6 = null,
         string? fqdn = null,
         int port = 0) => new()
-    {
-        Id = "ep-1",
-        AssetId = "asset-1",
-        Protocol = "rdp",
-        Ipv4 = ipv4,
-        Ipv6 = ipv6,
-        Fqdn = fqdn,
-        Port = port,
-    };
+        {
+            Id = "ep-1",
+            AssetId = "asset-1",
+            Protocol = "rdp",
+            Ipv4 = ipv4,
+            Ipv6 = ipv6,
+            Fqdn = fqdn,
+            Port = port,
+        };
 
     [Fact]
     public void ResolveHost_PreferIpv6True_AndIpv6Present_ReturnsIpv6()
