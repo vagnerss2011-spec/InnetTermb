@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    DEFERRED: Este projeto NÃO está incluído em RemoteOps.sln.
+    Será ativado quando a frente feature/ndesk-relay for iniciada.
+    Ver ADR-007, ADR-005 e docs/09-acesso-remoto-ndesk.md.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>RemoteOps.NDesk.Relay</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\RemoteOps.Contracts\RemoteOps.Contracts.csproj" />
+  </ItemGroup>
+</Project>
