@@ -29,14 +29,19 @@ public sealed class CredentialVault : IVault, ICredentialVault
     public CredentialVault(
         ICredentialStore store,
         IWorkspaceKeyRing keyRing,
-        IVaultAuditSink? audit = null,
+        IVaultAuditSink audit,
         TimeProvider? clock = null)
     {
+        // ADR-003: "recuperação exige auditoria". O sink é obrigatório de propósito —
+        // um default silencioso (NullVaultAuditSink) transformaria a exigência de
+        // auditoria em no-op numa configuração de DI incorreta. Quem realmente quiser
+        // descartar eventos deve passar NullVaultAuditSink.Instance explicitamente.
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(keyRing);
+        ArgumentNullException.ThrowIfNull(audit);
         _store = store;
         _keyRing = keyRing;
-        _audit = audit ?? NullVaultAuditSink.Instance;
+        _audit = audit;
         _clock = clock ?? TimeProvider.System;
     }
 
@@ -62,11 +67,22 @@ public sealed class CredentialVault : IVault, ICredentialVault
         byte[] plaintext = EnvelopeCipher.Open(
             workspaceKey.Key.Span,
             envelope,
-            BuildAad(envelope.EnvelopeId, envelope.WorkspaceId, envelope.Version),
+            BuildAad(envelope.EnvelopeId, envelope.WorkspaceId, envelope.Version, envelope.Type),
             BuildWrapAad(envelope.WorkspaceId));
 
-        await EmitAsync(VaultAction.CredentialUse, envelope, context.ActorUserId, context.DeviceId, ct).ConfigureAwait(false);
-        return new VaultSecret(plaintext);
+        // O plaintext só fica seguro (auto-zerável) dentro do VaultSecret. Até lá, se
+        // qualquer await falhar (auditoria/cancelamento), zere o buffer manualmente
+        // para não deixar segredo órfão na heap aguardando o GC.
+        try
+        {
+            await EmitAsync(VaultAction.CredentialUse, envelope, context.ActorUserId, context.DeviceId, ct).ConfigureAwait(false);
+            return new VaultSecret(plaintext);
+        }
+        catch
+        {
+            CryptographicOperations.ZeroMemory(plaintext);
+            throw;
+        }
     }
 
     public async Task<SecretEnvelope> RotateAsync(string envelopeId, ReadOnlyMemory<char> newSecret, VaultAccessContext context, CancellationToken ct = default)
@@ -77,7 +93,10 @@ public sealed class CredentialVault : IVault, ICredentialVault
         using WorkspaceKey workspaceKey = await _keyRing.GetOrCreateWorkspaceKeyAsync(current.WorkspaceId, ct).ConfigureAwait(false);
         SecretEnvelope rotated = CreateEnvelope(current.WorkspaceId, current.CredentialId, current.Type, current.Version + 1, workspaceKey.Key.Span, newSecret);
         await _store.SaveAsync(rotated, ct).ConfigureAwait(false);
-        await TombstoneAsync(current, ct).ConfigureAwait(false);
+        SecretEnvelope tombstone = await TombstoneAsync(current, ct).ConfigureAwait(false);
+        // A rotação revoga o envelope anterior: emite o revoke explícito para que uma
+        // auditoria forense que filtre por credential.revoke encontre a revogação.
+        await EmitAsync(VaultAction.CredentialRevoke, tombstone, context.ActorUserId, context.DeviceId, ct).ConfigureAwait(false);
         await EmitAsync(VaultAction.CredentialRotate, rotated, context.ActorUserId, context.DeviceId, ct).ConfigureAwait(false);
         return rotated;
     }
@@ -116,7 +135,7 @@ public sealed class CredentialVault : IVault, ICredentialVault
     private SecretEnvelope CreateEnvelope(string workspaceId, string credentialId, string type, int version, ReadOnlySpan<byte> workspaceKey, ReadOnlyMemory<char> secret)
     {
         string envelopeId = Guid.NewGuid().ToString("n");
-        byte[] aad = BuildAad(envelopeId, workspaceId, version);
+        byte[] aad = BuildAad(envelopeId, workspaceId, version, type);
         byte[] wrapAad = BuildWrapAad(workspaceId);
 
         int rentSize = Encoding.UTF8.GetMaxByteCount(Math.Max(1, secret.Length));
@@ -194,8 +213,11 @@ public sealed class CredentialVault : IVault, ICredentialVault
             },
             ct);
 
-    private static byte[] BuildAad(string envelopeId, string workspaceId, int version) =>
-        Encoding.UTF8.GetBytes($"env|{envelopeId}|{workspaceId}|v{version}");
+    // Type entra no AAD para autenticar o campo estrutural do envelope: mesmo sem
+    // RBAC por tipo hoje, impede que um atacante com escrita no store altere o Type
+    // de um envelope sem quebrar a verificação GCM.
+    private static byte[] BuildAad(string envelopeId, string workspaceId, int version, string type) =>
+        Encoding.UTF8.GetBytes($"env|{envelopeId}|{workspaceId}|v{version}|{type}");
 
     private static byte[] BuildWrapAad(string workspaceId) =>
         Encoding.UTF8.GetBytes($"wdk|{workspaceId}");

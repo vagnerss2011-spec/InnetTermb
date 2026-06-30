@@ -17,7 +17,7 @@ public sealed class VaultRoundTripTests
     public async Task Store_Then_Retrieve_Returns_Original_Secret()
     {
         VaultTestContext ctx = VaultTestContext.InMemory();
-        const string secret = "S3nh@-Admin-#2026!";
+        const string secret = "S3nh@-Admin-#2026!"; // pragma: allowlist secret (fixture sintética)
 
         SecretEnvelope envelope = await ctx.Vault.StoreAsync(NewRequest(), secret.AsMemory());
         using VaultSecret revealed = await ctx.Vault.RetrieveAsync(envelope.EnvelopeId, Access());
@@ -31,7 +31,7 @@ public sealed class VaultRoundTripTests
     public async Task Stored_Envelope_Never_Contains_Plaintext()
     {
         VaultTestContext ctx = VaultTestContext.InMemory();
-        const string secret = "PLAINTEXT-CANARY-9f3a";
+        const string secret = "PLAINTEXT-CANARY-9f3a"; // pragma: allowlist secret (fixture sintética)
 
         SecretEnvelope envelope = await ctx.Vault.StoreAsync(NewRequest(), secret.AsMemory());
 

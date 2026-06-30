@@ -43,10 +43,10 @@ Padrão de envelope encryption (mesma ideia de AWS KMS/GCP KMS): a WDK nunca apa
 
 ## Associated Data (AAD)
 
-- Conteúdo: `env|{envelopeId}|{workspaceId}|v{version}`.
+- Conteúdo: `env|{envelopeId}|{workspaceId}|v{version}|{type}`.
 - Wrap da CEK: `wdk|{workspaceId}`.
 
-Como GCM é AEAD, o AAD é autenticado mas não cifrado. Trocar envelope entre workspaces, fazer downgrade de versão ou adulterar qualquer campo quebra o tag → `CryptographicException`.
+Como GCM é AEAD, o AAD é autenticado mas não cifrado. Trocar envelope entre workspaces, fazer downgrade de versão ou adulterar qualquer campo (inclusive `type`) quebra o tag → `CryptographicException`.
 
 ## Proteção da chave local (DPAPI)
 
@@ -86,12 +86,21 @@ Mapeamento dos critérios de aceite da frente para os testes em `tests/RemoteOps
 | Contrato fino round-trip + revoga | `Thin_Contract_RoundTrips_And_Revokes` | `VaultRotationRevocationTests.cs` |
 | Auditoria sem segredo | `Audit_Records_Lifecycle_Without_Any_Secret` | `VaultAuditTests.cs` |
 | `VaultSecret` redigido / seguro pós-dispose | `VaultSecret_ToString_Is_Redacted`, `VaultSecret_Throws_After_Dispose` | `VaultAuditTests.cs` |
+| Tombstone apaga material criptográfico | `Revoked_Envelope_Has_Crypto_Material_Erased` | `VaultTamperingTests.cs` |
+| AAD autentica workspace/versão/tipo (anti troca/replay/downgrade) | `Tampering_WorkspaceId_Breaks_Open`, `Tampering_Version_Breaks_Open`, `Tampering_Type_Breaks_Open` | `VaultTamperingTests.cs` |
 | DPAPI real round-trip / entropia errada falha (Windows) | `Protect_Then_Unprotect_RoundTrips_On_Windows`, `Unprotect_With_Wrong_Entropy_Fails_On_Windows` | `DpapiKeyProtectorTests.cs` |
 
 Os testes de isolamento usuário/máquina rodam cross-platform usando um `ILocalKeyProtector` falso que modela a identidade DPAPI; os testes de DPAPI real só executam de fato no job `windows-latest` do CI (no-op fora do Windows).
+
+## Uso seguro e limitações
+
+- **Auditoria é obrigatória**: `CredentialVault` exige um `IVaultAuditSink` no construtor (ADR-003). Para descartar eventos conscientemente, passe `NullVaultAuditSink.Instance` — não há default silencioso.
+- **Prefira `IVault` a `ICredentialVault`**: o contrato fino materializa o segredo como `string` (imutável, não zerável). É só para a fronteira cross-module; RBAC/UI devem usar `IVault` com `ReadOnlyMemory<char>` e `VaultSecret`.
+- **Caminho do `FileVaultStore` deve ser privado do usuário** (`%APPDATA%\RemoteOps\`). O DPAPI já garante que o blob não abre para outro usuário, mas o arquivo herda os ACLs do diretório; ACL explícita é hardening rastreado.
 
 ## Pendências (issues a abrir)
 
 - Persistência SQLCipher real substituindo `FileVaultStore` na integração com o DB local + outbox.
 - "Revelar senha exige permissão especial" via RBAC (`docs/18`) na camada de aplicação.
-- Política/feature flag para habilitar materialização de segredo como `string` (hoje só no contrato fino cross-module).
+- ACL restritiva no `FileVaultStore` (defesa em profundidade sobre o DPAPI).
+- Teste verificando que o blob DPAPI não abre em escopo `LocalMachine`.

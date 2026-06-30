@@ -22,7 +22,7 @@ public sealed class VaultRestartTests : IDisposable
     [Fact]
     public async Task Secret_Survives_Process_Restart()
     {
-        const string secret = "Restart-Persist-#42";
+        const string secret = "Restart-Persist-#42"; // pragma: allowlist secret (fixture sintética)
         string envelopeId;
 
         // "Sessão 1": grava o segredo e descarta as instâncias (simula encerrar o app).

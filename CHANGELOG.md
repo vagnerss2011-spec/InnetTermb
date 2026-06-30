@@ -23,8 +23,9 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 - Nenhum segredo, senha ou chave privada em texto puro: plaintext só vive dentro de `VaultSecret` (zerado no `Dispose`); buffers transitórios alugados de `ArrayPool` e zerados no `finally`.
 - WDK nunca persistida em claro — apenas blob protegido por DPAPI (CurrentUser + entropia por workspace) → cache local não abre em outro usuário/máquina.
-- AAD impede troca/replay de envelope entre workspaces e downgrade de versão.
-- Auditoria, exceções e `ToString()` não contêm segredo; erros DPAPI expõem apenas o código Win32.
+- AAD impede troca/replay de envelope entre workspaces, downgrade de versão e troca de `type` (campo `type` autenticado no AAD).
+- Auditoria, exceções e `ToString()` não contêm segredo (inclui `WorkspaceKey`); erros DPAPI expõem apenas o código Win32.
+- Hardening da revisão de segurança (security-agent): `plaintext`/WDK zerados também nos caminhos de exceção; `IVaultAuditSink` obrigatório (sem default silencioso); rotação emite `credential.revoke` do envelope antigo; testes de adulteração de AAD e de apagamento no tombstone.
 
 ## [0.4.0-skeleton] - 2026-06-29
 
