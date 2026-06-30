@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://remoteops.local/contracts/conflict-detail.schema.json",
+  "title": "ConflictDetail",
+  "type": "object",
+  "required": ["entityType", "entityId", "baseVersion", "currentVersion", "reason"],
+  "properties": {
+    "clientChangeId": { "type": ["string", "null"] },
+    "entityType": { "type": "string" },
+    "entityId": { "type": "string" },
+    "baseVersion": { "type": "integer" },
+    "currentVersion": { "type": "integer", "description": "-1 quando não aplicável (ex.: SecretEnvelope)." },
+    "reason": { "type": "string", "description": "ex.: version.conflict | secret-envelope.no-auto-merge" }
+  }
+}

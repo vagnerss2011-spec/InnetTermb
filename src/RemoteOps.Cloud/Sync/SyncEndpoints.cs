@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 using RemoteOps.Cloud.Errors;
 using RemoteOps.Cloud.Rbac;
+using RemoteOps.Contracts.Sync;
 
 namespace RemoteOps.Cloud.Sync;
 

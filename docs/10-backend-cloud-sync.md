@@ -115,6 +115,33 @@ SignalR envia apenas hints. Exemplo:
 }
 ```
 
+## Cliente de sincronização (Desktop, INT-5)
+
+> **Estado (feature/integration-cloud-sync):** cliente implementado em `RemoteOps.Sync/Remote`,
+> ligado ao Desktop atrás da feature flag. Ver `adr/ADR-013-cliente-sync-remoto.md`.
+
+O Desktop sincroniza com este backend atrás da flag **`cloud.sync.enabled` (default OFF)**. Com OFF
+o app é offline-first puro (sem rede). Com ON, o `SyncOrchestrator`:
+
+1. drena o outbox local (`LocalSyncClient.PullAsync(outboxCursor)`) → `POST /sync/push`;
+2. trata o `PushResult` (avança `outbox_cursor`; grava `ConflictDetail`; SecretEnvelope sem auto-merge);
+3. `GET /sync/pull(serverCursor)` → aplica via `IRemoteChangeApplier` → avança `serverCursor`;
+4. reage aos hints `workspace.changed` (SignalR) com pull incremental, e roda também por intervalo.
+
+Toda request leva `Authorization: Bearer {JWT}` + `X-Device-Id`. Refresh automático em 401 + retry
+único. Tokens guardados via vault (DPAPI/envelope) — nunca em texto puro. TLS sempre validado.
+
+### Configuração do cliente (variáveis de ambiente, Desktop)
+
+| Variável | Descrição |
+|---|---|
+| `REMOTEOPS_CLOUD_SYNC_ENABLED` | `true` liga o sync (feature flag; default OFF). |
+| `REMOTEOPS_CLOUD_URL` | Base URL https do Cloud. |
+| `REMOTEOPS_CLOUD_WORKSPACE_ID` | GUID do workspace no servidor. |
+
+Estado exposto na UI (`MainViewModel.SyncStatus`): Offline / Sincronizando / Sincronizado
+(+ contagem de conflitos) / Erro.
+
 ## NDesk broker
 
 Responsabilidades:

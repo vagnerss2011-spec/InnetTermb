@@ -2,6 +2,46 @@
 
 Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.com/) e versionamento SemVer interno.
 
+## [0.9.0-integration-cloud-sync] - 2026-06-30
+
+### Adicionado
+
+- **INT-5 — Cliente de sincronização remoto (Desktop ↔ Cloud), atrás da feature flag `cloud.sync.enabled` (default OFF):**
+  - `RemoteOps.Contracts/Sync/`: `PullResponse`, `PushRequest`, `PushResult`, `ConflictDetail` movidos de `RemoteOps.Cloud` (forma JSON inalterada — compatibilidade total da API).
+  - `RemoteOps.Sync/Remote/CloudSyncApiClient`: HTTP push/pull/login/refresh sobre `HttpClient` injetável; `Authorization: Bearer` + `X-Device-Id`; refresh automático em 401 + retry único; 409 = `PushResult` de conflito; erros viram `CloudSyncException` sem vazar token.
+  - `SyncOrchestrator`: drena outbox → push → trata conflitos/cursor → pull → aplica → avança cursores; estado Offline/Syncing/Synced/Error + contagem de conflitos.
+  - `LocalEntitiesChangeApplier`: aplica mudanças puxadas em `local_entities` (idempotente, monotônico via UPSERT `version >=`, sem re-emitir no outbox).
+  - `SqliteSyncMetadataStore`: cursores (server + `outbox_cursor`) e `ConflictDetail` em `conflicts`, com migração aditiva/idempotente sobre o schema legado.
+  - `VaultTokenStore`: tokens guardados como segredo no vault; apenas o envelopeId no `.tokenref`; rotação revoga o envelope anterior.
+  - `SignalRSyncHintChannel` + `SyncSession`: hints `workspace.changed` → pull incremental; laço por intervalo resiliente (sincroniza mesmo sem WebSocket).
+  - `adr/ADR-013-cliente-sync-remoto.md`; schemas em `contracts/` (`sync-push-request`, `sync-push-result`, `sync-pull-response`, `conflict-detail`).
+  - Testes cross-platform em `tests/RemoteOps.UnitTests/Sync/`: round-trip push/pull, refresh em 401, conflito 409, applier created/updated/deleted, idempotência/monotonicidade, cursores, migração compatível, token store sem segredo, e prova de no-secret-in-log.
+
+### Alterado
+
+- `RemoteOps.Cloud/Sync/SyncModels.cs` removido; Cloud passa a usar os DTOs de `RemoteOps.Contracts.Sync` (sem mudança de forma JSON).
+- `RemoteOps.Sync.csproj`: nova dependência `Microsoft.AspNetCore.SignalR.Client` (ADR-010/ADR-013).
+- `src/RemoteOps.Desktop/App.xaml.cs`: monta a `SyncSession` atrás da flag e conecta `MainViewModel.SyncStatus` ao orquestrador (Dispatcher na UI thread); descarte no `OnExit`.
+- `docs/04-modelo-dados-sync.md` e `docs/10-backend-cloud-sync.md` atualizados (migração + arquitetura do cliente + flag).
+
+### Segurança
+
+- Nenhum token/segredo/patch em log, exceção, fixture ou commit; `CloudSyncException` expõe só o status HTTP.
+- Tokens via vault (DPAPI/envelope, ADR-003); `.tokenref` guarda só o envelopeId.
+- `SecretEnvelope` nunca sofre auto-merge no cliente (espelha `secret-envelope.no-auto-merge`).
+- TLS sempre validado; `X-Device-Id` em toda request; feature flag default OFF (revisão do `security-agent`).
+- **Revisão de segurança (security-agent):** `SyncSessionFactory`/Desktop exigem **HTTPS** na URL do Cloud (M-1 — rejeita `http://`, fail-closed), evitando Bearer/refresh token em claro; `TokenSet.ToString()` redatado (L-1 — não expõe tokens); revogação de envelope no `VaultTokenStore` documentada como best-effort (L-3).
+- **Revisão adversarial (orquestrador Opus) — hardening de concorrência/perda-de-dados:**
+  - `SyncOrchestrator.SyncOnceAsync` agora é **serializado** (`SemaphoreSlim`): o laço por intervalo e o hint SignalR compartilham o mesmo outbox/cursores; sem exclusão mútua, dois ciclos concorrentes faziam read-modify-write não atômico do outbox/server cursor e podiam **pular mudanças locais** ou regredir o server cursor.
+  - `SqliteSyncMetadataStore`: gravação de cursor **monotônica** (`MAX(cursor, excluded.cursor)`) — defesa em profundidade contra regressão.
+  - `LocalEntitiesChangeApplier` agora **segrega `SecretEnvelope`** também no pull (ignora; nunca aplica no cache `local_entities`), coerente com a política de não auto-merge.
+  - `SyncSession.DisposeAsync` descarta o canal de hints **antes** do `CancellationTokenSource` e `OnHintAsync` é blindado contra `ObjectDisposedException` numa corrida de shutdown.
+  - +5 testes (serialização, monotonicidade ×2, segregação de SecretEnvelope ×2).
+
+### Módulo
+
+- `src/RemoteOps.Sync/Remote/*` — dono: `cloud-sync-agent`
+
 ## [0.9.0-integration-terminal-ui] - 2026-06-30
 
 ### Adicionado

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://remoteops.local/contracts/sync-push-result.schema.json",
+  "title": "PushResult",
+  "type": "object",
+  "required": ["status"],
+  "properties": {
+    "status": { "enum": ["ok", "conflict"] },
+    "newCursor": { "type": ["integer", "null"] },
+    "conflicts": {
+      "type": ["array", "null"],
+      "items": { "$ref": "conflict-detail.schema.json" }
+    }
+  }
+}
