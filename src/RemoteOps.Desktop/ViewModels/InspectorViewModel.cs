@@ -99,23 +99,17 @@ public sealed class InspectorViewModel : BaseViewModel
         IsBusy = true;
         try
         {
+            // Endereço: detectar se é FQDN ou IPv4 de forma simples
+            bool isIp = System.Net.IPAddress.TryParse(NewEndpointAddress, out _);
             var ep = new Endpoint
             {
                 Id = Guid.NewGuid().ToString("n"),
                 AssetId = Asset.Id,
                 Protocol = NewEndpointProtocol,
                 Port = NewEndpointPort,
+                Ipv4 = isIp ? NewEndpointAddress : null,
+                Fqdn = isIp ? null : NewEndpointAddress,
             };
-
-            // Endereço: detectar se é FQDN ou IPv4 de forma simples
-            if (System.Net.IPAddress.TryParse(NewEndpointAddress, out _))
-            {
-                ep = ep with { Ipv4 = NewEndpointAddress };
-            }
-            else
-            {
-                ep = ep with { Fqdn = NewEndpointAddress };
-            }
 
             await _store.AddEndpointAsync(ep);
             NewEndpointAddress = string.Empty;
