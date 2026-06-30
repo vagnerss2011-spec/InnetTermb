@@ -3,7 +3,7 @@ namespace RemoteOps.Cloud.Data.Entities;
 /// <summary>
 /// Referência opaca de envelope no servidor. Armazena apenas ciphertext e metadados.
 /// O servidor NUNCA possui a Workspace Data Key (WDK) nem a Content Encryption Key (CEK).
-/// Conforme ADR-003 e ADR-008.
+/// Conforme ADR-003 e ADR-010.
 /// </summary>
 public sealed class SecretEnvelopeEntity
 {

@@ -10,7 +10,7 @@ namespace RemoteOps.Terminal.Ssh;
 
 /// <summary>
 /// Adaptador SSH para ITerminalSessionProvider. Consolida SSH em RemoteOps.Terminal
-/// (Opção A do layout — ver ADR-008 §Decisão de layout).
+/// (Opção A do layout — ver ADR-009 §Decisão de layout).
 /// </summary>
 public sealed class SshSessionProvider : ITerminalSessionProvider
 {
@@ -84,14 +84,14 @@ public sealed class SshSessionProvider : ITerminalSessionProvider
 
         // FIX 3: VaultSecret é descartado logo após autenticação para zerar o buffer UTF-8.
         // Renci.SshNet exige string em PasswordAuthenticationMethod — essa conversão é inevitável
-        // e está documentada no ADR-008 §FIX-3 com os mitigantes adotados.
+        // e está documentada no ADR-009 §FIX-3 com os mitigantes adotados.
         using var secret = await _vault.RetrieveAsync(envelopeId, vaultCtx, ct);
         string password = secret.RevealString();
 
         var (connection, shell, channel, readerCts) =
             await ConnectWithTofuAsync(host, port, username, password, cols, rows, termType, request.SessionId, ct);
 
-        // VaultSecret é zerado ao sair do using acima; password persiste em SSH.NET até GC (ADR-008).
+        // VaultSecret é zerado ao sair do using acima; password persiste em SSH.NET até GC (ADR-009).
 
         var state = new SshSessionState(connection, shell, channel, readerCts);
         _sessions[request.SessionId] = state;

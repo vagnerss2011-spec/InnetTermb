@@ -70,7 +70,7 @@ internal sealed class RenciSshShell : ISshShell
 
     // Limitação conhecida: SSH.NET 2024.2.0 não expõe window-change/resize público
     // no ShellStream. O resize do PTY remoto fica como TODO (enviar window-change via
-    // canal quando a API permitir). No-op para não quebrar o fluxo de UI. Ver ADR-008.
+    // canal quando a API permitir). No-op para não quebrar o fluxo de UI. Ver ADR-009.
     public void Resize(uint cols, uint rows)
     {
         // no-op intencional (ver comentário acima).

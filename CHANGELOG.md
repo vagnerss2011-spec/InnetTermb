@@ -29,7 +29,7 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 - **FIX 4 — policy deny real**: `LocalWinBoxPolicyProvider` nega por workspace/host; `IncludePasswordArgument=true` sem `PasswordArgumentAllowed` na política lança exceção explícita e auditada.
 - Senha via argumento de processo documentada como risco na ADR-006 (visível na tabela de processos local); desativada por padrão; Modo B requer habilitação explícita por política de workspace.
 
-## [Não Lançado] — feature/terminal-ssh-telnet-v2
+## [0.7.3-terminal-ssh-telnet] - 2026-06-30
 
 ### Adicionado
 
@@ -44,7 +44,7 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 - `HostKeyStore`: cache em memória de host keys TOFU por sessão de provider.
 - Testes unitários em `tests/RemoteOps.UnitTests/Terminal/`: 12 casos cobrindo protocol,
   OpenAsync, TOFU bloqueante, consentimento Telnet, resize, round-trip e auditoria sem segredo.
-- `adr/ADR-008-ssh-telnet-libs-e-credenciais.md`.
+- `adr/ADR-009-ssh-telnet-libs-e-credenciais.md`.
 
 ### Segurança
 
@@ -69,7 +69,7 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 - Sem segredo em log, fixture ou commit.
 - `RemoteOps.Terminal` (`net10.0` cross-platform) não referencia nada Windows-specific.
 
-## [0.7.0-cloud-backend] - 2026-06-30
+## [0.7.2-cloud-backend] - 2026-06-30
 
 ### Adicionado
 
@@ -81,7 +81,7 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   - **SignalR**: `SyncHub` em `/hubs/sync` emite hint `workspace.changed` com `workspaceId`, `cursor`, `entityType`, `entityId`. Broadcast escopado ao grupo do workspace. Sem payload completo (ADR-002).
   - **Auditoria**: `AuditService` persiste `AuditEvent` (tipo canônico de `RemoteOps.Contracts.Audit`) em toda ação sensível. `Metadata` sanitizado — chaves com "password", "secret", "token", "key", "hash" são `[REDACTED]`.
   - **ProblemDetails**: `CloudExceptionHandler` + `CorrelationIdMiddleware`. Todos os erros retornam `application/problem+json` com `correlationId`. Sem stack trace em produção.
-- `adr/ADR-008-backend-ef-npgsql-signalr.md`: ADR justificando EF Core, Npgsql, JWT Bearer e SignalR (pré-requisito obrigatório de CLAUDE.md).
+- `adr/ADR-010-backend-ef-npgsql-signalr.md`: ADR justificando EF Core, Npgsql, JWT Bearer e SignalR (pré-requisito obrigatório de CLAUDE.md).
 - Testes em `tests/RemoteOps.UnitTests/Cloud/`: `RbacTests` (11 cenários — allow/deny, negação explícita, device/workspace/membership/cross-tenant), `SyncTests` (pull paginado, push ok/conflito/idempotente, SecretEnvelope bloqueado), `AuditTests` (gravação, sanitização de segredos, mapeamento para contrato canônico).
 
 ### Segurança
@@ -99,7 +99,7 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 - **[MEDIUM] `SyncHub.JoinWorkspace`**: adicionada verificação de membership antes de adicionar o cliente ao grupo SignalR. Antes, qualquer usuário autenticado podia assinar hints de workspaces aos quais não pertencia.
 - **[MEDIUM] `SyncEndpoints`**: `X-Device-Id` header passou a ser **obrigatório** em `GET /sync/pull` e `POST /sync/push` (retorna 400 se ausente). Garante que a verificação de device revocation no `PermissionEvaluator` seja sempre executada, sem possibilidade de bypass por omissão do header.
 
-## [0.7.0-sync-local] - 2026-06-30
+## [0.7.1-sync-local] - 2026-06-30
 
 ### Adicionado
 

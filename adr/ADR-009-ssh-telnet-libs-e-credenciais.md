@@ -1,4 +1,4 @@
-# ADR-008 — SSH/Telnet: libs externas, layout e higiene de credenciais
+# ADR-009 — SSH/Telnet: libs externas, layout e higiene de credenciais
 
 ## Status
 
