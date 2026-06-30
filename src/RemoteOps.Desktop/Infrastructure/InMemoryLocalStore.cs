@@ -75,7 +75,7 @@ public sealed class InMemoryLocalStore : ILocalStore
             Vendor = request.Vendor,
             Model = request.Model,
             Site = request.Site,
-            Tags = [..request.Tags],
+            Tags = [.. request.Tags],
         };
         _assets[asset.Id] = asset;
         return Task.FromResult(asset);
@@ -116,7 +116,7 @@ public sealed class InMemoryLocalStore : ILocalStore
                 Site = asset.Site,
                 Tags = asset.Tags,
                 Version = asset.Version,
-                Endpoints = [..asset.Endpoints, endpoint],
+                Endpoints = [.. asset.Endpoints, endpoint],
             };
             _assets[asset.Id] = updated;
         }
