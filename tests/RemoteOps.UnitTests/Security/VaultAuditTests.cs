@@ -9,7 +9,7 @@ namespace RemoteOps.UnitTests.Security;
 
 public sealed class VaultAuditTests
 {
-    private const string Secret = "AUDIT-CANARY-7Kx";
+    private const string Secret = "AUDIT-CANARY-7Kx"; // pragma: allowlist secret (fixture sintética)
 
     [Fact]
     public async Task Audit_Records_Lifecycle_Without_Any_Secret()

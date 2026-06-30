@@ -44,10 +44,21 @@ public sealed class DpapiKeyProtectorTests
 
         var protector = new DpapiKeyProtector();
         byte[] key = RandomNumberGenerator.GetBytes(32);
-
         byte[] blob = protector.Protect(key, Encoding.UTF8.GetBytes("entropy-A"));
 
-        Assert.Throws<CryptographicException>(
-            () => protector.Unprotect(blob, Encoding.UTF8.GetBytes("entropy-B")));
+        // Chamada direta (não dentro de um lambda) para que o guard
+        // OperatingSystem.IsWindows() acima cubra este call site aos olhos do CA1416 —
+        // a análise de plataforma não atravessa a fronteira de closures.
+        CryptographicException? caught = null;
+        try
+        {
+            protector.Unprotect(blob, Encoding.UTF8.GetBytes("entropy-B"));
+        }
+        catch (CryptographicException ex)
+        {
+            caught = ex;
+        }
+
+        Assert.NotNull(caught);
     }
 }

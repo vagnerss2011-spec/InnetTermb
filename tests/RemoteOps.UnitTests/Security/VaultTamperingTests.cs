@@ -27,14 +27,15 @@ public sealed class VaultTamperingTests
 
         SecretEnvelope? stored = await store.GetAsync(envelope.EnvelopeId);
         Assert.NotNull(stored);
-        Assert.NotNull(stored!.RevokedAt);
+        SecretEnvelope tombstone = stored!;
+        Assert.NotNull(tombstone.RevokedAt);
         // O material não pode sobreviver à revogação.
-        Assert.Empty(stored.WrappedCek);
-        Assert.Empty(stored.CekNonce);
-        Assert.Empty(stored.CekTag);
-        Assert.Empty(stored.Ciphertext);
-        Assert.Empty(stored.Nonce);
-        Assert.Empty(stored.Tag);
+        Assert.Empty(tombstone.WrappedCek);
+        Assert.Empty(tombstone.CekNonce);
+        Assert.Empty(tombstone.CekTag);
+        Assert.Empty(tombstone.Ciphertext);
+        Assert.Empty(tombstone.Nonce);
+        Assert.Empty(tombstone.Tag);
     }
 
     [Fact]

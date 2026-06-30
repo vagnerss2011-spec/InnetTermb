@@ -99,6 +99,11 @@ jobs:
           skip_suffixes = {".md", ".mmd"}
           skip_dirs = {".git", "docs", "adr", "node_modules", "build", "bin", "obj"}
 
+          # Allowlist explícita e auditável por linha: fixtures sintéticas de teste
+          # (docs/13 — "Usar fixtures sintéticas e secrets gerados para teste").
+          # Use com parcimônia; cada exceção fica visível no diff e na revisão.
+          allow_marker = "pragma: allowlist secret"
+
           findings = []
           for path in pathlib.Path(".").rglob("*"):
               if not path.is_file():
@@ -111,9 +116,12 @@ jobs:
                   text = path.read_text(errors="ignore")
               except Exception:
                   continue
-              for name, rx in patterns.items():
-                  for m in rx.finditer(text):
-                      findings.append(f"{path}: possível {name}: {m.group(0)[:40]}...")
+              for lineno, line in enumerate(text.splitlines(), 1):
+                  if allow_marker in line:
+                      continue
+                  for name, rx in patterns.items():
+                      for m in rx.finditer(line):
+                          findings.append(f"{path}:{lineno}: possível {name}: {m.group(0)[:40]}...")
 
           if findings:
               print("Possíveis segredos em texto puro encontrados:", file=sys.stderr)
