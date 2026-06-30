@@ -31,6 +31,12 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 - `SecretEnvelope` nunca sofre auto-merge no cliente (espelha `secret-envelope.no-auto-merge`).
 - TLS sempre validado; `X-Device-Id` em toda request; feature flag default OFF (revisão do `security-agent`).
 - **Revisão de segurança (security-agent):** `SyncSessionFactory`/Desktop exigem **HTTPS** na URL do Cloud (M-1 — rejeita `http://`, fail-closed), evitando Bearer/refresh token em claro; `TokenSet.ToString()` redatado (L-1 — não expõe tokens); revogação de envelope no `VaultTokenStore` documentada como best-effort (L-3).
+- **Revisão adversarial (orquestrador Opus) — hardening de concorrência/perda-de-dados:**
+  - `SyncOrchestrator.SyncOnceAsync` agora é **serializado** (`SemaphoreSlim`): o laço por intervalo e o hint SignalR compartilham o mesmo outbox/cursores; sem exclusão mútua, dois ciclos concorrentes faziam read-modify-write não atômico do outbox/server cursor e podiam **pular mudanças locais** ou regredir o server cursor.
+  - `SqliteSyncMetadataStore`: gravação de cursor **monotônica** (`MAX(cursor, excluded.cursor)`) — defesa em profundidade contra regressão.
+  - `LocalEntitiesChangeApplier` agora **segrega `SecretEnvelope`** também no pull (ignora; nunca aplica no cache `local_entities`), coerente com a política de não auto-merge.
+  - `SyncSession.DisposeAsync` descarta o canal de hints **antes** do `CancellationTokenSource` e `OnHintAsync` é blindado contra `ObjectDisposedException` numa corrida de shutdown.
+  - +5 testes (serialização, monotonicidade ×2, segregação de SecretEnvelope ×2).
 
 ### Módulo
 

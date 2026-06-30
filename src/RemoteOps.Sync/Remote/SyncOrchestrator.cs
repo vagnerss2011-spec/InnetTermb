@@ -38,30 +38,46 @@ public sealed class SyncOrchestrator
 
     public SyncStatus Status { get; private set; } = new(SyncState.Offline);
 
+    // Serializa SyncOnceAsync: o laço por intervalo (SyncSession.RunLoopAsync) e o callback de hint
+    // (SyncSession.OnHintAsync, disparado pelo SignalR) compartilham o MESMO outbox e os MESMOS
+    // cursores. Sem exclusão mútua, dois ciclos concorrentes fazem read-modify-write não atômico do
+    // outbox cursor / server cursor (o CurrentCursor do outbox é estado compartilhado) e podem PULAR
+    // mudanças locais ou regredir o server cursor. Um ciclo por vez elimina a corrida (ADR-013).
+    private readonly SemaphoreSlim _gate = new(1, 1);
+
     /// <summary>
     /// Executa um ciclo completo de push + pull. Em falha de rede/servidor fica em
     /// <see cref="SyncState.Error"/> (não relança) para que o laço de fundo siga no próximo intervalo.
+    /// Serializado: chamadas concorrentes (hint + intervalo) rodam uma após a outra, nunca em paralelo.
     /// </summary>
     public async Task SyncOnceAsync(CancellationToken ct = default)
     {
-        SetStatus(SyncState.Syncing);
+        await _gate.WaitAsync(ct);
         try
         {
-            SyncCursors cursors = await _metadata.GetCursorsAsync(_workspaceId, ct);
-            await DrainOutboxAsync(cursors.OutboxCursor, ct);
-            await ApplyServerChangesAsync(cursors.ServerCursor, ct);
+            SetStatus(SyncState.Syncing);
+            try
+            {
+                SyncCursors cursors = await _metadata.GetCursorsAsync(_workspaceId, ct);
+                await DrainOutboxAsync(cursors.OutboxCursor, ct);
+                await ApplyServerChangesAsync(cursors.ServerCursor, ct);
 
-            int conflicts = await _metadata.GetConflictCountAsync(ct);
-            SetStatus(SyncState.Synced, conflicts);
+                int conflicts = await _metadata.GetConflictCountAsync(ct);
+                SetStatus(SyncState.Synced, conflicts);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception)
+            {
+                // Sem detalhes da exceção no estado/log — garante no-secret-in-log (ADR-013).
+                SetStatus(SyncState.Error);
+            }
         }
-        catch (OperationCanceledException)
+        finally
         {
-            throw;
-        }
-        catch (Exception)
-        {
-            // Sem detalhes da exceção no estado/log — garante no-secret-in-log (ADR-013).
-            SetStatus(SyncState.Error);
+            _gate.Release();
         }
     }
 

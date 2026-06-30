@@ -40,9 +40,11 @@ public sealed class SqliteSyncMetadataStore : ISyncMetadataStore
         await EnsureSchemaAsync(conn, ct);
 
         using SqliteCommand cmd = conn.CreateCommand();
+        // MAX(...) garante avanço monotônico: um save tardio nunca regride o cursor abaixo de um valor
+        // já gravado (defesa em profundidade — a serialização do SyncOrchestrator já evita a corrida).
         cmd.CommandText = """
             INSERT INTO sync_cursor (workspace_id, cursor, outbox_cursor) VALUES ($ws, $cursor, 0)
-            ON CONFLICT (workspace_id) DO UPDATE SET cursor = excluded.cursor;
+            ON CONFLICT (workspace_id) DO UPDATE SET cursor = MAX(cursor, excluded.cursor);
             """;
         cmd.Parameters.AddWithValue("$ws", workspaceId);
         cmd.Parameters.AddWithValue("$cursor", cursor);
@@ -57,7 +59,7 @@ public sealed class SqliteSyncMetadataStore : ISyncMetadataStore
         using SqliteCommand cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT INTO sync_cursor (workspace_id, cursor, outbox_cursor) VALUES ($ws, 0, $outbox)
-            ON CONFLICT (workspace_id) DO UPDATE SET outbox_cursor = excluded.outbox_cursor;
+            ON CONFLICT (workspace_id) DO UPDATE SET outbox_cursor = MAX(outbox_cursor, excluded.outbox_cursor);
             """;
         cmd.Parameters.AddWithValue("$ws", workspaceId);
         cmd.Parameters.AddWithValue("$outbox", cursor);

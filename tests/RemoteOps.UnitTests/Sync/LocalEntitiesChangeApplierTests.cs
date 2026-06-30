@@ -122,4 +122,51 @@ public sealed class LocalEntitiesChangeApplierTests
         IReadOnlyList<SyncChange> outbox = await ctx.Client.PullAsync(0);
         Assert.Empty(outbox);
     }
+
+    [Fact]
+    public async Task Apply_Skips_SecretEnvelope_Changes()
+    {
+        using var ctx = await SyncTestContext.CreateAsync("ws-app-secret");
+        var applier = new LocalEntitiesChangeApplier(ctx.Workspace);
+
+        // SecretEnvelope NUNCA é aplicado/mesclado no cliente (CLAUDE.md / ADR-003). Mesmo misturado
+        // com mudanças normais, é ignorado; o asset legítimo é aplicado.
+        var secret = new SyncChange
+        {
+            EntityType = "SecretEnvelope",
+            EntityId = "se1",
+            Operation = "updated",
+            BaseVersion = 3,
+            Patch = new Dictionary<string, object?> { ["keyVersion"] = 2 },
+        };
+
+        await applier.ApplyAsync([secret, Change("a1", "created", 0, "r1")]);
+
+        (bool secretExists, _, _) = await ReadEntityAsync(ctx, "SecretEnvelope", "se1");
+        (bool assetExists, _, _) = await ReadEntityAsync(ctx, "asset", "a1");
+        Assert.False(secretExists);
+        Assert.True(assetExists);
+    }
+
+    [Fact]
+    public async Task Apply_Skips_SecretEnvelope_Delete()
+    {
+        using var ctx = await SyncTestContext.CreateAsync("ws-app-secret-del");
+        var applier = new LocalEntitiesChangeApplier(ctx.Workspace);
+
+        var del = new SyncChange
+        {
+            EntityType = "SecretEnvelope",
+            EntityId = "se1",
+            Operation = "deleted",
+            BaseVersion = 0,
+            Patch = [],
+        };
+
+        // Não lança e não toca local_entities (segregado antes do DELETE).
+        await applier.ApplyAsync([del]);
+
+        (bool exists, _, _) = await ReadEntityAsync(ctx, "SecretEnvelope", "se1");
+        Assert.False(exists);
+    }
 }

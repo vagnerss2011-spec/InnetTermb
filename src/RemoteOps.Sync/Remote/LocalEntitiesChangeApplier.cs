@@ -36,6 +36,17 @@ public sealed class LocalEntitiesChangeApplier : IRemoteChangeApplier
         foreach (SyncChange change in changes)
         {
             ct.ThrowIfCancellationRequested();
+
+            // SecretEnvelope NUNCA é aplicado/mesclado no cliente (CLAUDE.md / ADR-003): o cofre é a
+            // autoridade do segredo e o cliente nunca decide/reflete envelope automaticamente. Mudanças
+            // desse tipo puxadas do servidor são ignoradas aqui — coerente com a política de não
+            // auto-merge no push. Não vazam segredo (o patch nunca o contém), mas não devem entrar no
+            // cache local_entities sem o fluxo de vault.
+            if (string.Equals(change.EntityType, "SecretEnvelope", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
             if (string.Equals(change.Operation, "deleted", StringComparison.Ordinal))
             {
                 await DeleteAsync(conn, change, ct);

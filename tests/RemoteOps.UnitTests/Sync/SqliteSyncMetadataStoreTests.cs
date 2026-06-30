@@ -75,6 +75,32 @@ public sealed class SqliteSyncMetadataStoreTests
     }
 
     [Fact]
+    public async Task Server_Cursor_Is_Monotonic_Never_Regresses()
+    {
+        using var ctx = await SyncTestContext.CreateAsync("ws-md-mono-srv");
+        var store = new SqliteSyncMetadataStore(ctx.Workspace);
+
+        await store.SaveServerCursorAsync("ws-md-mono-srv", 150);
+        await store.SaveServerCursorAsync("ws-md-mono-srv", 120); // save tardio/obsoleto não regride
+
+        SyncCursors cursors = await store.GetCursorsAsync("ws-md-mono-srv");
+        Assert.Equal(150, cursors.ServerCursor);
+    }
+
+    [Fact]
+    public async Task Outbox_Cursor_Is_Monotonic_Never_Regresses()
+    {
+        using var ctx = await SyncTestContext.CreateAsync("ws-md-mono-out");
+        var store = new SqliteSyncMetadataStore(ctx.Workspace);
+
+        await store.SaveOutboxCursorAsync("ws-md-mono-out", 400);
+        await store.SaveOutboxCursorAsync("ws-md-mono-out", 200); // não regride abaixo do já gravado
+
+        SyncCursors cursors = await store.GetCursorsAsync("ws-md-mono-out");
+        Assert.Equal(400, cursors.OutboxCursor);
+    }
+
+    [Fact]
     public async Task Migrates_Compatibly_Over_Legacy_Schema()
     {
         using var ctx = await SyncTestContext.CreateAsync("ws-md-migrate");
