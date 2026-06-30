@@ -10,6 +10,10 @@ namespace RemoteOps.Sync.Storage;
 /// </summary>
 internal sealed class SqliteConnectionFactory : IDbConnectionFactory
 {
+    // Registra o provider SQLCipher (bundle_e_sqlcipher) uma vez. Necessário com
+    // Microsoft.Data.Sqlite.Core, que não inicializa o provider automaticamente.
+    static SqliteConnectionFactory() => SQLitePCL.Batteries_V2.Init();
+
     private readonly string _dbPath;
     private readonly string _hexKey;
 
