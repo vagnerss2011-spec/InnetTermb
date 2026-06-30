@@ -28,8 +28,19 @@ public sealed class TelnetSessionProvider : ITerminalSessionProvider
         IEndpointResolver endpointResolver,
         ITelnetConsentProvider consentProvider,
         ITerminalAuditSink auditSink,
+        ITerminalSecurityContext securityContext)
+        : this(endpointResolver, consentProvider, auditSink, securityContext, factory: null)
+    {
+    }
+
+    // Construtor de injeção da fábrica (test seam). Internal para não expor
+    // ITelnetConnectionFactory na API pública; visível aos testes via InternalsVisibleTo.
+    internal TelnetSessionProvider(
+        IEndpointResolver endpointResolver,
+        ITelnetConsentProvider consentProvider,
+        ITerminalAuditSink auditSink,
         ITerminalSecurityContext securityContext,
-        ITelnetConnectionFactory? factory = null)
+        ITelnetConnectionFactory? factory)
     {
         _endpointResolver = endpointResolver;
         _consentProvider = consentProvider;

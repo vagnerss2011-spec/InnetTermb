@@ -32,8 +32,22 @@ public sealed class SshSessionProvider : ITerminalSessionProvider
         IVault vault,
         ITerminalSecurityContext securityContext,
         IHostKeyConfirmation hostKeyConfirmation,
+        ITerminalAuditSink auditSink)
+        : this(endpointResolver, credentialRefResolver, vault, securityContext,
+               hostKeyConfirmation, auditSink, factory: null)
+    {
+    }
+
+    // Construtor de injeção da fábrica (test seam). Internal para não expor
+    // ISshConnectionFactory na API pública; visível aos testes via InternalsVisibleTo.
+    internal SshSessionProvider(
+        IEndpointResolver endpointResolver,
+        ICredentialRefResolver credentialRefResolver,
+        IVault vault,
+        ITerminalSecurityContext securityContext,
+        IHostKeyConfirmation hostKeyConfirmation,
         ITerminalAuditSink auditSink,
-        ISshConnectionFactory? factory = null)
+        ISshConnectionFactory? factory)
     {
         _endpointResolver = endpointResolver;
         _credentialRefResolver = credentialRefResolver;
