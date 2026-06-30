@@ -2,14 +2,19 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:RemoteOps.Desktop.ViewModels"
-             xmlns:terminal="clr-namespace:RemoteOps.Desktop.Terminal">
+             xmlns:terminal="clr-namespace:RemoteOps.Desktop.Terminal"
+             xmlns:rdp="clr-namespace:RemoteOps.Desktop.Rdp">
 
     <UserControl.Resources>
         <!-- Implicit DataTemplate: WPF applies this automatically for TerminalTabViewModel -->
         <DataTemplate DataType="{x:Type terminal:TerminalTabViewModel}">
             <terminal:TerminalTabView />
         </DataTemplate>
-        <!-- Fallback for future non-terminal tab types -->
+        <!-- Implicit DataTemplate: WPF applies this automatically for RdpTabViewModel -->
+        <DataTemplate DataType="{x:Type rdp:RdpTabViewModel}">
+            <rdp:RdpTabView />
+        </DataTemplate>
+        <!-- Fallback for future non-terminal/non-rdp tab types -->
         <DataTemplate DataType="{x:Type vm:SessionTabViewModel}">
             <TextBlock Text="{Binding Title}"
                        VerticalAlignment="Center"
