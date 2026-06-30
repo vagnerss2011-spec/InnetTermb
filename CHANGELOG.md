@@ -2,6 +2,30 @@
 
 Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.com/) e versionamento SemVer interno.
 
+## [0.9.0-integration-terminal-ui] - 2026-06-30
+
+### Adicionado
+
+- **INT-2 — Aba de terminal real (WebView2 + xterm.js ↔ `ITerminalSessionProvider`):**
+  - `Terminal/wwwroot/`: frontend local com xterm.js 5.3.0 + xterm-addon-fit 0.8.0, empacotados via esbuild (sem CDN). Assets em `js/terminal.bundle.js` + `css/xterm.css`.
+  - `Terminal/TerminalTabViewModel.cs`: gerencia ciclo de vida de sessão SSH/Telnet (OpenAsync → pump de leitura → CloseAsync) independentemente da View.
+  - `Terminal/TerminalTabView.xaml/.cs`: WebView2 + virtual host `https://terminal.local/`. Bridge C#↔JS via PostWebMessageAsString/WebMessageReceived (Base64). CSP `default-src 'none'`, DevTools desabilitados em Release, `AreHostObjectsAllowed=false`.
+  - `adr/ADR-012-webview2-xterm-terminal-ui.md`.
+
+### Alterado
+
+- `RemoteOps.Desktop.csproj`: adiciona `Microsoft.Web.WebView2 1.0.2849.39` e os Content items do `wwwroot` (as refs de projeto já vêm do INT-1).
+- `MainViewModel`: recebe os provedores SSH/Telnet como **keyed services** (`[FromKeyedServices(RemoteProtocol.Ssh/Telnet)]`, resolvidos pelo `AppCompositionRoot` do INT-1) além do `IWinBoxRunner` (INT-4); cria `TerminalTabViewModel` em `SessionRequested`.
+- `TabsViewModel`: `OpenTerminalTab`, `CloseTab` chama `CloseAsync` em tabs terminais.
+- `TabsView.xaml`: DataTemplates implícitos por tipo em vez de `ContentTemplate` fixo.
+- Os adaptadores de seam (endpoint/credential/security-context/audit/host-key/telnet-consent) reutilizam as implementações do INT-1 já registradas no composition root; as variantes duplicadas trazidas originalmente pelo INT-2 foram removidas na integração.
+
+### Segurança
+
+- Output do terminal: bytes brutos Base64 via bridge — nunca `innerHTML`.
+- `IHostKeyConfirmation`: TaskCompletionSource genuíno (FIX 1 / ADR-009).
+- `ITelnetConsentProvider`: bloqueia TCP até ack explícito (FIX 2 / ADR-009).
+
 ## [0.9.0-integration-mikrotik-desktop] - 2026-06-30
 
 ### Adicionado

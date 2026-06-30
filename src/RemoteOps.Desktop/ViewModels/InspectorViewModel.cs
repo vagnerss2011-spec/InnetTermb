@@ -220,11 +220,15 @@ public sealed class InspectorViewModel : BaseViewModel
         if (Asset == null)
             return;
 
+        var endpoint = Asset.Asset.Endpoints.FirstOrDefault(e => e.Protocol == protocol);
+
         SessionRequested?.Invoke(this, new OpenSessionRequest
         {
             AssetId = Asset.Id,
             AssetName = Asset.Name,
             Protocol = protocol,
+            EndpointId = endpoint?.Id,
+            CredentialRefId = endpoint?.CredentialRefId,
         });
     }
 }
@@ -234,4 +238,6 @@ public sealed class OpenSessionRequest
     public required string AssetId { get; init; }
     public required string AssetName { get; init; }
     public required string Protocol { get; init; }
+    public string? EndpointId { get; init; }
+    public string? CredentialRefId { get; init; }
 }

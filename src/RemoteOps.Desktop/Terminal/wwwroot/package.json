@@ -1,0 +1,17 @@
+{
+  "name": "remoteops-terminal-ui",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Terminal UI assets for RemoteOps Desktop (local, no CDN)",
+  "scripts": {
+    "build": "node build.js",
+    "ci": "npm ci && node build.js"
+  },
+  "dependencies": {
+    "xterm": "5.3.0",
+    "xterm-addon-fit": "0.8.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}
