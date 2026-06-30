@@ -32,7 +32,7 @@ public sealed class SyncClientSecurityTests
         ]);
 
         // Tenta abrir o mesmo arquivo SEM fornecer chave: SQLCipher deve rejeitar.
-        await using var rawConn = new SqliteConnection($"Data Source={ctx.DbPath}");
+        using var rawConn = new SqliteConnection($"Data Source={ctx.DbPath}");
         await rawConn.OpenAsync();
         using var cmd = rawConn.CreateCommand();
         cmd.CommandText = "SELECT count(*) FROM sqlite_master";
@@ -117,7 +117,7 @@ public sealed class SyncClientSecurityTests
         ]);
 
         // Abre sem chave para gerar exceção; verifica que a mensagem não vaza a hex key.
-        await using var rawConn = new SqliteConnection($"Data Source={ctx.DbPath}");
+        using var rawConn = new SqliteConnection($"Data Source={ctx.DbPath}");
         await rawConn.OpenAsync();
         using var cmd = rawConn.CreateCommand();
         cmd.CommandText = "SELECT * FROM local_outbox";
@@ -127,7 +127,7 @@ public sealed class SyncClientSecurityTests
         Assert.NotNull(ex);
         // A hex key tem 64 chars lowercase; nenhuma substring dela deve aparecer na exceção.
         // Verificamos que a mensagem não tem o padrão de 64 hex chars.
-        Assert.DoesNotMatch(@"[0-9a-f]{64}", ex.Message);
+        Assert.DoesNotMatch(@"[0-9a-f]{64}", ex!.Message);
     }
 
     [Fact]

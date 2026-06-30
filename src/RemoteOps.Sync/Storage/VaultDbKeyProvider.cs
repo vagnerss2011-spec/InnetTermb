@@ -41,15 +41,8 @@ internal sealed class VaultDbKeyProvider : IDbKeyProvider
 
         // Primeira vez ou envelopeId inválido: gera nova chave e armazena no vault.
         byte[] raw = RandomNumberGenerator.GetBytes(32);
-        string newHexKey;
-        try
-        {
-            newHexKey = Convert.ToHexString(raw).ToLowerInvariant();
-        }
-        finally
-        {
-            CryptographicOperations.ZeroMemory(raw);
-        }
+        string newHexKey = Convert.ToHexString(raw).ToLowerInvariant();
+        CryptographicOperations.ZeroMemory(raw); // raw não é mais necessário
 
         string newEnvelopeId = await _vault.StoreSecretAsync(newHexKey, workspaceId, ct);
 

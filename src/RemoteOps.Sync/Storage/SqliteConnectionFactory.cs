@@ -22,14 +22,22 @@ internal sealed class SqliteConnectionFactory : IDbConnectionFactory
     public async Task<SqliteConnection> OpenAsync(CancellationToken ct = default)
     {
         var conn = new SqliteConnection($"Data Source={_dbPath}");
-        await conn.OpenAsync(ct);
+        try
+        {
+            await conn.OpenAsync(ct);
 
-        // PRAGMA key deve ser o PRIMEIRO comando para que o SQLCipher decore o banco.
-        // O formato x'...' passa bytes raw; evita a derivação PBKDF2 do modo passphrase.
-        using var keyCmd = conn.CreateCommand();
-        keyCmd.CommandText = $"PRAGMA key = \"x'{_hexKey}'\"";
-        await keyCmd.ExecuteNonQueryAsync(ct);
+            // PRAGMA key deve ser o PRIMEIRO comando para que o SQLCipher decore o banco.
+            // O formato x'...' passa bytes raw; evita a derivação PBKDF2 do modo passphrase.
+            using var keyCmd = conn.CreateCommand();
+            keyCmd.CommandText = $"PRAGMA key = \"x'{_hexKey}'\"";
+            await keyCmd.ExecuteNonQueryAsync(ct);
 
-        return conn;
+            return conn;
+        }
+        catch
+        {
+            await conn.DisposeAsync();
+            throw;
+        }
     }
 }
