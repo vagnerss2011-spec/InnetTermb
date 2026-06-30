@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>RemoteOps.Terminal.SSH</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RemoteOps.Contracts\RemoteOps.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- ADR-008: SSH.NET approved for SSH-2 PTY shell sessions -->
+    <PackageReference Include="SSH.NET" Version="2024.2.0" />
+  </ItemGroup>
+</Project>

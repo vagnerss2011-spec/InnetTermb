@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>RemoteOps.Desktop</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RemoteOps.Contracts\RemoteOps.Contracts.csproj" />
+    <ProjectReference Include="..\RemoteOps.Terminal.Core\RemoteOps.Terminal.Core.csproj" />
+    <ProjectReference Include="..\RemoteOps.Terminal.SSH\RemoteOps.Terminal.SSH.csproj" />
+    <ProjectReference Include="..\RemoteOps.Terminal.Telnet\RemoteOps.Terminal.Telnet.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3351.48" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
+  </ItemGroup>
+
+  <!-- Copy wwwroot to output so WebView2 can serve local files -->
+  <ItemGroup>
+    <Content Include="..\RemoteOps.Terminal.Core\wwwroot\**\*"
+             CopyToOutputDirectory="PreserveNewest"
+             Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)"
+             Exclude="..\RemoteOps.Terminal.Core\wwwroot\node_modules\**" />
+    <!-- node_modules: copy only the files actually referenced by terminal.html -->
+    <Content Include="..\RemoteOps.Terminal.Core\wwwroot\node_modules\xterm\css\xterm.css"
+             CopyToOutputDirectory="PreserveNewest"
+             Link="wwwroot\node_modules\xterm\css\xterm.css" />
+    <Content Include="..\RemoteOps.Terminal.Core\wwwroot\node_modules\xterm\lib\xterm.js"
+             CopyToOutputDirectory="PreserveNewest"
+             Link="wwwroot\node_modules\xterm\lib\xterm.js" />
+    <Content Include="..\RemoteOps.Terminal.Core\wwwroot\node_modules\xterm-addon-fit\lib\xterm-addon-fit.js"
+             CopyToOutputDirectory="PreserveNewest"
+             Link="wwwroot\node_modules\xterm-addon-fit\lib\xterm-addon-fit.js" />
+  </ItemGroup>
+</Project>

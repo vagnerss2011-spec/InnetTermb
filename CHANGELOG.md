@@ -2,6 +2,38 @@
 
 Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.com/) e versionamento SemVer interno.
 
+## [Unreleased] — feature/terminal-ssh-telnet
+
+### Adicionado
+
+- `adr/ADR-008-sshnet-adapter.md` — decisão de usar Renci.SshNet (SSH.NET, MIT) para o adaptador SSH-2.
+- `src/RemoteOps.Contracts` — projeto de contratos: `IRemoteSessionProvider`, `ICredentialVault`, `IHostKeyStore`, `ITelnetPolicy`, `PlaintextCredential`, `SessionRequest`, `HostKeyInfo`.
+- `src/RemoteOps.Terminal.SSH` — `SshSessionProvider`: PTY shell, senha/chave privada, validação TOFU de host key, keepalive 30s, preferência IPv6.
+- `src/RemoteOps.Terminal.Telnet` — `TelnetSessionProvider`: negociação RFC 854 (NAWS, TTYPE), gate de política (`ITelnetPolicy`), aviso visual de protocolo sem criptografia.
+- `src/RemoteOps.Terminal.Core` — `TerminalSessionManager` (até 10 sessões), `TerminalSession`, `BridgeMessage` (schema JSON do bridge WebView2↔C#).
+- `src/RemoteOps.Terminal.Core/wwwroot` — frontend xterm.js 5.3.0 local (sem CDN), FitAddon, bridge `window.chrome.webview.postMessage`, diálogo de host key, banner de aviso Telnet, copy/paste Ctrl+Shift+C/V.
+- `src/RemoteOps.Desktop` — `TerminalTabView` (WebView2 + virtual host `terminal.local`) e `TerminalTabViewModel` (CommunityToolkit.Mvvm).
+- `tests/RemoteOps.Terminal.Tests` — testes xUnit: `PlaintextCredentialTests` (zeroing de bytes), `TelnetNegotiatorTests` (IAC parsing), `TelnetPolicyTests` (gate de política e warning).
+- `src/RemoteOps.sln` — solution file cobrindo todos os projetos do módulo.
+
+### Segurança
+
+- `PlaintextCredential.Dispose()` zera arrays de senha/chave privada com `CryptographicOperations.ZeroMemory`.
+- Scripts JS usam `textContent`/DOM seguro — nenhum `innerHTML` com dados externos.
+- Assets xterm.js servidos localmente via virtual host WebView2; nenhuma dependência de CDN em runtime.
+- DevTools, context menu e status bar do WebView2 desabilitados em produção.
+- Credencial descartada dentro da task de sessão imediatamente após o handshake SSH.
+- Nenhum conteúdo de terminal é logado; apenas evento de início/fim de sessão.
+
+### Pendente / Issues a criar
+
+- [ ] Implementar `ICredentialVault` concreto (bloqueado por `contracts-skeleton` / `security-vault`).
+- [ ] Implementar `IHostKeyStore` concreto com SQLCipher (bloqueado por `security-vault`).
+- [ ] Resolver `groupId` real a partir do registro de endpoint (linha TODO em `TelnetSessionProvider`).
+- [ ] Integrar `TerminalTabViewModel` no shell de abas principal (bloqueado por `desktop-shell`).
+- [ ] Adicionar autenticação por chave privada Ed25519/ECDSA ao fluxo de UI.
+- [ ] Teste de integração com host SSH de laboratório (Sprint 02, entrega 6).
+
 ## [0.3.0-planning] - 2026-06-29
 
 ### Adicionado

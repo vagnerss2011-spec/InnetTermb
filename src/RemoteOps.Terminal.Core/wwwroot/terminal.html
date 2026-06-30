@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Terminal</title>
+  <!-- Local copies — no CDN. Run `npm ci` in wwwroot/ to populate node_modules. -->
+  <link rel="stylesheet" href="./node_modules/xterm/css/xterm.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; background: #1e1e1e; overflow: hidden; }
+    #terminal-container { width: 100%; height: 100%; }
+
+    /* Telnet warning banner */
+    #telnet-warning {
+      display: none;
+      position: fixed; top: 0; left: 0; right: 0;
+      background: #c0392b; color: #fff;
+      padding: 8px 16px; font-family: sans-serif; font-size: 13px;
+      z-index: 100;
+    }
+    #telnet-warning.visible { display: flex; align-items: center; gap: 12px; }
+    #telnet-warning button {
+      margin-left: auto; background: rgba(255,255,255,0.2);
+      border: 1px solid rgba(255,255,255,0.5); color: #fff;
+      padding: 4px 12px; cursor: pointer; border-radius: 3px;
+    }
+
+    /* Host-key confirmation dialog */
+    #hostkey-dialog {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.7); z-index: 200;
+      align-items: center; justify-content: center;
+    }
+    #hostkey-dialog.visible { display: flex; }
+    #hostkey-box {
+      background: #252526; color: #ccc; border-radius: 6px;
+      padding: 24px; max-width: 480px; width: 90%;
+      font-family: monospace; font-size: 13px;
+    }
+    #hostkey-box h2 { color: #e5c07b; font-size: 14px; margin-bottom: 12px; }
+    #hostkey-box p  { margin-bottom: 8px; word-break: break-all; }
+    #hostkey-box .danger { color: #e06c75; font-weight: bold; }
+    #hostkey-actions { display: flex; gap: 12px; margin-top: 16px; }
+    #hostkey-actions button {
+      flex: 1; padding: 8px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;
+    }
+    #btn-accept  { background: #4caf50; color: #fff; }
+    #btn-reject  { background: #e53935; color: #fff; }
+  </style>
+</head>
+<body>
+
+<!-- Telnet insecurity warning -->
+<div id="telnet-warning">
+  <span id="telnet-warning-text"></span>
+  <button id="telnet-warning-ok">Entendi</button>
+</div>
+
+<!-- SSH host-key confirmation dialog -->
+<div id="hostkey-dialog" role="dialog" aria-modal="true">
+  <div id="hostkey-box">
+    <h2 id="hostkey-title">Verificação de Host Key SSH</h2>
+    <p id="hostkey-host"></p>
+    <p id="hostkey-fp"></p>
+    <p id="hostkey-type"></p>
+    <p id="hostkey-status"></p>
+    <div id="hostkey-actions">
+      <button id="btn-accept">Aceitar e Conectar</button>
+      <button id="btn-reject">Rejeitar</button>
+    </div>
+  </div>
+</div>
+
+<div id="terminal-container"></div>
+
+<script src="./node_modules/xterm/lib/xterm.js"></script>
+<script src="./node_modules/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
+<script src="terminal.js"></script>
+</body>
+</html>
