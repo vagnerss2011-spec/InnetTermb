@@ -142,7 +142,7 @@ public sealed class SshSessionProviderTests
         var fp2 = "ffffeeeeddddccccbbbbaaaa99998888ffffeeeeddddccccbbbbaaaa99998888";
         factory.SimulatedFingerprint = fp2;
         factory.ForceValidatorResult = null; // deixa o validator decidir
-        audit.Events.Clear();
+        audit.Clear();
         confirmation.Calls.Clear();
 
         await provider.OpenAsync(MakeRequest("s2"), CancellationToken.None);

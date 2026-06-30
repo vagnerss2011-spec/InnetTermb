@@ -8,6 +8,8 @@ internal sealed class InMemoryTerminalAuditSink : ITerminalAuditSink
 
     public IReadOnlyList<TerminalAuditEvent> Events => _events;
 
+    public void Clear() => _events.Clear();
+
     public Task EmitAsync(TerminalAuditEvent auditEvent, CancellationToken ct = default)
     {
         _events.Add(auditEvent);

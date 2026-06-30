@@ -163,7 +163,7 @@ public sealed class TelnetSessionProviderTests
             IsOpen = true,
         };
 
-        audit.Events.Clear();
+        audit.Clear();
         await provider.CloseAsync(handle, CancellationToken.None);
 
         Assert.False(handle.IsOpen);
