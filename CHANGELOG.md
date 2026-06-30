@@ -42,6 +42,65 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 - Sem segredo em log, fixture ou commit.
 - `RemoteOps.Terminal` (`net10.0` cross-platform) não referencia nada Windows-specific.
 
+## [0.7.0-cloud-backend] - 2026-06-30
+
+### Adicionado
+
+- `src/RemoteOps.Cloud`: backend evoluído de `GET /health` para servidor completo com auth, RBAC, sync e auditoria.
+  - **EF Core + Npgsql**: `AppDbContext` com 13 entidades (tenants, workspaces, users, memberships, asset_groups, assets, endpoints, credential_refs, secret_envelopes, changelog, audit_events, devices, refresh_tokens) e migrations pendentes de aplicação.
+  - **Auth JWT**: `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`. Tokens emitidos com PBKDF2-SHA256 (310k iterações). Refresh token armazenado como hash SHA-256. Chave de assinatura JWT via variável de ambiente `Jwt__SigningKey`.
+  - **RBAC server-side**: `PermissionEvaluator` avalia 8 etapas (usuário ativo → device → workspace → role → membro → grupo → aprovação). Negação explícita vence herança. 10 papéis padrão com permissões granulares de `docs/18`.
+  - **Sync pull/push**: `GET /sync/pull?workspaceId=&cursor=` (paginado, cursor por `changelog.id`); `POST /sync/push` (conflito por `BaseVersion`, idempotência por `ClientChangeId`, SecretEnvelope nunca merge automático).
+  - **SignalR**: `SyncHub` em `/hubs/sync` emite hint `workspace.changed` com `workspaceId`, `cursor`, `entityType`, `entityId`. Broadcast escopado ao grupo do workspace. Sem payload completo (ADR-002).
+  - **Auditoria**: `AuditService` persiste `AuditEvent` (tipo canônico de `RemoteOps.Contracts.Audit`) em toda ação sensível. `Metadata` sanitizado — chaves com "password", "secret", "token", "key", "hash" são `[REDACTED]`.
+  - **ProblemDetails**: `CloudExceptionHandler` + `CorrelationIdMiddleware`. Todos os erros retornam `application/problem+json` com `correlationId`. Sem stack trace em produção.
+- `adr/ADR-008-backend-ef-npgsql-signalr.md`: ADR justificando EF Core, Npgsql, JWT Bearer e SignalR (pré-requisito obrigatório de CLAUDE.md).
+- Testes em `tests/RemoteOps.UnitTests/Cloud/`: `RbacTests` (11 cenários — allow/deny, negação explícita, device/workspace/membership/cross-tenant), `SyncTests` (pull paginado, push ok/conflito/idempotente, SecretEnvelope bloqueado), `AuditTests` (gravação, sanitização de segredos, mapeamento para contrato canônico).
+
+### Segurança
+
+- Servidor **nunca descriptografa segredos**: `SecretEnvelopeEntity` armazena apenas `ciphertext`, `nonce`, `tag`, `algorithm`, `keyVersion` — sem WDK, CEK ou plaintext. Conforme ADR-003.
+- Senha/chave JWT nunca em `appsettings*.json` — obrigatoriamente via variável de ambiente ou secret store.
+- Refresh token armazenado como `SHA-256(valor)` — vazamento do banco não permite uso do token.
+- Auditoria registra toda ação sensível (login, push, grant/revoke); `Metadata` com sanitização defensiva de palavras-chave sensíveis.
+- `AuditService.SanitizeMetadata` bloqueia chaves contendo "password", "secret", "token", "key", "credential", "plaintext", "hash" mesmo se o chamador cometer o erro de incluí-las.
+- `SyncService` rejeita push de `SecretEnvelope` com `secret-envelope.no-auto-merge`.
+
+### Correções de segurança (pós security-review)
+
+- **[HIGH] `TokenService.RefreshAsync`**: adicionada verificação de status do device antes de emitir novo JWT. Device revogado bloqueia o refresh imediatamente e revoga o refresh token em cascade. Antes, a revogação do device não interrompia refresh tokens existentes (até 30 dias de validade).
+- **[MEDIUM] `SyncHub.JoinWorkspace`**: adicionada verificação de membership antes de adicionar o cliente ao grupo SignalR. Antes, qualquer usuário autenticado podia assinar hints de workspaces aos quais não pertencia.
+- **[MEDIUM] `SyncEndpoints`**: `X-Device-Id` header passou a ser **obrigatório** em `GET /sync/pull` e `POST /sync/push` (retorna 400 se ausente). Garante que a verificação de device revocation no `PermissionEvaluator` seja sempre executada, sem possibilidade de bypass por omissão do header.
+
+## [0.7.0-sync-local] - 2026-06-30
+
+### Adicionado
+
+- `LocalSyncClient` em `src/RemoteOps.Sync`: implementação completa de `ISyncClient` sobre SQLite/SQLCipher local.
+  - `PushAsync`: grava lote no outbox local (`local_outbox`), idempotente por `ClientChangeId` via `INSERT OR IGNORE`.
+  - `PullAsync(fromCursor, limit)`: lê o outbox paginado a partir do cursor, ordenado por `id ASC`; atualiza `CurrentCursor`.
+  - Schema local: `local_outbox`, `local_entities`, `sync_cursor`, `conflicts` (conforme `docs/04`).
+  - Índice em `(entity_id, entity_type)` para lookup de entidades.
+- `LocalSyncClientFactory`: cria instâncias de `LocalSyncClient` com chave do banco protegida pelo vault.
+- `VaultDbKeyProvider` (`Storage/`): obtém/cria chave AES-256 do banco via `ICredentialVault` (DPAPI/envelope, ADR-003); persiste apenas o `envelopeId` no arquivo `.keyref`, nunca o material de chave em claro.
+- `SqliteConnectionFactory` (`Storage/`): abre conexão SQLCipher via `PRAGMA key = "x'hexbytes'"` como primeiro comando (bytes raw, sem PBKDF2).
+- `IDbConnectionFactory` e `IDbKeyProvider`: abstrações internas que permitem substituição em testes.
+- Suíte de testes `tests/RemoteOps.UnitTests/Sync/`: round-trip Push→Pull, idempotência por `ClientChangeId`, cursor/paginação monotônica, criptografia do banco (DB ilegível sem chave do vault) e ausência de segredo em logs.
+- `ADR-008-sqlite-local-sync-storage.md`: documenta a escolha de SQLite/SQLCipher via NuGet, derivação de chave, fallback e regras.
+- `docs/04-modelo-dados-sync.md`: seção de schema local adicionada com DDL completo e descrição do cursor monotônico.
+
+### Segurança
+
+- A chave AES-256 do banco local nunca é persistida em claro: fica protegida pelo vault (DPAPI/envelope) e referenciada por `envelopeId` no arquivo `.keyref`.
+- `PRAGMA key` usa bytes raw (`x'...'`), evitando PBKDF2 desnecessário.
+- Nenhum material de chave, plaintext ou patch sensível aparece em log, exceção, fixture ou commit.
+- Teste `Encrypted_Db_Is_Unreadable_Without_Key` verifica fisicamente que o arquivo `.db` é ilegível sem a chave do vault (requer SQLCipher presente; skip automático caso contrário).
+- Teste `KeyRef_File_Contains_Only_EnvelopeId_Not_Secret` garante que o `.keyref` nunca contém os 64 hex chars da chave do banco.
+
+### Módulo
+
+- `src/RemoteOps.Sync` — dono: `cloud-sync-agent`
+- Depends-on: `feature/contracts-skeleton`, `feature/security-vault`
 ## [0.7.0-desktop-shell] - 2026-06-30
 
 ### Corrigido

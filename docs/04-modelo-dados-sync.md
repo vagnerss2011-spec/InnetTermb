@@ -146,6 +146,54 @@ Cada cliente mantém:
 - `sync_cursor`: último changelog aplicado.
 - `conflicts`: conflitos pendentes.
 
+### Schema local (implementado em `feature/sync-local`)
+
+Banco SQLite/SQLCipher (ADR-008); chave protegida por vault DPAPI/envelope (ADR-003).
+
+```sql
+CREATE TABLE local_outbox (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_change_id TEXT,                          -- null = sem idempotência
+    entity_type      TEXT    NOT NULL,
+    entity_id        TEXT    NOT NULL,
+    operation        TEXT    NOT NULL
+                              CHECK (operation IN ('created', 'updated', 'deleted')),
+    base_version     INTEGER NOT NULL DEFAULT 0,
+    patch_json       TEXT    NOT NULL,              -- JSON do Patch de SyncChange
+    created_at       TEXT    NOT NULL,
+    UNIQUE (client_change_id)                       -- idempotência por ClientChangeId
+);
+
+CREATE INDEX idx_outbox_entity ON local_outbox (entity_id, entity_type);
+
+CREATE TABLE local_entities (
+    entity_type TEXT    NOT NULL,
+    entity_id   TEXT    NOT NULL,
+    version     INTEGER NOT NULL DEFAULT 0,
+    data_json   TEXT    NOT NULL,
+    updated_at  TEXT    NOT NULL,
+    PRIMARY KEY (entity_type, entity_id)
+);
+
+CREATE TABLE sync_cursor (
+    workspace_id TEXT    NOT NULL PRIMARY KEY,
+    cursor       INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE conflicts (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_type        TEXT    NOT NULL,
+    entity_id          TEXT    NOT NULL,
+    local_patch_json   TEXT    NOT NULL,
+    server_patch_json  TEXT    NOT NULL,
+    detected_at        TEXT    NOT NULL
+);
+```
+
+**Cursor monotônico**: `local_outbox.id` (AUTOINCREMENT) serve como cursor de Pull.
+`ISyncClient.PullAsync(fromCursor, limit)` retorna linhas com `id > fromCursor`, ordenadas
+por `id ASC`, e atualiza `CurrentCursor` ao máximo lido.
+
 ## Algoritmo de sync
 
 ### Pull
