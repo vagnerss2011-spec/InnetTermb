@@ -41,11 +41,15 @@ public sealed class TerminalTabViewModelTests
     {
         var (vm, provider) = Build();
 
-        provider.CompleteOutput(); // pump termina imediatamente
+        // NÃO completar a saída antes de conectar: isso encerraria o pump e zeraria o
+        // estado (ver PumpEnd_ResetsIsConnected_ToFalse). Com o canal aberto, o pump
+        // fica bloqueado lendo e a aba permanece conectada.
         await vm.ConnectAsync(120, 30);
 
         Assert.True(vm.IsConnected);
         Assert.Single(provider.OpenedRequests);
+
+        await vm.CloseAsync();
     }
 
     [Fact]
@@ -105,7 +109,6 @@ public sealed class TerminalTabViewModelTests
     public async Task SendInputAsync_WhenConnected_ForwardsToProvider()
     {
         var (vm, provider) = Build();
-        provider.CompleteOutput();
         await vm.ConnectAsync(80, 24);
 
         byte[] input = "ls -la\r"u8.ToArray();
@@ -113,6 +116,8 @@ public sealed class TerminalTabViewModelTests
 
         Assert.Single(provider.WrittenData);
         Assert.Equal(input, provider.WrittenData[0].ToArray());
+
+        await vm.CloseAsync();
     }
 
     // ── ResizeAsync ───────────────────────────────────────────────────────────
@@ -131,13 +136,14 @@ public sealed class TerminalTabViewModelTests
     public async Task ResizeAsync_WhenConnected_ForwardsColsAndRows()
     {
         var (vm, provider) = Build();
-        provider.CompleteOutput();
         await vm.ConnectAsync(80, 24);
 
         await vm.ResizeAsync(180, 50);
 
         Assert.Single(provider.ResizeCalls);
         Assert.Equal((180, 50), provider.ResizeCalls[0]);
+
+        await vm.CloseAsync();
     }
 
     // ── OutputReceived / pump ─────────────────────────────────────────────────
