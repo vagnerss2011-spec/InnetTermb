@@ -44,6 +44,9 @@ public sealed class VaultTokenStore : ITokenStore
         string? oldEnvelopeId = await ReadRefAsync(ct);
         await WriteRefAsync(newEnvelopeId, ct);
 
+        // Revogação best-effort: se o processo encerrar entre o WriteRefAsync e o revoke, o envelope
+        // antigo fica órfão no vault local até a próxima rotação. Não é explorável sem acesso DPAPI;
+        // aceito como tradeoff (ADR-013). O .tokenref já aponta para o novo envelope (consistente).
         if (!string.IsNullOrEmpty(oldEnvelopeId) &&
             !string.Equals(oldEnvelopeId, newEnvelopeId, StringComparison.Ordinal))
         {

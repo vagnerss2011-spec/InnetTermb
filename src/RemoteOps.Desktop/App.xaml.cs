@@ -128,9 +128,10 @@ public partial class App : Application
         string? workspaceId = Environment.GetEnvironmentVariable("REMOTEOPS_CLOUD_WORKSPACE_ID");
         if (string.IsNullOrWhiteSpace(url)
             || !Uri.TryCreate(url, UriKind.Absolute, out Uri? baseUrl)
+            || baseUrl.Scheme != Uri.UriSchemeHttps
             || string.IsNullOrWhiteSpace(workspaceId))
         {
-            return false;
+            return false; // exige HTTPS — fail-closed: URL http:// não liga o sync (ADR-013)
         }
 
         options = new SyncSessionOptions

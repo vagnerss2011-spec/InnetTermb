@@ -66,4 +66,15 @@ public sealed class NoSecretInLogTests
             Trace.Listeners.Remove(listener);
         }
     }
+
+    [Fact]
+    public void TokenSet_ToString_Does_Not_Expose_Tokens()
+    {
+        var tokens = new TokenSet("ACCESS-SECRET-XYZ", "REFRESH-SECRET-XYZ", DateTimeOffset.UtcNow);
+
+        string text = tokens.ToString();
+
+        Assert.DoesNotContain("ACCESS-SECRET-XYZ", text);
+        Assert.DoesNotContain("REFRESH-SECRET-XYZ", text);
+    }
 }

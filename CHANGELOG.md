@@ -30,6 +30,7 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 - Tokens via vault (DPAPI/envelope, ADR-003); `.tokenref` guarda só o envelopeId.
 - `SecretEnvelope` nunca sofre auto-merge no cliente (espelha `secret-envelope.no-auto-merge`).
 - TLS sempre validado; `X-Device-Id` em toda request; feature flag default OFF (revisão do `security-agent`).
+- **Revisão de segurança (security-agent):** `SyncSessionFactory`/Desktop exigem **HTTPS** na URL do Cloud (M-1 — rejeita `http://`, fail-closed), evitando Bearer/refresh token em claro; `TokenSet.ToString()` redatado (L-1 — não expõe tokens); revogação de envelope no `VaultTokenStore` documentada como best-effort (L-3).
 
 ### Módulo
 

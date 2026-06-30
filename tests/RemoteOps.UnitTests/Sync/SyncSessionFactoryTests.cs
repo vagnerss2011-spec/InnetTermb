@@ -24,4 +24,21 @@ public sealed class SyncSessionFactoryTests
 
         Assert.Equal(SyncState.Offline, session.Orchestrator.Status.State);
     }
+
+    [Fact]
+    public async Task Create_Rejects_Non_Https_Url()
+    {
+        using var ctx = await SyncTestContext.CreateAsync("ws-http");
+        var options = new SyncSessionOptions
+        {
+            Workspace = ctx.Workspace,
+            WorkspaceId = "00000000-0000-0000-0000-000000000001",
+            CloudBaseUrl = new Uri("http://insecure.local"),
+            DeviceId = Guid.NewGuid(),
+            Vault = ctx.Vault,
+            TokenRefPath = ctx.DbPath + ".tokenref",
+        };
+
+        Assert.Throws<ArgumentException>(() => SyncSessionFactory.Create(options));
+    }
 }

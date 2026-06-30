@@ -34,6 +34,15 @@ public static class SyncSessionFactory
 {
     public static SyncSession Create(SyncSessionOptions options)
     {
+        // Invariante TLS-always (ADR-013): nunca falar com o Cloud por HTTP, senão o Bearer e o
+        // refresh token trafegariam em claro. O hub SignalR herda o scheme de CloudBaseUrl.
+        if (options.CloudBaseUrl.Scheme != Uri.UriSchemeHttps)
+        {
+            throw new ArgumentException(
+                "CloudBaseUrl deve usar HTTPS — tokens nunca trafegam em claro (ADR-013).",
+                nameof(options));
+        }
+
         var tokenStore = new VaultTokenStore(options.Vault, options.WorkspaceId, options.TokenRefPath);
 
         // HttpClient de vida longa (reuso recomendado); BaseAddress https → TLS validado por padrão.
