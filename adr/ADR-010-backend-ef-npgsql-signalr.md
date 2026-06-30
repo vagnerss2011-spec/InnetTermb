@@ -1,4 +1,4 @@
-# ADR-008 — EF Core + Npgsql + JWT Bearer + SignalR no backend RemoteOps.Cloud
+# ADR-010 — EF Core + Npgsql + JWT Bearer + SignalR no backend RemoteOps.Cloud
 
 ## Status
 

@@ -11,7 +11,7 @@ namespace RemoteOps.Terminal.Telnet;
 /// <summary>
 /// Adaptador Telnet para ITerminalSessionProvider.
 /// Telnet é tratado como protocolo legado: desabilitado por padrão, requer consentimento
-/// explícito que BLOQUEIA a conexão TCP até ack do usuário (FIX 2 / ADR-008).
+/// explícito que BLOQUEIA a conexão TCP até ack do usuário (FIX 2 / ADR-009).
 /// </summary>
 public sealed class TelnetSessionProvider : ITerminalSessionProvider
 {

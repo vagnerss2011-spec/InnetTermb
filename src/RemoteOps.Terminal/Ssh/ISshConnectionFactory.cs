@@ -8,7 +8,7 @@ internal interface ISshConnectionFactory
 {
     /// <param name="password">
     /// String materializada de VaultSecret.RevealString(). Limitação de Renci.SshNet
-    /// (exige string na autenticação por senha). Minimizar escopo; ver ADR-008 §FIX-3.
+    /// (exige string na autenticação por senha). Minimizar escopo; ver ADR-009 §FIX-3.
     /// </param>
     ISshConnection Create(string host, int port, string username, string password);
 }

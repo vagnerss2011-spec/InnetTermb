@@ -5,7 +5,7 @@ namespace RemoteOps.Terminal;
 /// <para>
 /// A implementação DEVE ser genuinamente assíncrona (ex.: TaskCompletionSource resolvido
 /// pela UI) para evitar deadlock quando chamado no contexto de uma conexão SSH — NUNCA
-/// usar .GetAwaiter().GetResult() internamente (FIX 1 / ADR-008).
+/// usar .GetAwaiter().GetResult() internamente (FIX 1 / ADR-009).
 /// </para>
 /// </summary>
 public interface IHostKeyConfirmation
