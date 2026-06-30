@@ -62,6 +62,15 @@ public partial class RdpTabView : UserControl
         {
             var config = await _vm!.PrepareAsync();
 
+            // Guard: a aba pode ter sido fechada enquanto PrepareAsync estava em
+            // andamento (já abriu/auditou a sessão no provider — feche-a corretamente
+            // em vez de abandonar o handle).
+            if (!IsLoaded)
+            {
+                await _vm.CloseAsync();
+                return;
+            }
+
             _client = new AxMsRdpClient9NotSafeForScripting();
             ((ISupportInitialize)_client).BeginInit();
             _formsHost.Child = _client;
@@ -87,6 +96,15 @@ public partial class RdpTabView : UserControl
             // Senha: resolvida do vault só agora, aplicada e imediatamente fora de escopo
             // (mitigação ADR-009 — a senha nunca fica retida em campo desta View/ViewModel).
             string? password = await _vm.ResolvePasswordAsync();
+
+            // Guard de novo: a aba pode ter sido fechada durante a resolução da senha
+            // (chamada ao vault). Mesma lógica — fecha a sessão corretamente.
+            if (!IsLoaded)
+            {
+                await _vm.CloseAsync();
+                return;
+            }
+
             if (password != null)
             {
                 advancedSettings.ClearTextPassword = password;
