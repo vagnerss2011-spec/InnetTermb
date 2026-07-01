@@ -1,7 +1,9 @@
+using System.Net.Http;
 using Microsoft.Extensions.DependencyInjection;
 using RemoteOps.Contracts.Sessions;
 using RemoteOps.Desktop.Infrastructure;
 using RemoteOps.Desktop.NDesk;
+using RemoteOps.Desktop.Update;
 using RemoteOps.MikroTik;
 using RemoteOps.Rdp;
 using RemoteOps.Security;
@@ -12,6 +14,8 @@ using RemoteOps.Security.Vault;
 using RemoteOps.Terminal;
 using RemoteOps.Terminal.Ssh;
 using RemoteOps.Terminal.Telnet;
+using Velopack;
+using Velopack.Sources;
 
 namespace RemoteOps.Desktop.Integration;
 
@@ -97,6 +101,11 @@ internal static class AppCompositionRoot
             sp.GetRequiredService<IWinBoxAuditSink>(),
             sp.GetRequiredService<IWinBoxCredentialResolver>()));
 
+        // Empacotamento/atualização (ADR-019) — sem REMOTEOPS_UPDATE_FEED_REPO_URL/
+        // REMOTEOPS_UPDATE_POLICY_URL configurados, não registra nada (fail-open: sem
+        // config = sem verificação de update, nunca deixa o app inutilizável).
+        RegisterUpdateService(services);
+
         // ViewModels
         services.AddSingleton<ViewModels.MainViewModel>();
 
@@ -104,6 +113,39 @@ internal static class AppCompositionRoot
         // em RemoteOps.Terminal; os providers públicos usam null como factory (real default).
         // Cobertura equivalente via CompositionRootSmokeTests.
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = false });
+    }
+
+    private static void RegisterUpdateService(ServiceCollection services)
+    {
+        string? repoUrl = Environment.GetEnvironmentVariable("REMOTEOPS_UPDATE_FEED_REPO_URL");
+        string? policyUrlRaw = Environment.GetEnvironmentVariable("REMOTEOPS_UPDATE_POLICY_URL");
+        if (string.IsNullOrWhiteSpace(repoUrl)
+            || string.IsNullOrWhiteSpace(policyUrlRaw)
+            || !Uri.TryCreate(policyUrlRaw, UriKind.Absolute, out Uri? policyUrl))
+        {
+            return;
+        }
+
+        UpdateManager manager;
+        try
+        {
+            // Token opcional (repositório privado) — nunca hardcoded, sempre de variável
+            // de ambiente/GitHub Environment (ADR-019 §4). null é válido para repositório
+            // público.
+            string? accessToken = Environment.GetEnvironmentVariable("REMOTEOPS_UPDATE_FEED_TOKEN");
+            var source = new GithubSource(repoUrl, accessToken, prerelease: false);
+            manager = new UpdateManager(source);
+        }
+        catch (InvalidOperationException)
+        {
+            // VelopackApp.Build().Run() não rodou (ex.: execução fora de um app instalado
+            // pelo Velopack, como testes) — não há locator disponível; segue sem registrar.
+            return;
+        }
+
+        services.AddSingleton<IUpdatePolicyFeedSource>(_ => new HttpUpdatePolicyFeedSource(new HttpClient(), policyUrl));
+        services.AddSingleton<IUpdateService>(sp => new VelopackUpdateService(
+            manager, sp.GetRequiredService<IUpdatePolicyFeedSource>()));
     }
 
     private static WinBoxToolManifest BuildWinBoxManifest(IServiceProvider _)
