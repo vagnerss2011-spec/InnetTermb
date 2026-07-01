@@ -61,6 +61,43 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 - `src/RemoteOps.Desktop/App.xaml.cs`, `src/RemoteOps.Desktop/NDesk/NDeskTabView.xaml` — dono:
   `desktop-shell-agent`
 
+## [0.11.0-packaging-velopack] - 2026-07-01
+
+### Adicionado
+
+- **Empacotamento e atualização do Desktop via Velopack (`adr/ADR-019-empacotamento-atualizacao-velopack.md`, Aceita):**
+  - Licença verificada em fonte primária (`LICENSE` oficial de `velopack/velopack`): MIT, sem
+    cláusula adicional — mesmo padrão de verificação adversarial já aplicado a RustDesk
+    (`ADR-015`, AGPL) e SIPSorcery (`ADR-017`, cláusula BDS não padrão).
+  - Modelo: instalador (`Setup.exe`) + versão portátil (zip, sem auto-update) + delta updates +
+    atualização sob demanda (nunca baixa nada sem ação/notificação visível) + atualização
+    forçada (versão instalada abaixo da mínima exigida bloqueia o uso com prompt obrigatório).
+  - `src/RemoteOps.Desktop/RemoteOps.Desktop.csproj`: `PackageReference Velopack 1.2.0`;
+    `Properties/PublishProfiles/win-x64-velopack.pubxml` (self-contained win-x64, sem
+    single-file — preserva o ganho de banda do delta update).
+  - `src/RemoteOps.Desktop/Update/`: `AppVersion`/`UpdatePolicy` (SemVer e gate de atualização
+    forçada, lógica pura), `IUpdatePolicyFeedSource`/`HttpUpdatePolicyFeedSource` (versão mínima
+    exigida via JSON estático, fail-open em qualquer falha de rede/parse), `IUpdateService`/
+    `VelopackUpdateService` (verificação sob demanda + aplicação via `UpdateManager`).
+  - `App.xaml.cs`/`RemoteOps.Desktop.csproj`: entry point custom (`App.xaml` de
+    `ApplicationDefinition` para `Page` + `<StartupObject>`) com `Main()` chamando
+    `VelopackApp.Build().SetArgs(args).Run()` como primeira instrução — padrão oficial do
+    Velopack para WPF, confirmado localmente via `vpk pack` (o aviso de entry point não
+    reconhecido, emitido quando a chamada estava no construtor de `App`, vira uma verificação
+    positiva com o `Main()` explícito). Prompt bloqueante de atualização forçada em
+    `OnStartup`, antes de abrir a `MainWindow`, quando a política exige.
+  - `AppCompositionRoot.RegisterUpdateService`: registra `IUpdateService` só quando
+    `REMOTEOPS_UPDATE_FEED_REPO_URL`/`REMOTEOPS_UPDATE_POLICY_URL` estão configurados —
+    fail-open, sem alterar o comportamento do app quando não configurado.
+  - `docs/26-empacotamento-atualizacao-velopack.md`: comandos `dotnet publish`/`vpk pack`/`vpk
+    upload github`, variáveis de ambiente, feed via GitHub Releases (fonte nativa do Velopack,
+    sem servidor próprio), nenhum token em código. Inclui seção "Validação local" com a
+    evidência de uma rodada real de `dotnet publish` + `vpk pack` neste projeto (Setup.exe +
+    zip portátil gerados de fato, não só documentados).
+  - Testes (`tests/RemoteOps.UnitTests/Desktop/Update/`): comparação SemVer, gate de atualização
+    forçada, combinação de resultado de checagem, e parsing/fail-open do feed de política —
+    lógica pura, sem dependência de instalação real do Velopack.
+
 ## [0.10.0-spike-ndesk-webrtc-capture] - 2026-07-01
 
 ### Adicionado

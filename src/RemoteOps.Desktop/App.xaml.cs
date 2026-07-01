@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 using RemoteOps.Desktop.Infrastructure;
 using RemoteOps.Desktop.Integration;
+using RemoteOps.Desktop.Update;
 using RemoteOps.Desktop.ViewModels;
 using RemoteOps.Security.Audit;
 using RemoteOps.Security.Crypto;
@@ -13,6 +14,7 @@ using RemoteOps.Security.Storage;
 using RemoteOps.Security.Vault;
 using RemoteOps.Sync;
 using RemoteOps.Sync.Remote;
+using Velopack;
 
 namespace RemoteOps.Desktop;
 
@@ -29,9 +31,25 @@ public partial class App : Application
         // thread depois que o startup termina (ex.: async void em MainWindow.Loaded);
         // AppDomain.UnhandledException é o último recurso para exceções fora dela.
         // Falhas SÍNCRONAS dentro do próprio OnStartup (antes do dispatcher bombear
-        // mensagens) não passam por nenhuma delas — por isso o try/catch abaixo.
+        // mensagens) não passam por nenhuma delas — por isso o try/catch de OnStartup.
         DispatcherUnhandledException += OnDispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += OnAppDomainUnhandledException;
+    }
+
+    // Entry point custom (ADR-019): App.xaml não é mais ApplicationDefinition (ver
+    // RemoteOps.Desktop.csproj), então este Main() substitui o gerado automaticamente
+    // pelo WPF. VelopackApp.Build().Run() precisa ser a primeiríssima instrução — antes
+    // de qualquer InitializeComponent()/DI/vault — porque o Setup.exe do Velopack invoca
+    // o app com argumentos internos (instalação, pós-update etc.) que só são
+    // interceptados aqui, e a própria ferramenta `vpk pack` avisa quando essa chamada não
+    // está no início do Main() (validado localmente: o aviso desaparece com este padrão).
+    [STAThread]
+    private static void Main(string[] args)
+    {
+        VelopackApp.Build().SetArgs(args).Run();
+        var app = new App();
+        app.InitializeComponent();
+        app.Run();
     }
 
     protected override async void OnStartup(StartupEventArgs e)
@@ -60,6 +78,17 @@ public partial class App : Application
             // Composition root (ADR-011): injeta o vault de produção + store SQLCipher
             // e resolve o restante do grafo (adapters de terminal/WinBox, providers, VM).
             _serviceProvider = AppCompositionRoot.Build(vault, store);
+
+            // Update forçado (ADR-019 §3): só existe se REMOTEOPS_UPDATE_FEED_REPO_URL/
+            // REMOTEOPS_UPDATE_POLICY_URL estiverem configurados (fail-open sem config).
+            // Prompt obrigatório e visível — sem opção de "lembrar depois" — quando a versão
+            // instalada está abaixo da mínima exigida pelo feed de política.
+            if (await TryEnforceForcedUpdateAsync(_serviceProvider.GetService<IUpdateService>()))
+            {
+                Shutdown();
+                return;
+            }
+
             _mainViewModel = _serviceProvider.GetRequiredService<MainViewModel>();
             var window = new MainWindow(_mainViewModel);
             window.Show();
@@ -125,6 +154,42 @@ public partial class App : Application
             : $"{ex.GetType().Name}: {ex.Message}\n\n{hint}";
 
         MessageBox.Show(message, $"RemoteOps — {title}", MessageBoxButton.OK, icon);
+    }
+
+    // Retorna true quando o app deve encerrar (update forçado aplicado/em aplicação).
+    // Nunca lança: falha de checagem (rede indisponível, feed de política fora do ar)
+    // é fail-open — não trava o operador por causa de uma verificação que não completou.
+    private static async Task<bool> TryEnforceForcedUpdateAsync(IUpdateService? updateService)
+    {
+        if (updateService is null)
+        {
+            return false;
+        }
+
+        UpdateCheckResult check;
+        try
+        {
+            check = await updateService.CheckForUpdatesAsync();
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+
+        if (!check.Policy.MustUpdate)
+        {
+            return false;
+        }
+
+        MessageBox.Show(
+            $"Uma atualização obrigatória está disponível (versão mínima exigida: " +
+            $"{check.Policy.MinimumRequiredVersion}). O RemoteOps Desktop será atualizado agora.",
+            "Atualização obrigatória",
+            MessageBoxButton.OK,
+            MessageBoxImage.Warning);
+
+        await updateService.ApplyUpdateAsync(check);
+        return true;
     }
 
     protected override void OnExit(ExitEventArgs e)
