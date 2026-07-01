@@ -5,18 +5,23 @@
     <DockPanel>
         <TextBlock DockPanel.Dock="Top"
                    Text="Inspector"
+                   Style="{DynamicResource Text.Caption}"
                    FontWeight="SemiBold"
-                   Margin="8,8,8,4"
-                   Foreground="#555"/>
+                   Margin="8,8,8,4"/>
 
         <!-- Placeholder quando nada selecionado -->
         <TextBlock DockPanel.Dock="Top"
                    Text="Selecione um host para ver detalhes."
-                   Foreground="#888"
                    Margin="8,4"
                    TextWrapping="Wrap">
+            <!-- Style e o DataTrigger de Visibility precisam ficar num único
+                 <TextBlock.Style> — um atributo Style="" e um bloco <TextBlock.Style> juntos
+                 no mesmo elemento são erro de compilação XAML (MC3024, propriedade definida
+                 duas vezes). BasedOn usa StaticResource porque é resolvido ao montar a árvore
+                 de Style, não em tempo de render como o DynamicResource do resto do sistema
+                 de design. -->
             <TextBlock.Style>
-                <Style TargetType="TextBlock">
+                <Style TargetType="TextBlock" BasedOn="{StaticResource Text.Secondary}">
                     <Setter Property="Visibility" Value="Collapsed"/>
                     <Style.Triggers>
                         <DataTrigger Binding="{Binding HasAsset}" Value="False">
@@ -40,18 +45,29 @@
                 </Style>
             </StackPanel.Style>
 
-            <TextBlock Text="{Binding Asset.Name}" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8"/>
+            <TextBlock Text="{Binding Asset.Name}" Style="{DynamicResource Text.Title}" Margin="0,0,0,8"/>
 
-            <TextBlock Text="Ações rápidas:" FontWeight="SemiBold" Margin="0,0,0,4"/>
+            <TextBlock Text="Ações rápidas:" Style="{DynamicResource Text.BodyStrong}" Margin="0,0,0,4"/>
             <WrapPanel Margin="0,0,0,4">
-                <Button Content="SSH"     Command="{Binding OpenSessionCommand}" CommandParameter="ssh"      Margin="0,0,4,4" Padding="8,2"/>
-                <Button Content="Telnet"  Command="{Binding OpenSessionCommand}" CommandParameter="telnet"   Margin="0,0,4,4" Padding="8,2"/>
-                <Button Content="RDP"
-                        Command="{Binding OpenSessionCommand}"
+                <Button Command="{Binding OpenSessionCommand}" CommandParameter="ssh" Margin="0,0,4,4" Padding="8,2">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{DynamicResource Icon.Connect}" Style="{DynamicResource Icon.Style}" Margin="0,0,4,0"/>
+                        <TextBlock Text="SSH"/>
+                    </StackPanel>
+                </Button>
+                <Button Command="{Binding OpenSessionCommand}" CommandParameter="telnet" Margin="0,0,4,4" Padding="8,2">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{DynamicResource Icon.Connect}" Style="{DynamicResource Icon.Style}" Margin="0,0,4,0"/>
+                        <TextBlock Text="Telnet"/>
+                    </StackPanel>
+                </Button>
+                <Button Command="{Binding OpenSessionCommand}"
                         CommandParameter="rdp"
                         Margin="0,0,4,4" Padding="8,2">
                     <Button.Style>
-                        <Style TargetType="Button">
+                        <!-- BasedOn obrigatório: Button.Style local aqui substituiria por
+                             completo o Style implícito escuro de Themes/Controls/Buttons.xaml. -->
+                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
                             <Setter Property="Visibility" Value="Collapsed"/>
                             <Style.Triggers>
                                 <DataTrigger Binding="{Binding CanOpenRdp}" Value="True">
@@ -60,12 +76,15 @@
                             </Style.Triggers>
                         </Style>
                     </Button.Style>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{DynamicResource Icon.RemoteDesktop}" Style="{DynamicResource Icon.Style}" Margin="0,0,4,0"/>
+                        <TextBlock Text="RDP"/>
+                    </StackPanel>
                 </Button>
-                <Button Content="Abrir WinBox"
-                        Command="{Binding OpenWinBoxCommand}"
+                <Button Command="{Binding OpenWinBoxCommand}"
                         Margin="0,0,4,4" Padding="8,2">
                     <Button.Style>
-                        <Style TargetType="Button">
+                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
                             <Setter Property="Visibility" Value="Collapsed"/>
                             <Style.Triggers>
                                 <DataTrigger Binding="{Binding IsMikroTikHost}" Value="True">
@@ -74,15 +93,15 @@
                             </Style.Triggers>
                         </Style>
                     </Button.Style>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{DynamicResource Icon.Network}" Style="{DynamicResource Icon.Style}" Margin="0,0,4,0"/>
+                        <TextBlock Text="Abrir WinBox"/>
+                    </StackPanel>
                 </Button>
             </WrapPanel>
-            <TextBlock Text="{Binding WinBoxError}"
-                       Foreground="Red"
-                       TextWrapping="Wrap"
-                       Margin="0,0,0,8"
-                       FontSize="11">
-                <TextBlock.Style>
-                    <Style TargetType="TextBlock">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                <StackPanel.Style>
+                    <Style TargetType="StackPanel">
                         <Setter Property="Visibility" Value="Collapsed"/>
                         <Style.Triggers>
                             <DataTrigger Binding="{Binding HasWinBoxError}" Value="True">
@@ -90,13 +109,22 @@
                             </DataTrigger>
                         </Style.Triggers>
                     </Style>
-                </TextBlock.Style>
-            </TextBlock>
+                </StackPanel.Style>
+                <TextBlock Text="{DynamicResource Icon.Warning}"
+                           Style="{DynamicResource Icon.Style}"
+                           Foreground="{DynamicResource Brush.Status.Error}"
+                           VerticalAlignment="Top"
+                           Margin="0,1,4,0"/>
+                <TextBlock Text="{Binding WinBoxError}"
+                           Style="{DynamicResource Text.Caption}"
+                           Foreground="{DynamicResource Brush.Status.Error}"
+                           TextWrapping="Wrap"/>
+            </StackPanel>
 
             <Separator Margin="0,4"/>
 
             <!-- Adicionar endpoint -->
-            <TextBlock Text="Adicionar endpoint:" FontWeight="SemiBold" Margin="0,4,0,4"/>
+            <TextBlock Text="Adicionar endpoint:" Style="{DynamicResource Text.BodyStrong}" Margin="0,4,0,4"/>
             <ComboBox SelectedValuePath="Content"
                       SelectedValue="{Binding NewEndpointProtocol, Mode=TwoWay}"
                       Margin="0,0,0,4">
@@ -113,14 +141,15 @@
                      Margin="0,0,0,4"/>
             <Button Content="Adicionar endpoint"
                     Command="{Binding AddEndpointCommand}"
+                    Style="{DynamicResource Button.Primary}"
                     Padding="8,2"/>
 
             <Separator Margin="0,8"/>
 
             <!-- Credencial -->
-            <TextBlock Text="Credencial:" FontWeight="SemiBold" Margin="0,0,0,4"/>
-            <TextBlock Text="(nenhuma configurada)" Foreground="#888" FontStyle="Italic"/>
-            <TextBlock Text="Senha nunca exibida aqui." Foreground="#888" FontSize="10" Margin="0,2,0,0"/>
+            <TextBlock Text="Credencial:" Style="{DynamicResource Text.BodyStrong}" Margin="0,0,0,4"/>
+            <TextBlock Text="(nenhuma configurada)" Foreground="{DynamicResource Brush.Text.Tertiary}" FontStyle="Italic"/>
+            <TextBlock Text="Senha nunca exibida aqui." Style="{DynamicResource Text.Micro}" Margin="0,2,0,0"/>
         </StackPanel>
     </DockPanel>
 </UserControl>

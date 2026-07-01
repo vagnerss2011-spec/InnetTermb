@@ -1,0 +1,53 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib">
+
+    <!--
+        Ícones — glifos da fonte de sistema "Segoe MDL2 Assets".
+
+        Por que fonte de sistema em vez de um pacote de ícones de terceiro (SVG/TTF
+        embarcado): Segoe MDL2 Assets vem pré-instalada em toda instalação padrão de
+        Windows 10 (desde o lançamento) e Windows 11 (mantida para retrocompatibilidade),
+        então não há arquivo de fonte para redistribuir nem licença de terceiro para
+        verificar — é o próprio SO. Verificado em duas páginas oficiais da Microsoft Learn
+        (ver docs/06-desktop-ui-ux.md §Ícones para as fontes e a nota de licenciamento).
+        Alternativa "Segoe Fluent Icons" foi descartada aqui porque só vem pré-instalada
+        no Windows 11 — exigiria download separado no Windows 10, que é alvo deste app.
+
+        Os code points abaixo foram conferidos contra a tabela oficial de glifos da
+        Microsoft (mesmo conjunto "clássico", disponível em ambas as fontes MDL2/Fluent).
+        Usar apenas os nomes desta lista ao adicionar um novo ícone — não adivinhar um
+        code point novo sem conferir a tabela oficial primeiro.
+    -->
+    <FontFamily x:Key="Font.Family.Icons">Segoe MDL2 Assets</FontFamily>
+    <sys:Double x:Key="Font.Size.Icon">14</sys:Double>
+
+    <sys:String x:Key="Icon.Add">&#xE710;</sys:String>
+    <sys:String x:Key="Icon.Delete">&#xE74D;</sys:String>
+    <sys:String x:Key="Icon.Search">&#xE721;</sys:String>
+    <sys:String x:Key="Icon.Cancel">&#xE711;</sys:String>
+    <sys:String x:Key="Icon.Accept">&#xE73E;</sys:String>
+    <sys:String x:Key="Icon.Shield">&#xEA18;</sys:String>
+    <sys:String x:Key="Icon.Connect">&#xE703;</sys:String>
+    <sys:String x:Key="Icon.RemoteDesktop">&#xE7F4;</sys:String>
+    <sys:String x:Key="Icon.Network">&#xEC05;</sys:String>
+    <sys:String x:Key="Icon.ChevronDown">&#xE70D;</sys:String>
+    <sys:String x:Key="Icon.ChevronRight">&#xE76C;</sys:String>
+    <sys:String x:Key="Icon.Sync">&#xE895;</sys:String>
+    <sys:String x:Key="Icon.Warning">&#xE7BA;</sys:String>
+    <sys:String x:Key="Icon.ErrorBadge">&#xEA39;</sys:String>
+    <sys:String x:Key="Icon.Pin">&#xE718;</sys:String>
+    <sys:String x:Key="Icon.Close">&#xE8BB;</sys:String>
+
+    <!-- Estilo base para um glifo renderizado como TextBlock: <TextBlock Text="{DynamicResource Icon.Add}" Style="{DynamicResource Icon.Style}"/> -->
+    <Style x:Key="Icon.Style" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{DynamicResource Font.Family.Icons}"/>
+        <Setter Property="FontSize" Value="{DynamicResource Font.Size.Icon}"/>
+        <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Secondary}"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="HorizontalAlignment" Value="Center"/>
+        <Setter Property="TextAlignment" Value="Center"/>
+        <Setter Property="SnapsToDevicePixels" Value="True"/>
+    </Style>
+
+</ResourceDictionary>

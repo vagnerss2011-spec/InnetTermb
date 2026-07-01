@@ -3,7 +3,11 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:views="clr-namespace:RemoteOps.Desktop.Views"
         Title="RemoteOps" Height="720" Width="1280"
-        MinHeight="480" MinWidth="800">
+        MinHeight="480" MinWidth="800"
+        Background="{DynamicResource Brush.Bg.App}"
+        Foreground="{DynamicResource Brush.Text.Primary}"
+        FontFamily="{DynamicResource Font.Family.Base}"
+        FontSize="{DynamicResource Font.Size.Body}">
 
     <Grid>
         <Grid.RowDefinitions>
@@ -22,7 +26,10 @@
 
         <!-- Barra superior -->
         <Border Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="5"
-                Background="#2D2D30" Padding="8,0">
+                Background="{DynamicResource Brush.Bg.SurfaceRaised}"
+                BorderBrush="{DynamicResource Brush.Border.Subtle}"
+                BorderThickness="0,0,0,1"
+                Padding="8,0">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
@@ -32,9 +39,7 @@
 
                 <TextBlock Grid.Column="0"
                            Text="RemoteOps"
-                           Foreground="White"
-                           FontWeight="SemiBold"
-                           FontSize="14"
+                           Style="{DynamicResource Text.TitleLg}"
                            VerticalAlignment="Center"
                            Margin="0,0,16,0"/>
 
@@ -44,13 +49,37 @@
                          VerticalAlignment="Center"
                          MaxWidth="400"/>
 
+                <!-- Ponto de status: cor reflete o texto já emitido por App.xaml.cs
+                     (FormatStatus) via DataTrigger — não introduz binding novo, só lê
+                     com mais detalhe o que MainViewModel.SyncStatus já expõe. O padrão
+                     ("Sincronizado (N conflito(s))") cai no valor base Status.Pending,
+                     que é a cor semanticamente correta para "sincronizado com pendência". -->
                 <StackPanel Grid.Column="2"
                             Orientation="Horizontal"
                             VerticalAlignment="Center">
-                    <Ellipse Width="8" Height="8" Fill="#999" Margin="0,0,4,0"/>
+                    <Ellipse Width="8" Height="8" Margin="0,0,4,0">
+                        <Ellipse.Style>
+                            <Style TargetType="Ellipse">
+                                <Setter Property="Fill" Value="{DynamicResource Brush.Status.Pending}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SyncStatus}" Value="Offline">
+                                        <Setter Property="Fill" Value="{DynamicResource Brush.Status.Idle}"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding SyncStatus}" Value="Sincronizando…">
+                                        <Setter Property="Fill" Value="{DynamicResource Brush.Status.Pending}"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding SyncStatus}" Value="Sincronizado">
+                                        <Setter Property="Fill" Value="{DynamicResource Brush.Status.Online}"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding SyncStatus}" Value="Erro de sincronização">
+                                        <Setter Property="Fill" Value="{DynamicResource Brush.Status.Error}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Ellipse.Style>
+                    </Ellipse>
                     <TextBlock Text="{Binding SyncStatus}"
-                               Foreground="#ccc"
-                               FontSize="11"
+                               Style="{DynamicResource Text.Caption}"
                                VerticalAlignment="Center"/>
                 </StackPanel>
             </Grid>
@@ -59,35 +88,36 @@
         <!-- Sidebar -->
         <views:SidebarView Grid.Row="1" Grid.Column="0" Grid.RowSpan="3"
                            DataContext="{Binding Sidebar}"
-                           Background="#F5F5F5"
-                           BorderBrush="#DDD"
+                           Background="{DynamicResource Brush.Bg.Surface}"
+                           BorderBrush="{DynamicResource Brush.Border.Subtle}"
                            BorderThickness="0,0,1,0"/>
 
         <GridSplitter Grid.Row="1" Grid.Column="1" Grid.RowSpan="3"
-                      Width="4" HorizontalAlignment="Stretch" Background="#DDD"/>
+                      Width="4" HorizontalAlignment="Stretch" Background="{DynamicResource Brush.Border.Default}"/>
 
         <!-- Lista de hosts -->
         <views:HostListView Grid.Row="1" Grid.Column="2"
-                            DataContext="{Binding HostList}"/>
+                            DataContext="{Binding HostList}"
+                            Background="{DynamicResource Brush.Bg.Surface}"/>
 
         <!-- Divisor entre lista e abas -->
         <GridSplitter Grid.Row="2" Grid.Column="2"
                       Height="4" HorizontalAlignment="Stretch"
-                      VerticalAlignment="Stretch" Background="#DDD"/>
+                      VerticalAlignment="Stretch" Background="{DynamicResource Brush.Border.Default}"/>
 
         <!-- Área de abas -->
         <views:TabsView Grid.Row="3" Grid.Column="2"
                         DataContext="{Binding Tabs}"
-                        Background="#1E1E1E"/>
+                        Background="{DynamicResource Brush.Bg.Canvas}"/>
 
         <GridSplitter Grid.Row="1" Grid.Column="3" Grid.RowSpan="3"
-                      Width="4" HorizontalAlignment="Stretch" Background="#DDD"/>
+                      Width="4" HorizontalAlignment="Stretch" Background="{DynamicResource Brush.Border.Default}"/>
 
         <!-- Inspector -->
         <views:InspectorView Grid.Row="1" Grid.Column="4" Grid.RowSpan="3"
                              DataContext="{Binding Inspector}"
-                             Background="#FAFAFA"
-                             BorderBrush="#DDD"
+                             Background="{DynamicResource Brush.Bg.Surface}"
+                             BorderBrush="{DynamicResource Brush.Border.Subtle}"
                              BorderThickness="1,0,0,0"/>
     </Grid>
 </Window>

@@ -111,6 +111,56 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
     forçada, combinação de resultado de checagem, e parsing/fail-open do feed de política —
     lógica pura, sem dependência de instalação real do Velopack.
 
+## [0.10.0-desktop-design-system] - 2026-07-01
+
+### Adicionado
+
+- **Sistema de design do Desktop — tema escuro base, sem toolkit de terceiro
+  (`src/RemoteOps.Desktop/Themes/`):**
+  - `Themes/Tokens/`: `Colors.xaml` (paleta "Slate Signal" + sobrescrita das chaves
+    `SystemColors.*BrushKey` usadas internamente pelos templates padrão do WPF),
+    `Typography.xaml` (Segoe UI Variable Text/Segoe UI + Consolas para dados técnicos),
+    `Spacing.xaml` (escala de 4px), `Icons.xaml` (glifos Segoe MDL2 Assets — licenciamento
+    verificado em duas páginas oficiais da Microsoft Learn, não em memória; ver docs/06
+    §Ícones).
+  - `Themes/Controls/`: estilos/templates para Button, TextBox, ComboBox, TabControl/TabItem,
+    DataGrid, TreeView/TreeViewItem, ScrollBar, Separator, ToolTip.
+  - `Themes/DarkTheme.xaml` mesclado em `App.xaml` (único ponto de merge; `App.xaml.cs` não foi
+    alterado).
+  - Aplicado a `MainWindow.xaml`, às Views do shell (`SidebarView`, `HostListView`,
+    `InspectorView`, `TabsView`) e às três Views de aba de sessão (`TerminalTabView`,
+    `RdpTabView`, `NDeskTabView`) — só XAML/recursos; nenhum ViewModel ou code-behind alterado,
+    nenhum binding removido ou renomeado.
+  - Corrige a inconsistência visual existente antes desta mudança (sidebar/lista de
+    hosts/inspector claros ao lado de abas de sessão escuras); `HostListView` não tinha nenhum
+    plano de fundo definido e herdava o branco padrão do WPF.
+  - Indicador de status de sync (barra superior) e de estado de sessão NDesk
+    (`NDeskSessionState`, lados operador e atendido) ganham cor semântica via `DataTrigger`
+    sobre os bindings que já existiam (`MainViewModel.SyncStatus`, `State`) — sem binding nem
+    converter novo.
+  - Ícones aplicados às ações rápidas do Inspector (SSH/Telnet/RDP/WinBox), aos selos de
+    protocolo das abas de sessão, ao indicador de aba fixada (`SessionTabViewModel.IsPinned`,
+    antes só desabilitava o botão de fechar silenciosamente) e ao aviso de erro do WinBox.
+  - `docs/06-desktop-ui-ux.md`: nova seção "Sistema de design" — paleta, decisão de ícones (com
+    fontes primárias citadas), e o racional para não adotar WPF-UI/MahApps/HandyControl nem o
+    `ThemeMode` Fluent nativo do .NET 9/10 (experimental, descartado por ora).
+
+### Restrições respeitadas
+
+- Nenhum ViewModel, code-behind ou contrato alterado — mudança inteiramente em XAML/recursos.
+- `App.xaml.cs` não foi tocado (fora do escopo do `desktop-shell-agent` nesta frente).
+- Nenhum segredo em log, binding, fixture ou screenshot.
+- `TreeView.ItemContainerStyle` (Sidebar) e os `Button.Style`/`TabControl.Style` locais
+  pré-existentes (Inspector, TabsView) foram atualizados para `BasedOn="{StaticResource
+  {x:Type T}}"` — sem isso, o Style local substituiria por completo o Style implícito do tema em
+  vez de estendê-lo, e esses elementos específicos voltariam a renderizar com o chrome claro
+  padrão do WPF.
+
+### Módulo
+
+- `src/RemoteOps.Desktop/Themes/` — dono: `desktop-shell-agent`
+- Depends-on: (nenhum)
+
 ## [0.10.0-spike-ndesk-webrtc-capture] - 2026-07-01
 
 ### Adicionado

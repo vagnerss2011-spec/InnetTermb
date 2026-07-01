@@ -6,9 +6,9 @@
     <DockPanel>
         <TextBlock DockPanel.Dock="Top"
                    Text="Grupos"
+                   Style="{DynamicResource Text.Caption}"
                    FontWeight="SemiBold"
-                   Margin="8,8,8,4"
-                   Foreground="#555"/>
+                   Margin="8,8,8,4"/>
 
         <!-- Adicionar grupo -->
         <Grid DockPanel.Dock="Bottom" Margin="4">
@@ -31,6 +31,7 @@
         <Button DockPanel.Dock="Bottom"
                 Content="Remover grupo selecionado"
                 Command="{Binding DeleteGroupCommand}"
+                Style="{DynamicResource Button.Danger}"
                 Margin="4,0,4,4"
                 Padding="4,2"/>
 
@@ -46,7 +47,11 @@
                 </HierarchicalDataTemplate>
             </TreeView.Resources>
             <TreeView.ItemContainerStyle>
-                <Style TargetType="TreeViewItem">
+                <!-- BasedOn é obrigatório aqui: ItemContainerStyle define um Style local para
+                     TreeViewItem, o que por padrão baniria o Style implícito escuro definido em
+                     Themes/Controls/TreeView.xaml (um Style local sem BasedOn substitui o
+                     implícito por completo, não soma). -->
+                <Style TargetType="TreeViewItem" BasedOn="{StaticResource {x:Type TreeViewItem}}">
                     <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}"/>
                     <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
                 </Style>
