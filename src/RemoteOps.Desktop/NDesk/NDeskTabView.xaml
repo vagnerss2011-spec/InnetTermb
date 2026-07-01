@@ -110,25 +110,29 @@
                         </Style>
                     </StackPanel.Style>
 
+                    <!-- Mode=OneWay explícito: Run.Text tem BindsTwoWayByDefault=true no WPF.
+                         Sem isso, qualquer uma destas propriedades vindo a ser somente-leitura
+                         (como PermissionsRequestedText) derruba o app inteiro ao anexar o
+                         binding — InvalidOperationException não capturada em App.OnStartup. -->
                     <TextBlock Foreground="#ccc" FontSize="11" Margin="0,0,0,4">
                         <Run Text="Operador: "/>
-                        <Run Text="{Binding PendingConsent.OperatorDisplayName}" FontWeight="SemiBold"/>
+                        <Run Text="{Binding PendingConsent.OperatorDisplayName, Mode=OneWay}" FontWeight="SemiBold"/>
                     </TextBlock>
                     <TextBlock Foreground="#ccc" FontSize="11" Margin="0,0,0,4">
                         <Run Text="Empresa: "/>
-                        <Run Text="{Binding PendingConsent.CompanyName}" FontWeight="SemiBold"/>
+                        <Run Text="{Binding PendingConsent.CompanyName, Mode=OneWay}" FontWeight="SemiBold"/>
                     </TextBlock>
                     <TextBlock Foreground="#ccc" FontSize="11" Margin="0,0,0,4">
                         <Run Text="Ticket: "/>
-                        <Run Text="{Binding PendingConsent.TicketId}" FontWeight="SemiBold"/>
+                        <Run Text="{Binding PendingConsent.TicketId, Mode=OneWay}" FontWeight="SemiBold"/>
                     </TextBlock>
                     <TextBlock Foreground="#ccc" FontSize="11" Margin="0,0,0,4">
                         <Run Text="Modo solicitado: "/>
-                        <Run Text="{Binding PendingConsent.RequestedMode}" FontWeight="SemiBold"/>
+                        <Run Text="{Binding PendingConsent.RequestedMode, Mode=OneWay}" FontWeight="SemiBold"/>
                     </TextBlock>
                     <TextBlock Foreground="#ccc" FontSize="11" Margin="0,0,0,8">
                         <Run Text="Permissões: "/>
-                        <Run Text="{Binding PermissionsRequestedText}" FontWeight="SemiBold"/>
+                        <Run Text="{Binding PermissionsRequestedText, Mode=OneWay}" FontWeight="SemiBold"/>
                     </TextBlock>
 
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
