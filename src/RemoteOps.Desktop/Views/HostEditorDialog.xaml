@@ -2,12 +2,16 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:assets="clr-namespace:RemoteOps.Contracts.Assets;assembly=RemoteOps.Contracts"
+        xmlns:conv="clr-namespace:RemoteOps.Desktop.Converters"
         Title="{Binding Title}" Height="480" Width="520"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
         Background="{DynamicResource Brush.Bg.App}"
         Foreground="{DynamicResource Brush.Text.Primary}"
         FontFamily="{DynamicResource Font.Family.Base}"
         FontSize="{DynamicResource Font.Size.Body}">
+    <Window.Resources>
+        <conv:EndpointAddressConverter x:Key="EndpointAddressConverter"/>
+    </Window.Resources>
     <DockPanel Margin="16">
 
         <!-- Botões Salvar/Cancelar -->
@@ -34,7 +38,8 @@
             </Grid.ColumnDefinitions>
 
             <ComboBox Grid.Column="0"
-                      SelectedValue="{Binding NewEndpointProtocol}"
+                      SelectedValuePath="Content"
+                      SelectedValue="{Binding NewEndpointProtocol, Mode=TwoWay}"
                       Margin="0,0,8,0" VerticalAlignment="Center">
                 <ComboBoxItem Content="ssh"/>
                 <ComboBoxItem Content="telnet"/>
@@ -72,9 +77,11 @@
                         </Grid.ColumnDefinitions>
                         <TextBlock Grid.Column="0" VerticalAlignment="Center">
                             <TextBlock.Text>
-                                <MultiBinding StringFormat="{}{0} — {1}:{2}">
+                                <MultiBinding Converter="{StaticResource EndpointAddressConverter}">
                                     <Binding Path="Protocol"/>
                                     <Binding Path="Ipv4"/>
+                                    <Binding Path="Ipv6"/>
+                                    <Binding Path="Fqdn"/>
                                     <Binding Path="Port"/>
                                 </MultiBinding>
                             </TextBlock.Text>
