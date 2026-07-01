@@ -45,7 +45,21 @@ public sealed class NDeskAssistedViewModel : BaseViewModel
         RaiseAll();
     }
 
-    private void OnSessionStateChanged(NDeskSessionState _) => RaiseAll();
+    private void OnSessionStateChanged(NDeskSessionState newState)
+    {
+        if (newState == NDeskSessionState.Ended)
+        {
+            if (_session != null)
+            {
+                _session.StateChanged -= OnSessionStateChanged;
+                _session = null;
+            }
+
+            PendingConsent = null;
+        }
+
+        RaiseAll();
+    }
 
     private Task RespondAsync(bool accepted) => _session?.RespondConsentAsync(accepted) ?? Task.CompletedTask;
 

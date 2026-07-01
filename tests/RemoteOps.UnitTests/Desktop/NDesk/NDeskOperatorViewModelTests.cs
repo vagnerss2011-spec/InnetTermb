@@ -71,7 +71,8 @@ public sealed class NDeskOperatorViewModelTests
         vm.EndCommand.Execute(null);
         await Task.Delay(20);
 
-        Assert.Equal(NDeskSessionState.Ended, vm.State);
+        // After session ends, _session is reset to null, so State returns Idle
+        Assert.Equal(NDeskSessionState.Idle, vm.State);
         Assert.False(vm.EndCommand.CanExecute(null));
     }
 
@@ -106,5 +107,46 @@ public sealed class NDeskOperatorViewModelTests
         Assert.Equal(NDeskSessionState.Connected, vm.State);
         Assert.True(vm.IsSessionActive);
         Assert.True(vm.EndCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task AfterSessionEnded_CanStartSecondCycle()
+    {
+        // Prova que após uma sessão terminar (Ended),
+        // ConnectCommand.CanExecute é retomado para true (quando TicketIdInput é não-vazio),
+        // permitindo um segundo ciclo ticket→connect→end sem reiniciar o app.
+        var broker = new LoopbackNDeskBrokerClient();
+        var vm = new NDeskOperatorViewModel(broker);
+
+        // Primeiro ciclo
+        vm.GenerateTicketCommand.Execute(null);
+        await Task.Delay(20);
+        var firstTicketId = vm.TicketIdInput;
+        Assert.False(string.IsNullOrWhiteSpace(firstTicketId));
+
+        vm.ConnectCommand.Execute(null);
+        await Task.Delay(20);
+        Assert.Equal(NDeskSessionState.AwaitingConsent, vm.State);
+
+        vm.EndCommand.Execute(null);
+        await Task.Delay(20);
+        // After session ends, _session is reset to null, so State returns Idle
+        Assert.Equal(NDeskSessionState.Idle, vm.State);
+
+        // Segundo ciclo
+        vm.GenerateTicketCommand.Execute(null);
+        await Task.Delay(20);
+        var secondTicketId = vm.TicketIdInput;
+        Assert.NotEqual(firstTicketId, secondTicketId); // Novo ticket
+        Assert.True(vm.ConnectCommand.CanExecute(null)); // Deve estar habilitado novamente
+
+        vm.ConnectCommand.Execute(null);
+        await Task.Delay(20);
+        Assert.Equal(NDeskSessionState.AwaitingConsent, vm.State);
+
+        vm.EndCommand.Execute(null);
+        await Task.Delay(20);
+        // After session ends, _session is reset to null, so State returns Idle
+        Assert.Equal(NDeskSessionState.Idle, vm.State);
     }
 }

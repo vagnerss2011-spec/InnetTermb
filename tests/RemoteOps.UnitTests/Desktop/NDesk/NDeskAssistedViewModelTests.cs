@@ -80,7 +80,8 @@ public sealed class NDeskAssistedViewModelTests
         assisted.DeclineCommand.Execute(null);
         await Task.Delay(20);
 
-        Assert.Equal(NDeskSessionState.Ended, assisted.State);
+        // After session ends, _session is reset to null, so State returns Idle
+        Assert.Equal(NDeskSessionState.Idle, assisted.State);
     }
 
     [Fact]
@@ -116,5 +117,44 @@ public sealed class NDeskAssistedViewModelTests
         await Task.Delay(20);
 
         Assert.True(assisted.EndCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task AfterSessionEnded_CanReceiveSecondIncomingRequest()
+    {
+        // Prova que após uma sessão terminar (Ended),
+        // a VM reseta PendingConsent e está pronta para receber um novo IncomingSessionRequested
+        // sem permanecer presa ao estado da sessão anterior.
+        var broker = new LoopbackNDeskBrokerClient();
+        var assisted = new NDeskAssistedViewModel(broker);
+
+        // Primeiro ciclo: criar ticket, conectar (gera IncomingSessionRequested), decline
+        var ticket1 = await broker.CreateTicketAsync("ws-local", "Operador Demo 1", "control", ["view", "control"]);
+        await broker.ConnectAsync(ticket1.Id);
+
+        Assert.True(assisted.HasPendingRequest);
+        Assert.NotNull(assisted.PendingConsent);
+        var firstOperatorName = assisted.PendingConsent!.OperatorDisplayName;
+        Assert.Equal("Operador Demo 1", firstOperatorName);
+
+        assisted.DeclineCommand.Execute(null);
+        await Task.Delay(20);
+        // After session ends, _session is reset to null, so State returns Idle
+        Assert.Equal(NDeskSessionState.Idle, assisted.State);
+        Assert.False(assisted.HasPendingRequest);
+        Assert.Null(assisted.PendingConsent);
+
+        // Segundo ciclo: novo ticket com operador diferente, conectar (gera novo IncomingSessionRequested)
+        var ticket2 = await broker.CreateTicketAsync("ws-local", "Operador Demo 2", "control", ["view", "control"]);
+        await broker.ConnectAsync(ticket2.Id);
+
+        Assert.True(assisted.HasPendingRequest);
+        Assert.NotNull(assisted.PendingConsent);
+        var secondOperatorName = assisted.PendingConsent!.OperatorDisplayName;
+        Assert.Equal("Operador Demo 2", secondOperatorName);
+
+        assisted.AcceptCommand.Execute(null);
+        await Task.Delay(20);
+        Assert.Equal(NDeskSessionState.Connected, assisted.State);
     }
 }

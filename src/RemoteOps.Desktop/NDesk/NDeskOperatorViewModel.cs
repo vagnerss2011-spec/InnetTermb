@@ -90,8 +90,17 @@ public sealed class NDeskOperatorViewModel : BaseViewModel
         await _session.EndAsync();
     }
 
-    private void OnSessionStateChanged(NDeskSessionState _)
+    private void OnSessionStateChanged(NDeskSessionState newState)
     {
+        if (newState == NDeskSessionState.Ended)
+        {
+            if (_session != null)
+            {
+                _session.StateChanged -= OnSessionStateChanged;
+                _session = null;
+            }
+        }
+
         RaiseState();
         EndCommand.RaiseCanExecuteChanged();
         ConnectCommand.RaiseCanExecuteChanged();
