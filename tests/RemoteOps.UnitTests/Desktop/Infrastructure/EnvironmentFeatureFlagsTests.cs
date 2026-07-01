@@ -41,4 +41,11 @@ public sealed class EnvironmentFeatureFlagsTests
         var flags = new EnvironmentFeatureFlags(rawFlags: "rdp.enabled");
         Assert.False(flags.IsEnabled("ndesk.enabled"));
     }
+
+    [Fact]
+    public void IsEnabled_NdeskFlagListed_ReturnsTrue()
+    {
+        var flags = new EnvironmentFeatureFlags(rawFlags: "ndesk.enabled");
+        Assert.True(flags.IsEnabled(FeatureFlagNames.NdeskEnabled));
+    }
 }
