@@ -70,6 +70,18 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   não valida `workspaceId ↔ operador` contra uma tabela de memberships (vive só no
   `RemoteOps.Cloud`, não referenciado aqui para não misturar módulos).
 
+## [0.10.0-ndesk-viewer-gui] - 2026-07-01
+
+### Adicionado
+
+- **NDesk Viewer GUI (fake broker) — aba "NDesk" clicável atrás da feature flag `ndesk.enabled` (default OFF):**
+  - `INDeskBrokerClient`/`INDeskAgentSession` (`src/RemoteOps.Desktop/NDesk/`): seam estável para o broker real da Frente 3; hoje só existe `LoopbackNDeskBrokerClient`/`LoopbackNDeskAgentSession`, fake in-memory sem rede.
+  - Fluxo do operador: gerar/inserir ticket, conectar, ver estado (`Idle→AwaitingConsent→Connected→Ended`), superfície de vídeo placeholder, banner permanente + botão "Encerrar" sempre acessível durante a sessão.
+  - Painel mock do lado atendido (`NDeskAssistedViewModel`) demonstrando o fluxo consentido de ponta a ponta na própria GUI: aceitar/recusar o pedido de consentimento.
+  - `LoopbackNDeskAgentSession` só alcança `Connected` via `RespondConsentAsync(true)` partindo de `AwaitingConsent` — não existe caminho para pular o consentimento (CLAUDE.md princípio 3).
+  - `NDeskTabViewModel` (aba pinada) liga `MainViewModel` a `TabsViewModel.OpenNdeskTab`; DI wiring em `AppCompositionRoot`; `TabsView.xaml` ganha DataTemplate para `NDeskTabViewModel`.
+  - Feature flag `ndesk.enabled` (`FeatureFlagNames`), mesmo mecanismo de `rdp.enabled`.
+
 ## [0.9.0-spike-ndesk-buy-vs-build] - 2026-06-30
 
 ### Adicionado
