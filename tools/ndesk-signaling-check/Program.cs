@@ -48,6 +48,7 @@ var issueResp = await http.PostAsJsonAsync("/ndesk/tickets", new
 });
 Check("emitir ticket -> 2xx", issueResp.IsSuccessStatusCode);
 var ticket = await issueResp.Content.ReadFromJsonAsync<JsonElement>();
+string ticketId = ticket.GetProperty("id").GetString()!;
 string linkToken = ticket.GetProperty("linkToken").GetString()!;
 http.DefaultRequestHeaders.Authorization = null;
 
@@ -56,6 +57,14 @@ var redeemResp = await http.PostAsJsonAsync("/ndesk/tickets/redeem", new { linkT
 Check("redeem -> 2xx", redeemResp.IsSuccessStatusCode);
 var redeem = await redeemResp.Content.ReadFromJsonAsync<JsonElement>();
 string sessionId = redeem.GetProperty("sessionId").GetString()!;
+
+// 2b) Operador DESCOBRE o sessionId pelo status do ticket (ADR-020) — antes só o agente sabia,
+// então o operador não tinha como entrar no signaling. Sem atalho: usa o endpoint de status.
+http.DefaultRequestHeaders.Authorization = new("Bearer", jwt);
+var status = await http.GetFromJsonAsync<JsonElement>($"/ndesk/tickets/{ticketId}");
+http.DefaultRequestHeaders.Authorization = null;
+string? discovered = status.TryGetProperty("sessionId", out var sidProp) ? sidProp.GetString() : null;
+Check("operador descobre sessionId via status (ADR-020)", discovered == sessionId);
 
 // 3) Conexões SignalR: operador (com JWT via query) e agente (anônimo)
 await using var operatorConn = new HubConnectionBuilder()

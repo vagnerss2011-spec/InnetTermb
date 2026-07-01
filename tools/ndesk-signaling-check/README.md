@@ -9,6 +9,7 @@ anônimo — num único processo contra um broker real e valida o hub SignalR de
 | Check | Garante |
 |-------|---------|
 | emitir ticket / redeem | REST de emissão + resgate (uso único) |
+| operador descobre sessionId via status | `GET /ndesk/tickets/{id}` devolve o `sessionId` ao criador (ADR-020) |
 | operador + agente entram na sessão | `JoinSession` com JWT real (operador) e anônimo (agente) |
 | **SendSignal sem consentimento → recusado** | o gate de consentimento roda **a cada** mensagem |
 | consent válido | grant aceito (subconjunto do pedido) |
@@ -39,10 +40,9 @@ recusado no `JoinSession`. Corrigido no Hub (lê `NameIdentifier`, com `sub` de 
 aos endpoints REST) e blindado por teste de regressão em
 `tests/RemoteOps.UnitTests/NDesk/NDeskSignalingHubTests.cs`.
 
-## Limitação conhecida descoberta
+## Descoberta de produto (resolvida)
 
-O operador precisa do `sessionId` para entrar no signaling, mas ele só existe após o agente
-resgatar o ticket, e o `GET /ndesk/tickets/{id}` **não** devolve o `sessionId` — hoje esta
-ferramenta contorna porque controla os dois lados. Descoberta de produto a endereçar (expor o
-`sessionId` ao operador criador, ex.: no status ou via push do hub) antes do fluxo real
-operador↔agente entre máquinas distintas.
+Rodar isto também revelou que o operador não tinha como obter o `sessionId` — o
+`GET /ndesk/tickets/{id}` não o devolvia, travando o fluxo real operador↔agente. **Resolvido
+por `ADR-020`**: o status do ticket passa a devolver o `sessionId` ao criador. O verificador
+agora o descobre por esse endpoint (sem atalho), fechando o loop de ponta a ponta.

@@ -32,6 +32,10 @@
         "denied"
       ]
     },
+    "sessionId": {
+      "type": "string",
+      "description": "Id da sessão de signaling; presente após o resgate (status connected). Devolvido só ao criador do ticket e ao agente que resgatou."
+    },
     "permissionsRequested": {
       "type": "array",
       "items": {

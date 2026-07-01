@@ -4,6 +4,16 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ## [Unreleased]
 
+### Adicionado
+
+- **NDesk — operador descobre o `sessionId` pelo status do ticket (`ADR-020`):** o
+  `GET /ndesk/tickets/{id}` passa a devolver o `sessionId` ao criador do ticket (campo novo,
+  opcional, em `contracts/ndesk-ticket.schema.json` e `NDeskTicket`), destravando o fluxo real
+  operador↔agente — antes só o agente recebia o `sessionId` no resgate e o operador não tinha
+  como entrar no signaling. Endpoint já escopado ao criador (anti-IDOR, `ADR-018`), então o
+  campo só chega a quem tem direito. Validado ao vivo: `tools/ndesk-signaling-check` agora
+  descobre o `sessionId` por esse endpoint (10/10 checks contra Postgres real).
+
 ### Corrigido
 
 - **NDesk Broker — `JoinSession`/`EndSession` do hub liam só o claim `sub`**, mas o middleware
