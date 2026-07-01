@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    SPIKE-017 — PoC descartável, fora da RemoteOps.sln de propósito.
+    Não referenciar a partir de nenhum projeto de produto; ver docs/spikes/SPIKE-017-ndesk-webrtc-captura-win10.md.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>NDesk.WebRtcSpike</RootNamespace>
+    <AssemblyName>ndesk-webrtc-spike</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <NoWarn>CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Captura DXGI Desktop Duplication: MIT, ativo (ver SPIKE-017 §DXGI). -->
+    <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
+    <PackageReference Include="Vortice.DXGI" Version="3.8.3" />
+    <!--
+      Referenciamos este pacote APENAS como veículo do binário nativo datachannel.dll
+      (runtimes/win-x64/native). NÃO usamos o wrapper C# dele — os bindings P/Invoke em
+      Transport/LibDataChannelNative.cs são escritos e auditados por nós contra a API C
+      pública e documentada do libdatachannel (rtc.h, MPL-2.0). Ver SPIKE-017 §Transporte
+      para a ressalva de proveniência (pacote de terceiro sem repositório-fonte vinculado);
+      antes de produção, buildar libdatachannel a partir do código-fonte oficial.
+    -->
+    <PackageReference Include="DataChannelDotnet" Version="1.3.1" />
+  </ItemGroup>
+
+</Project>

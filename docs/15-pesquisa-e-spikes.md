@@ -199,6 +199,19 @@ Entregas:
 
 **Resultado:** confirmado o caminho "construir" (`ADR-005`/`ADR-007`). RustDesk é desqualificado por licença (AGPL-3.0 incompatível com distribuir agente fechado a terceiros) e por permitir oficialmente compor um cliente sem indicador visível/sem botão de parar. MeshCentral permite consentimento configurável para silencioso e tem AMT out-of-band sem consentimento possível; instalação persistente por padrão conflita com "sem serviço no MVP". Apache Guacamole não resolve o problema (gateway para infraestrutura já gerenciada, sem conceito de agente/consentimento ad-hoc). `security-agent` e `ndesk-agent`, de forma independente, convergiram em não recomendar nenhum candidato de compra. Risco novo descoberto: Visual Studio 2026 removeu Windows 7 como plataforma de deployment; time depende do VS2022 (mainstream até ~jan/2027) — critério de revisão futura incorporado à `ADR-007`. Recomendado `libdatachannel`+`coturn`/`eturnal` em vez de embarcar o `libwebrtc` completo do Chromium (que já abandonou Windows 7/8/8.1).
 
+### SPIKE-017 — NDesk: stack de transporte WebRTC + captura DXGI para agente .NET (Win10/11)
+
+Pergunta: com o pivô do agente NDesk para .NET em Windows 10/11 (`ADR-016`), qual biblioteca de WebRTC e qual biblioteca de acesso a DXGI usar a partir de código gerenciado, servindo de base para portar depois a Linux/macOS? Reconfirma também a escolha de TURN self-hosted do `SPIKE-016`.
+
+Entregas:
+
+- Pesquisa com fontes primárias (LICENSE oficial, releases, documentação) para SIPSorcery, `libdatachannel`, Microsoft.MixedReality.WebRTC e `libwebrtc` completo (transporte); Vortice.Windows vs SharpDX (captura); coturn vs eturnal (reconfirmação de TURN).
+- Verificação adversarial de licença feita diretamente pelo orquestrador sobre o achado mais crítico (cláusula não padrão na licença do SIPSorcery), não só por agente de pesquisa.
+- PoC descartável **construído e executado de fato** em Windows 11 real: `tools/spikes/ndesk-webrtc/` — captura DXGI via Vortice.Windows, codec placeholder, transporte via `libdatachannel` P/Invoke em loopback local, com latência/FPS medidos.
+- `docs/spikes/SPIKE-017-ndesk-webrtc-captura-win10.md` (relatório completo) e `adr/ADR-017-ndesk-stack-transporte-midia.md` (decisão, Status "Proposta").
+
+**Resultado:** recomendado `libdatachannel` (MPL-2.0) via P/Invoke direto contra a API C pública, buildado a partir do código-fonte oficial em produção. **SIPSorcery desqualificado por licença**: o `LICENSE.md` oficial contém, além do BSD-3-Clause, uma cláusula adicional não padrão de restrição geopolítica ("BDS") que proíbe uso/distribuição em Israel e nos Territórios Ocupados — verificado por fonte primária pelo orquestrador, mesma classe de risco que quase levou o `SPIKE-016` a considerar o AGPL do RustDesk aceitável. Microsoft.MixedReality.WebRTC está morto (repositório removido); `libwebrtc` completo permanece desproporcional mesmo sem o requisito Windows 7. Para captura, recomendado `Vortice.Windows` (MIT, ativo) sobre `SharpDX` (arquivado desde 2019). Para TURN, a recomendação do `SPIKE-016` se inverte: `coturn` (releases semanais ativos em 2026) agora é preferido sobre `eturnal` (estagnado desde maio/2025). Codec de vídeo real (H.264/VP8) permanece item próprio e pendente, já mapeado em `docs/22`/SPIKE-010.
+
 ## Agentes de pesquisa sugeridos
 
 - `research-agent`: coordena spikes e registra evidências.

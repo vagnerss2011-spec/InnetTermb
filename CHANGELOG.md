@@ -2,6 +2,20 @@
 
 Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.com/) e versionamento SemVer interno.
 
+## [0.10.0-spike-ndesk-webrtc-capture] - 2026-07-01
+
+### Adicionado
+
+- **SPIKE-017 — NDesk: stack de transporte WebRTC + captura DXGI para agente .NET (Win10/11):**
+  - `docs/spikes/SPIKE-017-ndesk-webrtc-captura-win10.md`: relatório com matriz de decisão (SIPSorcery, `libdatachannel`, Microsoft.MixedReality.WebRTC, `libwebrtc` completo para transporte; Vortice.Windows vs SharpDX para captura; coturn vs eturnal para TURN), fontes primárias citadas e verificação adversarial de licença — inclusive uma verificada diretamente pelo orquestrador (cláusula BDS não padrão na licença do SIPSorcery).
+  - `adr/ADR-017-ndesk-stack-transporte-midia.md` (Status "Proposta"): decisão — `libdatachannel` (MPL-2.0) via P/Invoke direto para transporte, `Vortice.Windows` (MIT) para captura DXGI, `coturn` (BSD-3) para TURN self-hosted; complementa `ADR-005` e resolve a lacuna deixada em aberto por `ADR-016`.
+  - `tools/spikes/ndesk-webrtc/`: PoC descartável (.NET, fora de `RemoteOps.sln`) **construído e executado de fato** em Windows 11 — captura 1 monitor via DXGI Desktop Duplication (`Vortice.Direct3D11`/`Vortice.DXGI`), codec placeholder (diff de frame + GZip, deliberadamente não H.264/VP8), transporte via `libdatachannel` P/Invoke (bindings escritos internamente contra a API C pública `rtc.h`) em loopback local (2 `PeerConnection`s no mesmo processo, sem broker/signaling), com medição real de latência/FPS/bitrate.
+  - `docs/15-pesquisa-e-spikes.md`: adicionada entrada do SPIKE-017 com resultado.
+
+### Segurança
+
+- Verificação adversarial confirmou que o `LICENSE.md` oficial do SIPSorcery contém, além do BSD-3-Clause, uma cláusula adicional não padrão de restrição de campo de uso (geopolítica) — motivo suficiente para desqualificá-lo como transporte WebRTC do NDesk, mesma classe de risco que o AGPL do RustDesk no `SPIKE-016`. O PoC usa um binário nativo de terceiro (`datachannel.dll` via pacote `DataChannelDotnet`) apenas para fins de spike; produção exige buildar `libdatachannel` a partir do código-fonte oficial, conforme controle já registrado em `ADR-015`.
+
 ## [0.10.0-ndesk-pivo-win10] - 2026-07-01
 
 ### Alterado
