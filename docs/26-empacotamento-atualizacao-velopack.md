@@ -8,11 +8,16 @@ runbook; lá fica a decisão e o porquê.
 `RemoteOps.Desktop` é empacotado e atualizado via **Velopack** (`vpk` CLI, pacote NuGet
 `Velopack`, licença MIT verificada em `ADR-019`). Cada release gera:
 
-- `RemoteOpsDesktop-Setup.exe` — instalador padrão, com auto-update.
-- `RemoteOpsDesktop-Portable.zip` — versão portátil, sem instalação e **sem** auto-update.
+- `RemoteOpsDesktop-<canal>-Setup.exe` (canal padrão `win`) — instalador padrão, com auto-update.
+- `RemoteOpsDesktop-<canal>-Portable.zip` — versão portátil, sem instalação e **sem** auto-update.
 - `*-full.nupkg` / `*-delta.nupkg` — pacotes completo e incremental, consumidos pelo
-  `UpdateManager` em tempo de execução.
+  `UpdateManager` em tempo de execução. Delta só é gerado quando já existe uma release anterior
+  em `--outputDir` (ou no feed, ao publicar direto contra o GitHub) — a primeira release de um
+  canal é sempre full.
 - `releases.<canal>.json` — índice de releases.
+
+Nomes e comportamento confirmados rodando `dotnet publish` + `vpk pack` localmente contra este
+projeto (ver `## Validação local` no fim deste documento).
 
 ## Pré-requisitos locais
 
@@ -113,6 +118,45 @@ abaixo de `minimumRequiredVersion`), o app mostra um prompt obrigatório (sem op
 depois"), baixa e aplica a atualização, e encerra para reiniciar na nova versão — a `MainWindow`
 nunca chega a abrir nessa condição. Falha na checagem (rede indisponível, feed fora do ar) é
 fail-open: o app segue normalmente, sem bloquear o operador por uma verificação que não completou.
+
+## Entry point custom (`Main()`, não o construtor de `App`)
+
+`App.xaml` deixou de ser `ApplicationDefinition` (que gera um `Main()` automático) e virou
+`Page`; `RemoteOps.Desktop.csproj` aponta `<StartupObject>` para `RemoteOps.Desktop.App`, que
+define seu próprio `Main()` estático chamando `VelopackApp.Build().SetArgs(args).Run()` como
+primeira instrução, antes de `InitializeComponent()`/`Run()`. Isso segue o padrão oficial do
+Velopack para WPF (`docs.velopack.io/getting-started/csharp`) — colocar a chamada no construtor
+de `App` (tentativa inicial deste PR) funciona, mas o próprio `vpk pack` **avisa** que não é o
+padrão recomendado (`VelopackApp.Run() was found in method '...App::.ctor()', which does not
+look like your application's entry point`); com o `Main()` explícito, o aviso vira uma
+confirmação positiva (`Verified VelopackApp.Run() in '...App::Main(System.String)'`).
+
+## Validação local
+
+Rodado de fato neste projeto (não só documentado) em 2026-07-01, com .NET SDK 10.0.301 e
+Velopack CLI 1.2.0 (`dotnet tool install -g vpk`):
+
+```powershell
+dotnet publish src/RemoteOps.Desktop/RemoteOps.Desktop.csproj -c Release -p:PublishProfile=win-x64-velopack -o publish/win-x64
+vpk pack --packId RemoteOpsDesktop --packVersion 0.11.0 --packDir publish/win-x64 --mainExe RemoteOps.Desktop.exe --packTitle "RemoteOps Desktop" --outputDir Releases
+```
+
+Resultado confirmado:
+
+- `publish/win-x64`: 310 arquivos, ~197 MB, self-contained, `RemoteOps.Desktop.exe` presente.
+- `vpk pack` reporta `Verified VelopackApp.Run() in 'System.Void RemoteOps.Desktop.App::Main(System.String)'` (sem o aviso de entry point).
+- `Releases/RemoteOpsDesktop-win-Setup.exe` gerado (~95 MB).
+- `Releases/RemoteOpsDesktop-win-Portable.zip` gerado (~90 MB).
+- `Releases/RemoteOpsDesktop-0.11.0-full.nupkg`, `Releases/releases.win.json`, `Releases/RELEASES` gerados.
+- Nenhum pacote delta nesta rodada — esperado, não havia release anterior em `--outputDir`.
+- Único aviso remanescente: `No signing parameters provided` — esperado, assinatura de código é
+  frente separada (`ADR-019`).
+
+Não validado neste PR (fora do alcance de uma máquina de desenvolvimento sem instalar o app de
+fato): execução do `Setup.exe` instalando/desinstalando de verdade, e um ciclo real de
+update-and-restart via `UpdateManager` contra um feed do GitHub publicado. Ambos exigem uma
+segunda versão publicada e uma VM/máquina limpa — candidato a smoke test manual do checklist de
+release (`docs/23-governanca-versionamento-changelog.md`).
 
 ## Fora de escopo (ver `ADR-019`)
 

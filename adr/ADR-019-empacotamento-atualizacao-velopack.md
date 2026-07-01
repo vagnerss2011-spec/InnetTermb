@@ -56,13 +56,14 @@ atualização do `RemoteOps.Desktop`, alvo Windows 10/11, .NET 10 self-contained
 Publish self-contained (`dotnet publish -c Release -r win-x64 --self-contained true`) seguido de
 `vpk pack` gera, por release:
 
-- `RemoteOpsDesktop-Setup.exe` — instalador padrão (caminho principal, instala e registra
-  atualização automática).
+- `RemoteOpsDesktop-<canal>-Setup.exe` (ex.: `RemoteOpsDesktop-win-Setup.exe`, canal padrão
+  `win`) — instalador padrão (caminho principal, instala e registra atualização automática).
+  Nome confirmado rodando `vpk pack` localmente contra um publish real deste projeto.
 - `RemoteOpsDesktop-<versão>-full.nupkg` — pacote completo, usado como baseline de delta.
 - `RemoteOpsDesktop-<versão>-delta.nupkg` — pacote incremental em relação à versão anterior
   publicada no mesmo canal (gerado automaticamente pelo `vpk pack` quando há uma release anterior
   no `--outputDir`/feed).
-- `RemoteOpsDesktop-Portable.zip` — versão portátil, sem instalação; roda o `.exe` extraído
+- `RemoteOpsDesktop-<canal>-Portable.zip` — versão portátil, sem instalação; roda o `.exe` extraído
   diretamente. **Não recebe atualização automática via Velopack** (é um snapshot; operador que
   precisa de auto-update deve usar o `Setup.exe`) — registrado como limitação conhecida, não como
   lacuna a resolver agora.

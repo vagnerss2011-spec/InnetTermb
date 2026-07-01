@@ -8,9 +8,17 @@
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Entry point custom em App.xaml.cs (ADR-019): VelopackApp.Build().Run() precisa
+         rodar antes de qualquer infraestrutura do WPF, então App.xaml deixa de ser
+         ApplicationDefinition (que gera Main() automático) e o Main() explícito assume. -->
+    <StartupObject>RemoteOps.Desktop.App</StartupObject>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="RemoteOps.UnitTests" />
+  </ItemGroup>
+  <ItemGroup>
+    <ApplicationDefinition Remove="App.xaml" />
+    <Page Include="App.xaml" />
   </ItemGroup>
   <ItemGroup>
     <!-- UseWPF + UseWindowsForms together make the SDK inject BOTH namespaces as
