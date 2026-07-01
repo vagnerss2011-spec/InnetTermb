@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using RemoteOps.Desktop.NDesk;
 using RemoteOps.Desktop.Rdp;
 using RemoteOps.Desktop.Terminal;
 
@@ -50,6 +51,14 @@ public sealed class TabsViewModel : BaseViewModel
 
     /// <summary>Adiciona uma aba RDP pré-construída e a ativa.</summary>
     public void OpenRdpTab(RdpTabViewModel tab)
+    {
+        Tabs.Add(tab);
+        ActiveTab = tab;
+        RaisePropertyChanged(nameof(HasTabs));
+    }
+
+    /// <summary>Adiciona a aba NDesk pré-construída (pinada) e a ativa.</summary>
+    public void OpenNdeskTab(NDeskTabViewModel tab)
     {
         Tabs.Add(tab);
         ActiveTab = tab;
