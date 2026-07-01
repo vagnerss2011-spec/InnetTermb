@@ -72,8 +72,11 @@ internal static class AppCompositionRoot
         services.AddSingleton<IHostKeyConfirmation, ModalHostKeyConfirmation>();
         services.AddSingleton<ITelnetConsentProvider, ModalTelnetConsentProvider>();
 
-        // Feature flags (default OFF — REMOTEOPS_FEATURE_FLAGS env var)
-        services.AddSingleton<IFeatureFlags, EnvironmentFeatureFlags>();
+        // Settings persistidas + feature flags (settings OU env; env é override forte)
+        services.AddSingleton<ISettingsStore, JsonSettingsStore>();
+        services.AddSingleton<IFeatureFlags>(sp => new CompositeFeatureFlags(
+            sp.GetRequiredService<ISettingsStore>(),
+            new EnvironmentFeatureFlags()));
 
         // Adaptadores Desktop→RDP (ADR-014)
         services.AddSingleton<IRdpEndpointResolver, LocalStoreRdpEndpointResolver>();
