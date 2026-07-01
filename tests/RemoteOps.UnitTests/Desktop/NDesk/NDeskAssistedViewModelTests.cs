@@ -15,6 +15,15 @@ public sealed class NDeskAssistedViewModelTests
     }
 
     [Fact]
+    public void Initially_CanExecuteIsFalseWhenIdleNoSession()
+    {
+        var vm = new NDeskAssistedViewModel(new LoopbackNDeskBrokerClient());
+
+        Assert.False(vm.AcceptCommand.CanExecute(null));
+        Assert.False(vm.DeclineCommand.CanExecute(null));
+    }
+
+    [Fact]
     public async Task IncomingSessionRequested_PopulatesPendingConsent()
     {
         var broker = new LoopbackNDeskBrokerClient();
@@ -43,6 +52,24 @@ public sealed class NDeskAssistedViewModelTests
     }
 
     [Fact]
+    public async Task AcceptCommand_CanExecuteIsFalseAfterAccepting()
+    {
+        var broker = new LoopbackNDeskBrokerClient();
+        var assisted = new NDeskAssistedViewModel(broker);
+        var ticket = await broker.CreateTicketAsync("ws-local", "Operador Demo", "control", ["view", "control"]);
+        await broker.ConnectAsync(ticket.Id);
+
+        Assert.True(assisted.AcceptCommand.CanExecute(null));
+        Assert.True(assisted.DeclineCommand.CanExecute(null));
+
+        assisted.AcceptCommand.Execute(null);
+        await Task.Delay(20);
+
+        Assert.False(assisted.AcceptCommand.CanExecute(null));
+        Assert.False(assisted.DeclineCommand.CanExecute(null));
+    }
+
+    [Fact]
     public async Task DeclineCommand_TransitionsToEnded_NeverConnected()
     {
         var broker = new LoopbackNDeskBrokerClient();
@@ -54,6 +81,25 @@ public sealed class NDeskAssistedViewModelTests
         await Task.Delay(20);
 
         Assert.Equal(NDeskSessionState.Ended, assisted.State);
+    }
+
+    [Fact]
+    public async Task DeclineCommand_CanExecuteIsFalseAfterDeclining()
+    {
+        var broker = new LoopbackNDeskBrokerClient();
+        var assisted = new NDeskAssistedViewModel(broker);
+        var ticket = await broker.CreateTicketAsync("ws-local", "Operador Demo", "control", ["view", "control"]);
+        await broker.ConnectAsync(ticket.Id);
+
+        Assert.True(assisted.AcceptCommand.CanExecute(null));
+        Assert.True(assisted.DeclineCommand.CanExecute(null));
+
+        assisted.DeclineCommand.Execute(null);
+        await Task.Delay(20);
+
+        Assert.False(assisted.AcceptCommand.CanExecute(null));
+        Assert.False(assisted.DeclineCommand.CanExecute(null));
+        Assert.False(assisted.EndCommand.CanExecute(null));
     }
 
     [Fact]
