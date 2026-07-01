@@ -9,7 +9,41 @@
         FontFamily="{DynamicResource Font.Family.Base}"
         FontSize="{DynamicResource Font.Size.Body}">
 
-    <Grid>
+    <Window.InputBindings>
+        <KeyBinding Modifiers="Ctrl" Key="W" Command="{Binding Tabs.CloseActiveTabCommand}"/>
+    </Window.InputBindings>
+
+    <DockPanel>
+        <Menu DockPanel.Dock="Top">
+            <MenuItem Header="_Arquivo">
+                <MenuItem Header="Configurações…" Click="OpenSettings_Click" InputGestureText="Ctrl+,"/>
+                <Separator/>
+                <MenuItem Header="Sair" Click="Exit_Click" InputGestureText="Alt+F4"/>
+            </MenuItem>
+            <MenuItem Header="_Sessão">
+                <MenuItem Header="Conectar via SSH"    Command="{Binding Inspector.OpenSessionCommand}" CommandParameter="ssh"/>
+                <MenuItem Header="Conectar via Telnet" Command="{Binding Inspector.OpenSessionCommand}" CommandParameter="telnet"/>
+                <MenuItem Header="Conectar via RDP"    Command="{Binding Inspector.OpenSessionCommand}" CommandParameter="rdp"/>
+                <MenuItem Header="Abrir WinBox"        Command="{Binding Inspector.OpenWinBoxCommand}"/>
+                <Separator/>
+                <MenuItem Header="Fechar aba atual"    Command="{Binding Tabs.CloseActiveTabCommand}" InputGestureText="Ctrl+W"/>
+            </MenuItem>
+            <MenuItem Header="_Exibir">
+                <MenuItem Header="Barra lateral"  IsCheckable="True" IsChecked="True" Checked="ToggleSidebar_Changed" Unchecked="ToggleSidebar_Changed"/>
+                <MenuItem Header="Inspector"      IsCheckable="True" IsChecked="True" Checked="ToggleInspector_Changed" Unchecked="ToggleInspector_Changed"/>
+                <Separator/>
+                <MenuItem Header="Foco na busca" Click="FocusSearch_Click" InputGestureText="Ctrl+F"/>
+            </MenuItem>
+            <MenuItem Header="_Ferramentas">
+                <MenuItem Header="Configurações…" Click="OpenSettings_Click"/>
+                <MenuItem Header="Verificar atualizações…" Click="CheckUpdates_Click"/>
+            </MenuItem>
+            <MenuItem Header="Aj_uda">
+                <MenuItem Header="Documentação" Click="Docs_Click"/>
+                <MenuItem Header="Sobre…" Click="About_Click"/>
+            </MenuItem>
+        </Menu>
+        <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="40"/>
             <RowDefinition Height="2*"/>
@@ -17,11 +51,11 @@
             <RowDefinition Height="*" MinHeight="80"/>
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="220" MinWidth="150"/>
+            <ColumnDefinition x:Name="SidebarColumn" Width="220" MinWidth="150"/>
             <ColumnDefinition Width="4"/>
             <ColumnDefinition Width="*" MinWidth="300"/>
             <ColumnDefinition Width="4"/>
-            <ColumnDefinition Width="260" MinWidth="200"/>
+            <ColumnDefinition x:Name="InspectorColumn" Width="260" MinWidth="200"/>
         </Grid.ColumnDefinitions>
 
         <!-- Barra superior -->
@@ -43,7 +77,8 @@
                            VerticalAlignment="Center"
                            Margin="0,0,16,0"/>
 
-                <TextBox Grid.Column="1"
+                <TextBox x:Name="SearchBox"
+                         Grid.Column="1"
                          Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
                          ToolTip="Busca global (nome, IP, FQDN, tag)"
                          VerticalAlignment="Center"
@@ -119,5 +154,6 @@
                              Background="{DynamicResource Brush.Bg.Surface}"
                              BorderBrush="{DynamicResource Brush.Border.Subtle}"
                              BorderThickness="1,0,0,0"/>
-    </Grid>
+        </Grid>
+    </DockPanel>
 </Window>
