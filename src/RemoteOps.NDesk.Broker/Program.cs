@@ -82,6 +82,21 @@ builder.Services.AddHttpLogging(opt =>
 
 var app = builder.Build();
 
+// ── Inicialização do schema ───────────────────────────────────────────────────
+// Sem isto, o broker não sobe contra um banco novo (as tabelas não existem e a
+// primeira escrita falha). EnsureCreated cria o schema a partir do modelo EF — suficiente
+// para MVP/dev e para os ambientes atuais. Débito registrado (ADR-018 §débitos): migrations
+// versionadas (`dotnet ef migrations`) devem substituir EnsureCreated antes de evoluir schema
+// em produção ou escalar horizontalmente, já que EnsureCreated não versiona alterações.
+// Desligável por NDESK_DB_SKIP_INIT=true (ex.: quando um migrador externo cuida do schema).
+if (!string.Equals(
+        Environment.GetEnvironmentVariable("NDESK_DB_SKIP_INIT"), "true", StringComparison.OrdinalIgnoreCase))
+{
+    using IServiceScope scope = app.Services.CreateScope();
+    NDeskDbContext db = scope.ServiceProvider.GetRequiredService<NDeskDbContext>();
+    db.Database.EnsureCreated();
+}
+
 // ── Middlewares ──────────────────────────────────────────────────────────────
 app.UseExceptionHandler();
 app.UseAuthentication();
