@@ -4,6 +4,15 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ## [Unreleased]
 
+### Corrigido
+
+- **NDesk Broker — `JoinSession`/`EndSession` do hub liam só o claim `sub`**, mas o middleware
+  JWT mapeia `sub` para `ClaimTypes.NameIdentifier` (`MapInboundClaims=true`) — com um JWT real
+  o operador era **sempre recusado** no signaling. Passa a ler `NameIdentifier` (com `sub` de
+  reserva), igual aos endpoints REST. Bug encontrado ao rodar o broker de verdade (não pego
+  pelos testes unitários com fakes que setavam `sub` literal); blindado por 2 testes de
+  regressão em `NDeskSignalingHubTests` (com claim mapeado).
+
 ### Adicionado
 
 - **NDesk Broker executável + runbook local:** o broker não subia contra um banco novo (sem
@@ -15,6 +24,10 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   emissão/uso-único/expiração de ticket, anti-IDOR no status, gate de consentimento, revogação;
   e confirmado no banco que o link token só existe como hash SHA-256 (nunca em claro) e que a
   auditoria não contém segredo.
+- **`tools/ndesk-signaling-check`** (cross-platform, fora da solution): verificador de
+  integração que opera operador+agente contra um broker real e valida o hub SignalR de ponta a
+  ponta (relay de SDP/ICE, recusa sem consentimento e após revogação). 9/9 checks executados de
+  fato contra um broker com Postgres real.
 - **DevOps — pipeline de release (`release.yml`):** novo workflow GitHub Actions, separado do
   `ci.yml`, disparado por push de tag `v*`. Em `windows-latest`: deriva e valida a versão SemVer
   a partir da tag (`VERSIONING.md`), publica o `RemoteOps.Desktop` self-contained (`win-x64`),
