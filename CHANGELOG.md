@@ -6,6 +6,15 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ### Adicionado
 
+- **NDesk Broker executável + runbook local:** o broker não subia contra um banco novo (sem
+  migrations nem `EnsureCreated`, a primeira escrita falhava). `Program.cs` passa a criar o
+  schema no startup via `EnsureCreated` (desligável por `NDESK_DB_SKIP_INIT=true`; débito de
+  migrations versionadas registrado em `docs/27` e ADR-018). `deploy/docker-compose.dev.yml`
+  (Postgres de dev) e `docs/27-executar-broker-local.md` (config, execução e smoke test do
+  fluxo ticket→redeem→consent→revoke). Validado de ponta a ponta contra um Postgres real:
+  emissão/uso-único/expiração de ticket, anti-IDOR no status, gate de consentimento, revogação;
+  e confirmado no banco que o link token só existe como hash SHA-256 (nunca em claro) e que a
+  auditoria não contém segredo.
 - **DevOps — pipeline de release (`release.yml`):** novo workflow GitHub Actions, separado do
   `ci.yml`, disparado por push de tag `v*`. Em `windows-latest`: deriva e valida a versão SemVer
   a partir da tag (`VERSIONING.md`), publica o `RemoteOps.Desktop` self-contained (`win-x64`),
