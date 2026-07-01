@@ -1,0 +1,169 @@
+name: release
+
+# Gera os artefatos de release do RemoteOps Desktop ao empurrar uma tag `vX.Y.Z[-alpha|-beta|-rc.N]`
+# (SemVer interno, docs/23-governanca-versionamento-changelog.md / VERSIONING.md).
+#
+# Empacotamento via Velopack (`vpk`) — config do projeto (Velopack.Packaging no .csproj,
+# ícone, VelopackApp.Build().Run() no Main) vem da frente paralela
+# feature/packaging-velopack-update / ADR-019. Este workflow assume o publish self-contained
+# padrão do RemoteOps.Desktop e a CLI `vpk` (dotnet tool) — ajustar flags aqui se ADR-019
+# definir nomes/IDs diferentes.
+#
+# Sem segredos: usa apenas o GITHUB_TOKEN padrão. Assinatura de binário (SignTool/certificado)
+# fica fora de escopo (docs/11 §Secret management no CI) e deve ser um workflow/step separado
+# quando houver certificado disponível via GitHub Environments com approval.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  DOTNET_VERSION: "10.0.x"
+  APP_PROJECT: src/RemoteOps.Desktop/RemoteOps.Desktop.csproj
+  APP_ID: RemoteOps.Desktop
+  APP_EXE: RemoteOps.Desktop.exe
+  RUNTIME_ID: win-x64
+  PUBLISH_DIR: publish/RemoteOps.Desktop
+  RELEASE_DIR: release-artifacts
+
+jobs:
+  build-and-package:
+    name: Build, empacotar (Velopack) e publicar release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Derivar e validar versão da tag (SemVer interno — docs/23)
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag -replace '^v', ''
+          if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$') {
+            Write-Error "Tag '$tag' nao segue o SemVer interno esperado (vX.Y.Z ou vX.Y.Z-alpha|beta|rc.N). Ver VERSIONING.md."
+            exit 1
+          }
+          $isPrerelease = $version -match '-(alpha|beta|rc)\.'
+          Write-Host "Versao: $version (prerelease: $isPrerelease)"
+          "VERSION=$version" >> $env:GITHUB_ENV
+          "IS_PRERELEASE=$isPrerelease" >> $env:GITHUB_ENV
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore
+        shell: pwsh
+        run: dotnet restore
+
+      - name: Publish self-contained (${{ env.RUNTIME_ID }})
+        shell: pwsh
+        run: |
+          dotnet publish "${{ env.APP_PROJECT }}" `
+            --configuration Release `
+            --runtime "${{ env.RUNTIME_ID }}" `
+            --self-contained true `
+            -p:Version=${{ env.VERSION }} `
+            -p:PublishSingleFile=false `
+            --output "${{ env.PUBLISH_DIR }}"
+
+      - name: Instalar Velopack CLI (vpk)
+        shell: pwsh
+        run: dotnet tool install -g vpk
+
+      - name: Empacotar com Velopack (vpk pack)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "${{ env.RELEASE_DIR }}" | Out-Null
+          vpk pack `
+            --packId "${{ env.APP_ID }}" `
+            --packVersion "${{ env.VERSION }}" `
+            --packDir "${{ env.PUBLISH_DIR }}" `
+            --mainExe "${{ env.APP_EXE }}" `
+            --outputDir "${{ env.RELEASE_DIR }}"
+
+      - name: Renomear instalador Velopack (Setup.exe -> nome versionado)
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem -Path "${{ env.RELEASE_DIR }}" -Filter "Setup.exe" | Select-Object -First 1
+          if (-not $setup) {
+            Write-Error "vpk pack nao gerou Setup.exe em ${{ env.RELEASE_DIR }}"
+            exit 1
+          }
+          $installerName = "${{ env.APP_ID }}-${{ env.VERSION }}-${{ env.RUNTIME_ID }}-Setup.exe"
+          Copy-Item $setup.FullName (Join-Path "${{ env.RELEASE_DIR }}" $installerName)
+          "INSTALLER_NAME=$installerName" >> $env:GITHUB_ENV
+
+      - name: Gerar ZIP portátil (sem instalação)
+        shell: pwsh
+        run: |
+          $zipName = "${{ env.APP_ID }}-${{ env.VERSION }}-${{ env.RUNTIME_ID }}-portable.zip"
+          $zipPath = Join-Path "${{ env.RELEASE_DIR }}" $zipName
+          Compress-Archive -Path "${{ env.PUBLISH_DIR }}\*" -DestinationPath $zipPath -Force
+          "PORTABLE_ZIP_NAME=$zipName" >> $env:GITHUB_ENV
+
+      - name: Publicar executável avulso como asset
+        shell: pwsh
+        run: |
+          $exeName = "${{ env.APP_ID }}-${{ env.VERSION }}-${{ env.RUNTIME_ID }}.exe"
+          Copy-Item (Join-Path "${{ env.PUBLISH_DIR }}" "${{ env.APP_EXE }}") (Join-Path "${{ env.RELEASE_DIR }}" $exeName)
+          "STANDALONE_EXE_NAME=$exeName" >> $env:GITHUB_ENV
+
+      - name: Gerar manifest de build e hashes SHA-256 (docs/23)
+        shell: pwsh
+        run: |
+          $manifestPath = Join-Path "${{ env.RELEASE_DIR }}" "build-manifest.json"
+          $shaPath = Join-Path "${{ env.RELEASE_DIR }}" "SHA256SUMS.txt"
+
+          $files = Get-ChildItem -Path "${{ env.RELEASE_DIR }}" -File | Where-Object {
+            $_.Name -ne "build-manifest.json" -and $_.Name -ne "SHA256SUMS.txt"
+          }
+
+          $hashLines = foreach ($f in $files) {
+            $hash = (Get-FileHash -Path $f.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($f.Name)"
+          }
+          $hashLines | Set-Content -Path $shaPath -Encoding utf8
+
+          $manifest = [ordered]@{
+            component     = "${{ env.APP_ID }}"
+            version       = "${{ env.VERSION }}"
+            commit        = "${{ github.sha }}"
+            branch        = "${{ github.ref_name }}"
+            builtAtUtc    = (Get-Date).ToUniversalTime().ToString("o")
+            dotnetVersion = "${{ env.DOTNET_VERSION }}"
+            runtime       = "${{ env.RUNTIME_ID }}"
+            artifacts     = @($files.Name)
+          }
+          $manifest | ConvertTo-Json -Depth 4 | Set-Content -Path $manifestPath -Encoding utf8
+
+      - name: Upload artefatos do workflow
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_ID }}-${{ env.VERSION }}
+          path: ${{ env.RELEASE_DIR }}/*
+          if-no-files-found: error
+
+      - name: Publicar GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $ghArgs = @(
+            "release", "create", "${{ github.ref_name }}",
+            "--title", "${{ env.APP_ID }} ${{ env.VERSION }}",
+            "--notes", "Release automatizada via release.yml. Ver CHANGELOG.md para detalhes desta versao."
+          )
+          if ($env:IS_PRERELEASE -eq "True") { $ghArgs += "--prerelease" }
+          $ghArgs += @(
+            "${{ env.RELEASE_DIR }}/${{ env.INSTALLER_NAME }}",
+            "${{ env.RELEASE_DIR }}/${{ env.PORTABLE_ZIP_NAME }}",
+            "${{ env.RELEASE_DIR }}/${{ env.STANDALONE_EXE_NAME }}",
+            "${{ env.RELEASE_DIR }}/SHA256SUMS.txt",
+            "${{ env.RELEASE_DIR }}/build-manifest.json"
+          )
+          & gh @ghArgs
