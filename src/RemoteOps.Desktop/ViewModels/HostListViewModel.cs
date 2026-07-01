@@ -28,6 +28,14 @@ public sealed class HostListViewModel : BaseViewModel
             () => !IsBusy && SelectedAsset != null);
 
         LoadCommand = new RelayCommand(() => _ = LoadAsync());
+
+        ConnectCommand = new RelayCommand(
+            obj => ConnectRequested?.Invoke(this, obj as string ?? "ssh"),
+            _ => SelectedAsset != null);
+
+        OpenWinBoxCommand = new RelayCommand(
+            () => WinBoxRequested?.Invoke(this, EventArgs.Empty),
+            () => SelectedAsset != null);
     }
 
     public ObservableCollection<AssetViewModel> Assets { get; } = [];
@@ -35,6 +43,8 @@ public sealed class HostListViewModel : BaseViewModel
     public RelayCommand AddHostCommand { get; }
     public RelayCommand DeleteHostCommand { get; }
     public RelayCommand LoadCommand { get; }
+    public RelayCommand ConnectCommand { get; }
+    public RelayCommand OpenWinBoxCommand { get; }
 
     public AssetViewModel? SelectedAsset
     {
@@ -43,6 +53,8 @@ public sealed class HostListViewModel : BaseViewModel
         {
             Set(ref _selectedAsset, value);
             DeleteHostCommand.RaiseCanExecuteChanged();
+            ConnectCommand.RaiseCanExecuteChanged();
+            OpenWinBoxCommand.RaiseCanExecuteChanged();
             AssetSelected?.Invoke(this, value);
         }
     }
@@ -79,6 +91,8 @@ public sealed class HostListViewModel : BaseViewModel
     }
 
     public event EventHandler<AssetViewModel?>? AssetSelected;
+    public event EventHandler<string>? ConnectRequested;
+    public event EventHandler? WinBoxRequested;
 
     public async Task LoadAsync(string? groupId = null)
     {
