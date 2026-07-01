@@ -10,6 +10,9 @@ public static class FeatureFlagNames
 {
     /// <summary>Habilita a sessão RDP real (MSTSCAX). Default OFF até o MVP ser validado.</summary>
     public const string RdpEnabled = "rdp.enabled";
+
+    /// <summary>Habilita a aba/painel NDesk (fake loopback). Default OFF até o broker real (Frente 3) existir.</summary>
+    public const string NdeskEnabled = "ndesk.enabled";
 }
 
 /// <summary>
