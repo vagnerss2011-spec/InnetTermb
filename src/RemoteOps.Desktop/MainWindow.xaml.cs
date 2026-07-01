@@ -10,7 +10,9 @@ namespace RemoteOps.Desktop;
 public partial class MainWindow : Window
 {
     private GridLength _sidebarWidth = new(220);
+    private double _sidebarMinWidth = 150;
     private GridLength _inspectorWidth = new(260);
+    private double _inspectorMinWidth = 200;
 
     public MainWindow(MainViewModel viewModel)
     {
@@ -40,11 +42,16 @@ public partial class MainWindow : Window
 
         if (((MenuItem)sender).IsChecked)
         {
+            SidebarColumn.MinWidth = _sidebarMinWidth;
             SidebarColumn.Width = _sidebarWidth;
         }
         else
         {
+            // MinWidth também precisa ir a 0: o Grid do WPF clampa a largura renderizada
+            // até MinWidth, então zerar só Width encolheria a coluna a 150px em vez de escondê-la.
             _sidebarWidth = SidebarColumn.Width;
+            _sidebarMinWidth = SidebarColumn.MinWidth;
+            SidebarColumn.MinWidth = 0;
             SidebarColumn.Width = new GridLength(0);
         }
     }
@@ -58,11 +65,14 @@ public partial class MainWindow : Window
 
         if (((MenuItem)sender).IsChecked)
         {
+            InspectorColumn.MinWidth = _inspectorMinWidth;
             InspectorColumn.Width = _inspectorWidth;
         }
         else
         {
             _inspectorWidth = InspectorColumn.Width;
+            _inspectorMinWidth = InspectorColumn.MinWidth;
+            InspectorColumn.MinWidth = 0;
             InspectorColumn.Width = new GridLength(0);
         }
     }
