@@ -33,6 +33,7 @@
     <sys:String x:Key="Icon.Network">&#xEC05;</sys:String>
     <sys:String x:Key="Icon.ChevronDown">&#xE70D;</sys:String>
     <sys:String x:Key="Icon.ChevronRight">&#xE76C;</sys:String>
+    <sys:String x:Key="Icon.Back">&#xE72B;</sys:String>
     <sys:String x:Key="Icon.Sync">&#xE895;</sys:String>
     <sys:String x:Key="Icon.Warning">&#xE7BA;</sys:String>
     <sys:String x:Key="Icon.ErrorBadge">&#xEA39;</sys:String>

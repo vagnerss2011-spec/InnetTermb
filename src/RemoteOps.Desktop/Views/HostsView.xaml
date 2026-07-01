@@ -50,12 +50,19 @@
                 BorderThickness="0,1,0,1"
                 Padding="8,4">
             <StackPanel Orientation="Horizontal">
-                <Button Content="&#xE72B; Voltar"
-                        FontFamily="{DynamicResource Font.Family.Icons}"
-                        Style="{DynamicResource Button.Ghost}"
+                <Button Style="{DynamicResource Button.Ghost}"
                         Command="{Binding BackCommand}"
                         Margin="0,0,8,0"
-                        Visibility="{Binding IsInGroup, Converter={StaticResource BoolToVis}}"/>
+                        Visibility="{Binding IsInGroup, Converter={StaticResource BoolToVis}}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{DynamicResource Icon.Back}"
+                                   FontFamily="{DynamicResource Font.Family.Icons}"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock Text="Voltar"
+                                   Margin="4,0,0,0"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
                 <TextBlock Text="{Binding BreadcrumbLabel}"
                            Style="{DynamicResource Text.Secondary}"
                            VerticalAlignment="Center"/>
