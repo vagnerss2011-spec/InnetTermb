@@ -81,4 +81,49 @@ public sealed class NDeskSignalingHubTests
 
         Assert.Empty(clients.GroupSends);
     }
+
+    // Regressão (descoberta pelo verificador de integração tools/ndesk-signaling-check): o Hub
+    // lia só o claim "sub", mas o middleware JWT o mapeia para ClaimTypes.NameIdentifier
+    // (MapInboundClaims=true), então com um JWT real o operador era sempre recusado. Estes testes
+    // exercitam JoinSession pela mesma leitura dos endpoints REST (NameIdentifier).
+    [Fact]
+    public async Task JoinSession_Operator_WithMappedNameIdentifierClaim_IsAuthorized()
+    {
+        using var ctx = new NDeskTestContext();
+        var operatorId = Guid.NewGuid();
+        var ticket = await ctx.Tickets.IssueTicketAsync(new IssueTicketRequest(
+            Guid.NewGuid(), operatorId, "control", ["view", "control"], null, null, false, false));
+        var sessionId = (await ctx.Tickets.RedeemTicketAsync(ticket.LinkToken!)).SessionId!.Value;
+
+        var groups = new FakeGroupManager();
+        var hub = new NDeskSignalingHub(ctx.Tickets, ctx.Grants, NullLogger<NDeskSignalingHub>.Instance)
+        {
+            Context = FakeHubCallerContext.AuthenticatedOperator(operatorId),
+            Clients = new FakeHubCallerClients(),
+            Groups = groups,
+        };
+
+        await hub.JoinSession(sessionId.ToString(), "operator"); // não deve lançar
+
+        var added = Assert.Single(groups.Added);
+        Assert.Equal(sessionId.ToString(), added.Group);
+    }
+
+    [Fact]
+    public async Task JoinSession_Operator_WithWrongUserId_Throws()
+    {
+        using var ctx = new NDeskTestContext();
+        var ticket = await ctx.Tickets.IssueTicketAsync(new IssueTicketRequest(
+            Guid.NewGuid(), Guid.NewGuid(), "control", ["view", "control"], null, null, false, false));
+        var sessionId = (await ctx.Tickets.RedeemTicketAsync(ticket.LinkToken!)).SessionId!.Value;
+
+        var hub = new NDeskSignalingHub(ctx.Tickets, ctx.Grants, NullLogger<NDeskSignalingHub>.Instance)
+        {
+            Context = FakeHubCallerContext.AuthenticatedOperator(Guid.NewGuid()), // id que não criou o ticket
+            Clients = new FakeHubCallerClients(),
+            Groups = new FakeGroupManager(),
+        };
+
+        await Assert.ThrowsAsync<HubException>(() => hub.JoinSession(sessionId.ToString(), "operator"));
+    }
 }
