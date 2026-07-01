@@ -2,6 +2,24 @@
 
 Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.com/) e versionamento SemVer interno.
 
+## [0.9.0-spike-ndesk-buy-vs-build] - 2026-06-30
+
+### Adicionado
+
+- **SPIKE-016 — NDesk: comprar solução self-hosted open-source vs construir do zero:**
+  - `docs/spikes/SPIKE-016-ndesk-buy-vs-build.md`: relatório com matriz de decisão (RustDesk self-hosted, MeshCentral, Apache Guacamole, construir) por licença, requisitos inegociáveis do `CLAUDE.md`, Windows 7 SP1, NAT/CGNAT, segurança/CVEs, esforço de adaptação e custo operacional, com fontes primárias citadas (LICENSE oficial, NVD, GitHub Security Advisories) e verificação adversarial.
+  - `adr/ADR-015-ndesk-buy-vs-build.md`: decisão — confirma o caminho "construir" (`ADR-005`/`ADR-007`); nenhum candidato de compra adotado.
+
+### Alterado
+
+- `adr/ADR-005-acesso-remoto-webrtc.md`: status → confirmada pelo SPIKE-016; nova seção "Atualização" recomendando `libdatachannel`+`coturn`/`eturnal` em vez de embarcar o `libwebrtc` completo do Chromium (incompatível com Windows 7).
+- `adr/ADR-007-ndesk-agente-legado-win32.md`: confirmada pelo SPIKE-016; critério de revisão futura ganha o risco de toolchain — Visual Studio 2026 removeu Windows 7 como plataforma de deployment, time depende do VS2022 (suporte mainstream até ~jan/2027).
+- `docs/15-pesquisa-e-spikes.md`: adicionada entrada do SPIKE-016 com resultado.
+
+### Segurança
+
+- `security-agent` revisou os quatro candidatos sob a ótica dos princípios do `CLAUDE.md` (consentimento visível, revogação imediata, auditoria, sem modo oculto/persistência silenciosa/bypass/evasão de AV/captura de credenciais) e entregou checklist de 21 controles obrigatórios de produção, incorporado à `ADR-015` e ao relatório do spike — nenhuma implementação foi feita nesta frente (spike de pesquisa/decisão).
+
 ## [0.9.0-integration-rdp] - 2026-06-30
 
 ### Adicionado

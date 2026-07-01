@@ -186,6 +186,19 @@ Entregas:
 - Geração de release notes.
 - Validação de tags por componente.
 
+### SPIKE-016 — NDesk: comprar solução self-hosted vs construir do zero
+
+Pergunta: para o módulo NDesk, é melhor adaptar uma solução self-hosted open-source pronta (RustDesk, MeshCentral, Apache Guacamole) ou confirmar o caminho de construir (`ADR-005`/`ADR-007`)?
+
+Entregas:
+
+- Pesquisa com fontes primárias (LICENSE oficial, documentação de self-hosting, NVD/GitHub Security Advisories) para cada candidato, com verificação adversarial de licença e CVEs.
+- Matriz de decisão candidato × critério (licença, consentimento/revogação/auditoria/sem modo oculto, Windows 7 SP1, NAT/CGNAT, segurança/CVEs, esforço de adaptação, custo operacional).
+- Parecer independente do `security-agent` (ótica de risco) e do `ndesk-agent` (ótica de fit arquitetural).
+- `docs/spikes/SPIKE-016-ndesk-buy-vs-build.md` (relatório completo) e `adr/ADR-015-ndesk-buy-vs-build.md` (decisão).
+
+**Resultado:** confirmado o caminho "construir" (`ADR-005`/`ADR-007`). RustDesk é desqualificado por licença (AGPL-3.0 incompatível com distribuir agente fechado a terceiros) e por permitir oficialmente compor um cliente sem indicador visível/sem botão de parar. MeshCentral permite consentimento configurável para silencioso e tem AMT out-of-band sem consentimento possível; instalação persistente por padrão conflita com "sem serviço no MVP". Apache Guacamole não resolve o problema (gateway para infraestrutura já gerenciada, sem conceito de agente/consentimento ad-hoc). `security-agent` e `ndesk-agent`, de forma independente, convergiram em não recomendar nenhum candidato de compra. Risco novo descoberto: Visual Studio 2026 removeu Windows 7 como plataforma de deployment; time depende do VS2022 (mainstream até ~jan/2027) — critério de revisão futura incorporado à `ADR-007`. Recomendado `libdatachannel`+`coturn`/`eturnal` em vez de embarcar o `libwebrtc` completo do Chromium (que já abandonou Windows 7/8/8.1).
+
 ## Agentes de pesquisa sugeridos
 
 - `research-agent`: coordena spikes e registra evidências.

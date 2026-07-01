@@ -2,7 +2,7 @@
 
 ## Status
 
-Aceita para spike e MVP do agente temporário.
+Aceita para spike e MVP do agente temporário. Confirmada pelo SPIKE-016 (`docs/spikes/SPIKE-016-ndesk-buy-vs-build.md` / `adr/ADR-015-ndesk-buy-vs-build.md`), que descobriu um risco novo de toolchain — ver "Critério de revisão futura" abaixo.
 
 ## Contexto
 
@@ -44,4 +44,6 @@ Revisar esta ADR se:
 - o suporte a Windows 7 for abandonado;
 - uma biblioteca WebRTC nativa não atender requisitos;
 - o agente C++ gerar custo de manutenção excessivo;
-- um runtime alternativo single-file provar ser mais seguro e compatível.
+- um runtime alternativo single-file provar ser mais seguro e compatível;
+- **(SPIKE-016)** o Visual Studio 2022 chegar ao fim do suporte mainstream (~jan/2027) sem um caminho de sucessor viável para compilar/assinar o agente visando Windows 7 — o Visual Studio 2026 atual já removeu Windows 7 como plataforma de deployment suportada, sem workaround documentado equivalente ao antigo toolset `v141_xp` do Windows XP;
+- **(SPIKE-016)** o spike técnico dedicado de `libdatachannel` em Windows 7 SP1 (recomendado em `docs/spikes/SPIKE-016-ndesk-buy-vs-build.md`) mostrar inviabilidade sem alternativa leve equivalente.
