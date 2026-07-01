@@ -30,6 +30,46 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 - **Reavaliação buy-vs-build (`ADR-015`) sob o critério de reversão disparado pela remoção de Windows 7:** RustDesk continua desqualificado por licença AGPL-3.0 + modo oculto configurável; MeshCentral continua desqualificado por consentimento silenciável + Intel AMT out-of-band + instalação padrão como serviço persistente — os três bloqueios são independentes de Windows 7. Conclusão de `ADR-015` ("construir") mantida; apenas a tecnologia do agente pivota de Win32/C++ para .NET. O risco de toolchain VS2026/Windows 7 registrado em `ADR-007`/`ADR-015` deixa de existir (eliminado, não mitigado).
 
+## [0.10.0-ndesk-broker-signaling] - 2026-07-01
+
+### Adicionado
+
+- **NDesk Broker/Signaling — `src/RemoteOps.NDesk.Broker` (ASP.NET Core):** servidor de
+  rendezvous/signaling que **nunca transporta mídia** (docs/09 §Broker/Signaling, ADR-018).
+  - `NDeskTicketService`: emissão de convite temporário (`POST /ndesk/tickets`, TTL curto,
+    padrão 10 min/máx. 30 min), resgate de uso único (`POST /ndesk/tickets/redeem`) e
+    expiração lazy. O link token é gerado com `RandomNumberGenerator`, devolvido uma única vez
+    na emissão e **nunca persistido em claro** — só o hash SHA-256, no mesmo padrão de
+    `RefreshTokenEntity.TokenHash` do `RemoteOps.Cloud`.
+  - `NDeskPermissionGrantService`: valida e persiste o consentimento
+    (`contracts/ndesk-permission-grant.schema.json`) — nunca concede mais do que o ticket
+    solicitou; `IsSessionAuthorizedAsync` é o gate único consultado antes de qualquer troca de
+    signaling.
+  - `NDeskSignalingHub` (SignalR, `/hubs/ndesk`): `JoinSession`/`SendSignal`/`EndSession`
+    repassam envelopes opacos de SDP/ICE entre operador e agente; `SendSignal` recusa
+    (`HubException`) quando não há consentimento válido para a sessão, revogação incluída.
+  - `NDeskTelemetryService`: grava amostras de `contracts/ndesk-session-telemetry.schema.json`
+    por sessão, sem conteúdo de tela/input.
+  - `NDeskAuditService`: auditoria sanitizada (convite criado/resgatado, consentimento
+    concedido/negado/revogado, sessão encerrada), mesmo padrão de redação de
+    `RemoteOps.Cloud.Audit.AuditService`.
+  - `adr/ADR-018-ndesk-signaling-api.md`: contrato da API REST + protocolo do hub.
+- Testes xUnit (`tests/RemoteOps.UnitTests/NDesk/`): emissão/expiração/single-use de ticket,
+  recusa de sessão sem grant (nível de serviço e nível de Hub via fakes de
+  `IHubCallerClients`/`HubCallerContext`), e guarda de regressão de que o link token nunca
+  aparece em nenhuma mensagem de log (`NoSecretInLogTests`).
+
+### Segurança
+
+- Nenhuma sessão de signaling é alcançável sem passar por três portões em sequência: ticket
+  válido (TTL + uso único) → consentimento explícito (subconjunto do solicitado no convite) →
+  gate de autorização checado a cada `SendSignal` (não só na entrada da sessão), garantindo que
+  uma revogação tenha efeito imediato.
+- Débito conhecido registrado em ADR-018: o resgate de ticket não é atômico sob concorrência
+  entre múltiplas instâncias do broker (correto para instância única do MVP); e o broker ainda
+  não valida `workspaceId ↔ operador` contra uma tabela de memberships (vive só no
+  `RemoteOps.Cloud`, não referenciado aqui para não misturar módulos).
+
 ## [0.9.0-spike-ndesk-buy-vs-build] - 2026-06-30
 
 ### Adicionado
