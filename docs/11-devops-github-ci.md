@@ -101,6 +101,37 @@ Jobs:
 - Hash SHA-256 publicado internamente.
 - Build manifest com commit, SDK e timestamp UTC.
 
+### `release.yml` — pipeline de release do RemoteOps Desktop
+
+Workflow separado do `ci.yml` (`.github/workflows/release.yml`), disparado por push de tag
+`v*` (ex.: `v0.11.0`, `v0.11.0-beta.1`). Não roda em PR nem em push de branch.
+
+Fluxo, em `windows-latest`:
+
+1. Deriva a versão a partir do nome da tag (`v` removido) e valida contra o SemVer interno de
+   `VERSIONING.md` (`X.Y.Z` ou `X.Y.Z-alpha|beta|rc.N`); tag fora do padrão falha o job antes de
+   compilar.
+2. `dotnet restore` + `dotnet publish` self-contained (`win-x64`) de
+   `src/RemoteOps.Desktop/RemoteOps.Desktop.csproj`.
+3. Empacota o publish com a Velopack CLI (`vpk pack`) — instalador `Setup.exe`. A configuração
+   do projeto para Velopack (referência de pacote, `VelopackApp.Build().Run()` no `Main`, ícone)
+   é entregue pela frente paralela `feature/packaging-velopack-update` (**ADR-019**); este
+   workflow assume o publish self-contained padrão e os nomes de `APP_ID`/`APP_EXE` definidos no
+   topo do arquivo — ajustar ali se a ADR-019 definir valores diferentes.
+4. Gera também um ZIP portátil (todo o publish self-contained, sem instalação) e expõe o
+   executável principal avulso como terceiro artefato.
+5. Gera `SHA256SUMS.txt` e `build-manifest.json` (commit, branch, tag, versão do SDK,
+   timestamp UTC) para os artefatos publicados, conforme a seção "Builds reproduzíveis" de
+   `VERSIONING.md`.
+6. Publica os 5 arquivos (instalador, ZIP portátil, executável avulso, hashes, manifest) como
+   artefato do workflow (`actions/upload-artifact`) **e** como assets do GitHub Release da tag
+   (`gh release create`, usando apenas `GITHUB_TOKEN` — nenhum segredo adicional). Tag com sufixo
+   `-alpha`/`-beta`/`-rc` marca o Release como prerelease.
+
+Fora de escopo deste workflow (ver `docs/11` §Secret management no CI e `ADR-019`):
+assinatura de binário/instalador com certificado, publicação em canal interno alpha/beta/stable
+e feed de auto-update do Velopack.
+
 ## Secret management no CI
 
 - Não armazenar certificado em texto puro.

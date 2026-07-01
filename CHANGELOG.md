@@ -2,6 +2,19 @@
 
 Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.com/) e versionamento SemVer interno.
 
+## [Unreleased]
+
+### Adicionado
+
+- **DevOps — pipeline de release (`release.yml`):** novo workflow GitHub Actions, separado do
+  `ci.yml`, disparado por push de tag `v*`. Em `windows-latest`: deriva e valida a versão SemVer
+  a partir da tag (`VERSIONING.md`), publica o `RemoteOps.Desktop` self-contained (`win-x64`),
+  empacota com a Velopack CLI (`vpk pack`) gerando o instalador `Setup.exe`, gera um ZIP
+  portátil e expõe o executável avulso, calcula `SHA256SUMS.txt`/`build-manifest.json`, e publica
+  os 5 artefatos como assets do GitHub Release e como artefato do workflow. Usa somente
+  `GITHUB_TOKEN`; assinatura de binário fica fora de escopo. Consome a config Velopack do projeto
+  (ADR-019). `docs/11-devops-github-ci.md` documenta o fluxo completo.
+
 ## [0.10.0-desktop-smoke-runbook] - 2026-07-01
 
 ### Corrigido
