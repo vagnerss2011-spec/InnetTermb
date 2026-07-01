@@ -2,6 +2,65 @@
 
 Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.com/) e versionamento SemVer interno.
 
+## [0.10.0-desktop-smoke-runbook] - 2026-07-01
+
+### Corrigido
+
+- **Crash de startup com `ndesk.enabled` ligada:** `src/RemoteOps.Desktop/NDesk/NDeskTabView.xaml`
+  tinha 5 bindings `<Run Text="{Binding ...}">` sem `Mode=OneWay` explícito. `Run.Text` tem
+  `BindsTwoWayByDefault=true` no WPF; `PermissionsRequestedText`
+  (`NDeskAssistedViewModel.cs`) é uma propriedade somente-leitura, então o WPF lançava
+  `System.InvalidOperationException` ao anexar o binding assim que a árvore visual era
+  layoutada — mesmo com o painel `Visibility=Collapsed` (WPF anexa bindings independente de
+  visibilidade) e sem nenhuma sessão NDesk iniciada. Como isso acontecia dentro de
+  `App.OnStartup` (síncrono, antes do dispatcher bombear mensagens), nenhum handler capturava a
+  exceção e o processo terminava sem diálogo nenhum (confirmado via Windows Event Log, provider
+  `.NET Runtime`, evento 1026). Corrigidas as 5 bindings com `Mode=OneWay` explícito.
+
+### Adicionado
+
+- **`App.xaml.cs` — rede de segurança contra crash silencioso** (defesa em profundidade, além da
+  correção da causa raiz acima): try/catch em volta do corpo de `OnStartup` (mensagem amigável via
+  `MessageBox` + `Shutdown(1)` em vez de crash cru quando vault/DPAPI/SQLCipher/DI/primeira janela
+  falham), `DispatcherUnhandledException` (erros na UI thread depois do startup, ex. um
+  `async void` de evento — mostra aviso e deixa o app continuar) e
+  `AppDomain.CurrentDomain.UnhandledException` (último recurso, best-effort, para exceções fora da
+  UI thread).
+- **`docs/26-runbook-teste-local.md`:** como rodar localmente, como ligar cada feature flag —
+  inclui nota explícita sobre os **dois mecanismos distintos** hoje no Desktop
+  (`REMOTEOPS_FEATURE_FLAGS=ndesk.enabled,rdp.enabled` via `IFeatureFlags`, vs.
+  `REMOTEOPS_CLOUD_SYNC_ENABLED=true` + `REMOTEOPS_CLOUD_URL`/`REMOTEOPS_CLOUD_WORKSPACE_ID` lidos
+  direto em `App.xaml.cs`, sem passar por `IFeatureFlags`) —, o que cada aba faz, limitações
+  conhecidas e um checklist de smoke por aba (terminal, mikrotik/winbox, rdp, ndesk).
+- Testes xUnit (`tests/RemoteOps.UnitTests/Desktop/NDesk/NDeskTabViewRenderTests.cs`): renderizam
+  `NDeskTabView` de verdade — thread STA manual + `Window` real minúscula (`ShowInTaskbar=false`),
+  sem depender de nenhum pacote NuGet novo — reproduzindo o stack trace exato do crash acima antes
+  da correção (TDD vermelho→verde) e cobrindo tanto o estado inicial (sem consentimento pendente,
+  o cenário que crashava) quanto o painel visível com um consentimento pendente. Técnica extraída
+  para `tests/RemoteOps.UnitTests/Desktop/StaThreadRunner.cs` (compartilhada pelos três arquivos
+  de teste de renderização abaixo).
+- `CompositionRootSmokeTests.Resolve_INDeskBrokerClient`: gap de cobertura notado durante a
+  investigação (nenhum teste de resolução DI cobria o broker NDesk).
+- **Revisão do `qa-agent`** encontrou um risco latente da mesma classe do bug acima, ainda não
+  ativo: as colunas de `HostListView.xaml` fazem bind de propriedades somente-leitura de
+  `AssetViewModel` (`Name`, `PrimaryProtocol`, `PrimaryAddress`, `Vendor`, `Tags`) — hoje inofensivo
+  porque `DataGrid.IsReadOnly="True"` impede o `TextBox` de edição (TwoWay por padrão) de ser
+  instanciado, mas um duplo-clique numa célula reproduziria o mesmo crash se essa trava for
+  removida sem proteção equivalente. Fechado com `tests/RemoteOps.UnitTests/Desktop/HostListViewRenderTests.cs`
+  (confirma `IsReadOnly` efetivo no grid e em cada coluna + teste de reflexão que falha se alguma
+  propriedade ganhar setter) — nenhuma mudança em `src/`, é só uma invariante travada por teste.
+- `tests/RemoteOps.UnitTests/Desktop/NDesk/NDeskTabViewConsentContentTests.cs` (`qa-agent`): fecha
+  uma lacuna dos testes de render acima — eles provam "não lança exceção", mas não que o
+  consentimento continua **visível** (exigência do `CLAUDE.md`). Um caminho de binding errado não
+  lançaria nada, só renderizaria vazio silenciosamente. Este teste lê o texto de fato renderizado
+  (`TextBlock.Inlines`) e confere que os 5 campos do `NDeskConsentRequest` aparecem tal como o
+  broker os forneceu.
+
+### Módulo
+
+- `src/RemoteOps.Desktop/App.xaml.cs`, `src/RemoteOps.Desktop/NDesk/NDeskTabView.xaml` — dono:
+  `desktop-shell-agent`
+
 ## [0.10.0-spike-ndesk-webrtc-capture] - 2026-07-01
 
 ### Adicionado
