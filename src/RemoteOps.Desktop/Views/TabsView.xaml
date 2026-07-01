@@ -24,7 +24,7 @@
             <TextBlock Text="{Binding Title}"
                        VerticalAlignment="Center"
                        HorizontalAlignment="Center"
-                       Foreground="#bbb"
+                       Foreground="{DynamicResource Brush.Text.Tertiary}"
                        FontSize="13"
                        FontStyle="Italic"/>
         </DataTemplate>
@@ -35,7 +35,7 @@
         <TextBlock Text="Nenhuma sessão ativa. Selecione um host e clique em SSH, Telnet ou RDP."
                    VerticalAlignment="Center"
                    HorizontalAlignment="Center"
-                   Foreground="#aaa"
+                   Foreground="{DynamicResource Brush.Text.Tertiary}"
                    TextWrapping="Wrap"
                    Margin="16">
             <TextBlock.Style>
@@ -68,7 +68,7 @@
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="{Binding ProtocolLabel}"
                                    FontSize="9"
-                                   Foreground="#888"
+                                   Foreground="{DynamicResource Brush.Text.Tertiary}"
                                    Margin="0,0,4,0"
                                    VerticalAlignment="Center"/>
                         <TextBlock Text="{Binding Title}" VerticalAlignment="Center"/>

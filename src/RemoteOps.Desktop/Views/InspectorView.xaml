@@ -7,12 +7,12 @@
                    Text="Inspector"
                    FontWeight="SemiBold"
                    Margin="8,8,8,4"
-                   Foreground="#555"/>
+                   Foreground="{DynamicResource Brush.Text.Secondary}"/>
 
         <!-- Placeholder quando nada selecionado -->
         <TextBlock DockPanel.Dock="Top"
                    Text="Selecione um host para ver detalhes."
-                   Foreground="#888"
+                   Foreground="{DynamicResource Brush.Text.Tertiary}"
                    Margin="8,4"
                    TextWrapping="Wrap">
             <TextBlock.Style>
@@ -77,7 +77,7 @@
                 </Button>
             </WrapPanel>
             <TextBlock Text="{Binding WinBoxError}"
-                       Foreground="Red"
+                       Foreground="{DynamicResource Brush.Status.Error}"
                        TextWrapping="Wrap"
                        Margin="0,0,0,8"
                        FontSize="11">
@@ -119,8 +119,8 @@
 
             <!-- Credencial -->
             <TextBlock Text="Credencial:" FontWeight="SemiBold" Margin="0,0,0,4"/>
-            <TextBlock Text="(nenhuma configurada)" Foreground="#888" FontStyle="Italic"/>
-            <TextBlock Text="Senha nunca exibida aqui." Foreground="#888" FontSize="10" Margin="0,2,0,0"/>
+            <TextBlock Text="(nenhuma configurada)" Foreground="{DynamicResource Brush.Text.Tertiary}" FontStyle="Italic"/>
+            <TextBlock Text="Senha nunca exibida aqui." Foreground="{DynamicResource Brush.Text.Tertiary}" FontSize="10" Margin="0,2,0,0"/>
         </StackPanel>
     </DockPanel>
 </UserControl>

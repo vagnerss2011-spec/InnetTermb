@@ -1,7 +1,7 @@
 <UserControl x:Class="RemoteOps.Desktop.NDesk.NDeskTabView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <Grid Background="#1e1e1e">
+    <Grid Background="{DynamicResource Brush.Bg.Canvas}">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="4"/>
@@ -18,7 +18,7 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <TextBlock Grid.Row="0" Text="Operador" Foreground="White" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,8"/>
+            <TextBlock Grid.Row="0" Text="Operador" Foreground="{DynamicResource Brush.Text.Primary}" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,8"/>
 
             <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
                 <TextBox Width="140" Text="{Binding TicketIdInput, UpdateSourceTrigger=PropertyChanged}"
@@ -28,14 +28,14 @@
             </StackPanel>
 
             <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
-                <TextBlock Text="Estado: " Foreground="#aaa" FontSize="11"/>
-                <TextBlock Text="{Binding State}" Foreground="#ccc" FontSize="11" FontWeight="SemiBold" Margin="0,0,12,0"/>
-                <TextBlock Text="{Binding ErrorMessage}" Foreground="#e06c75" FontSize="11" TextWrapping="Wrap"/>
+                <TextBlock Text="Estado: " Foreground="{DynamicResource Brush.Text.Tertiary}" FontSize="11"/>
+                <TextBlock Text="{Binding State}" Foreground="{DynamicResource Brush.Text.Secondary}" FontSize="11" FontWeight="SemiBold" Margin="0,0,12,0"/>
+                <TextBlock Text="{Binding ErrorMessage}" Foreground="{DynamicResource Brush.Status.Error}" FontSize="11" TextWrapping="Wrap"/>
             </StackPanel>
 
             <!-- Superfície de vídeo placeholder -->
-            <Border Grid.Row="3" Background="#111" BorderBrush="#333" BorderThickness="1" Margin="0,0,0,8">
-                <TextBlock Text="Tela remota (placeholder)" Foreground="#666" FontStyle="Italic"
+            <Border Grid.Row="3" Background="{DynamicResource Brush.Bg.Canvas}" BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="1" Margin="0,0,0,8">
+                <TextBlock Text="Tela remota (placeholder)" Foreground="{DynamicResource Brush.Text.Tertiary}" FontStyle="Italic"
                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 <Border.Style>
                     <Style TargetType="Border">
@@ -50,7 +50,7 @@
             </Border>
 
             <!-- Banner + Encerrar sempre acessível durante a sessão -->
-            <Border Grid.Row="4" Background="#5a1d1d" Padding="8,6">
+            <Border Grid.Row="4" Background="{DynamicResource Brush.Status.CriticalSurface}" Padding="8,6">
                 <Border.Style>
                     <Style TargetType="Border">
                         <Setter Property="Visibility" Value="Collapsed"/>
@@ -67,13 +67,13 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <TextBlock Grid.Column="0" Text="Sessão NDesk em andamento — visível para o usuário atendido"
-                               Foreground="White" FontSize="11" VerticalAlignment="Center"/>
+                               Foreground="{DynamicResource Brush.Text.Primary}" FontSize="11" VerticalAlignment="Center"/>
                     <Button Grid.Column="1" Content="Encerrar" Command="{Binding EndCommand}"/>
                 </Grid>
             </Border>
         </Grid>
 
-        <Rectangle Grid.Column="1" Fill="#333"/>
+        <Rectangle Grid.Column="1" Fill="{DynamicResource Brush.Border.Default}"/>
 
         <!-- Painel mock do lado atendido -->
         <Grid Grid.Column="2" DataContext="{Binding Assisted}" Margin="12">
@@ -82,10 +82,10 @@
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
-            <TextBlock Grid.Row="0" Text="Lado atendido (mock)" Foreground="White" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,8"/>
+            <TextBlock Grid.Row="0" Text="Lado atendido (mock)" Foreground="{DynamicResource Brush.Text.Primary}" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,8"/>
 
             <StackPanel Grid.Row="1">
-                <TextBlock Text="Nenhuma solicitação pendente." Foreground="#888" FontStyle="Italic">
+                <TextBlock Text="Nenhuma solicitação pendente." Foreground="{DynamicResource Brush.Text.Tertiary}" FontStyle="Italic">
                     <TextBlock.Style>
                         <Style TargetType="TextBlock">
                             <Setter Property="Visibility" Value="Collapsed"/>
@@ -110,23 +110,23 @@
                         </Style>
                     </StackPanel.Style>
 
-                    <TextBlock Foreground="#ccc" FontSize="11" Margin="0,0,0,4">
+                    <TextBlock Foreground="{DynamicResource Brush.Text.Secondary}" FontSize="11" Margin="0,0,0,4">
                         <Run Text="Operador: "/>
                         <Run Text="{Binding PendingConsent.OperatorDisplayName}" FontWeight="SemiBold"/>
                     </TextBlock>
-                    <TextBlock Foreground="#ccc" FontSize="11" Margin="0,0,0,4">
+                    <TextBlock Foreground="{DynamicResource Brush.Text.Secondary}" FontSize="11" Margin="0,0,0,4">
                         <Run Text="Empresa: "/>
                         <Run Text="{Binding PendingConsent.CompanyName}" FontWeight="SemiBold"/>
                     </TextBlock>
-                    <TextBlock Foreground="#ccc" FontSize="11" Margin="0,0,0,4">
+                    <TextBlock Foreground="{DynamicResource Brush.Text.Secondary}" FontSize="11" Margin="0,0,0,4">
                         <Run Text="Ticket: "/>
                         <Run Text="{Binding PendingConsent.TicketId}" FontWeight="SemiBold"/>
                     </TextBlock>
-                    <TextBlock Foreground="#ccc" FontSize="11" Margin="0,0,0,4">
+                    <TextBlock Foreground="{DynamicResource Brush.Text.Secondary}" FontSize="11" Margin="0,0,0,4">
                         <Run Text="Modo solicitado: "/>
                         <Run Text="{Binding PendingConsent.RequestedMode}" FontWeight="SemiBold"/>
                     </TextBlock>
-                    <TextBlock Foreground="#ccc" FontSize="11" Margin="0,0,0,8">
+                    <TextBlock Foreground="{DynamicResource Brush.Text.Secondary}" FontSize="11" Margin="0,0,0,8">
                         <Run Text="Permissões: "/>
                         <Run Text="{Binding PermissionsRequestedText}" FontWeight="SemiBold"/>
                     </TextBlock>
@@ -137,7 +137,7 @@
                     </StackPanel>
                 </StackPanel>
 
-                <TextBlock Text="{Binding State}" Foreground="#aaa" FontSize="11" Margin="0,8,0,8"/>
+                <TextBlock Text="{Binding State}" Foreground="{DynamicResource Brush.Text.Tertiary}" FontSize="11" Margin="0,8,0,8"/>
                 <Button Content="Encerrar" Command="{Binding EndCommand}" HorizontalAlignment="Left"/>
             </StackPanel>
         </Grid>

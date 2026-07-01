@@ -8,7 +8,7 @@
                    Text="Grupos"
                    FontWeight="SemiBold"
                    Margin="8,8,8,4"
-                   Foreground="#555"/>
+                   Foreground="{DynamicResource Brush.Text.Secondary}"/>
 
         <!-- Adicionar grupo -->
         <Grid DockPanel.Dock="Bottom" Margin="4">
