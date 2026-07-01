@@ -3,7 +3,8 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:RemoteOps.Desktop.ViewModels"
              xmlns:terminal="clr-namespace:RemoteOps.Desktop.Terminal"
-             xmlns:rdp="clr-namespace:RemoteOps.Desktop.Rdp">
+             xmlns:rdp="clr-namespace:RemoteOps.Desktop.Rdp"
+             xmlns:ndesk="clr-namespace:RemoteOps.Desktop.NDesk">
 
     <UserControl.Resources>
         <!-- Implicit DataTemplate: WPF applies this automatically for TerminalTabViewModel -->
@@ -13,6 +14,10 @@
         <!-- Implicit DataTemplate: WPF applies this automatically for RdpTabViewModel -->
         <DataTemplate DataType="{x:Type rdp:RdpTabViewModel}">
             <rdp:RdpTabView />
+        </DataTemplate>
+        <!-- Implicit DataTemplate: WPF applies this automatically for NDeskTabViewModel -->
+        <DataTemplate DataType="{x:Type ndesk:NDeskTabViewModel}">
+            <ndesk:NDeskTabView />
         </DataTemplate>
         <!-- Fallback for future non-terminal/non-rdp tab types -->
         <DataTemplate DataType="{x:Type vm:SessionTabViewModel}">
