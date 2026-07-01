@@ -43,49 +43,63 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
-        string dataDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "RemoteOps");
-        Directory.CreateDirectory(dataDir);
-
-        // Vault: envelope encryption protegida por DPAPI (ADR-003).
-        // FileVaultStore implementa ICredentialStore e IWorkspaceKeyStore.
-        string vaultPath = Path.Combine(dataDir, "vault.json");
-        var fileStore = new FileVaultStore(vaultPath);
-        var keyRing = new WorkspaceKeyRing(fileStore, new DpapiKeyProtector());
-        var vault = new CredentialVault(fileStore, keyRing, new InMemoryVaultAuditSink());
-
-        // SQLCipher local store (ADR-008): banco criptografado por workspace.
-        var syncFactory = new LocalSyncClientFactory(vault, dataDir);
-        WorkspaceContext ctx = await syncFactory.OpenWorkspaceAsync("local");
-        ILocalStore store = new SqlCipherLocalStore(ctx);
-
-        // Composition root (ADR-011): injeta o vault de produção + store SQLCipher
-        // e resolve o restante do grafo (adapters de terminal/WinBox, providers, VM).
-        _serviceProvider = AppCompositionRoot.Build(vault, store);
-
-        // Update forçado (ADR-019 §3): só existe se REMOTEOPS_UPDATE_FEED_REPO_URL/
-        // REMOTEOPS_UPDATE_POLICY_URL estiverem configurados (fail-open sem config).
-        // Prompt obrigatório e visível — sem opção de "lembrar depois" — quando a versão
-        // instalada está abaixo da mínima exigida pelo feed de política.
-        if (await TryEnforceForcedUpdateAsync(_serviceProvider.GetService<IUpdateService>()))
+        // async void: sem este try/catch, falha de vault/DB derruba o processo sem
+        // nenhum feedback ao operador (crash silencioso no despachante do WPF).
+        try
         {
-            Shutdown();
-            return;
+            string dataDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "RemoteOps");
+            Directory.CreateDirectory(dataDir);
+
+            // Vault: envelope encryption protegida por DPAPI (ADR-003).
+            // FileVaultStore implementa ICredentialStore e IWorkspaceKeyStore.
+            string vaultPath = Path.Combine(dataDir, "vault.json");
+            var fileStore = new FileVaultStore(vaultPath);
+            var keyRing = new WorkspaceKeyRing(fileStore, new DpapiKeyProtector());
+            var vault = new CredentialVault(fileStore, keyRing, new InMemoryVaultAuditSink());
+
+            // SQLCipher local store (ADR-008): banco criptografado por workspace.
+            var syncFactory = new LocalSyncClientFactory(vault, dataDir);
+            WorkspaceContext ctx = await syncFactory.OpenWorkspaceAsync("local");
+            ILocalStore store = new SqlCipherLocalStore(ctx);
+
+            // Composition root (ADR-011): injeta o vault de produção + store SQLCipher
+            // e resolve o restante do grafo (adapters de terminal/WinBox, providers, VM).
+            _serviceProvider = AppCompositionRoot.Build(vault, store);
+
+            // Update forçado (ADR-019 §3): só existe se REMOTEOPS_UPDATE_FEED_REPO_URL/
+            // REMOTEOPS_UPDATE_POLICY_URL estiverem configurados (fail-open sem config).
+            // Prompt obrigatório e visível — sem opção de "lembrar depois" — quando a versão
+            // instalada está abaixo da mínima exigida pelo feed de política.
+            if (await TryEnforceForcedUpdateAsync(_serviceProvider.GetService<IUpdateService>()))
+            {
+                Shutdown();
+                return;
+            }
+
+            _mainViewModel = _serviceProvider.GetRequiredService<MainViewModel>();
+            var window = new MainWindow(_mainViewModel);
+            window.Show();
+
+            // Cloud sync (ADR-013) atrás da feature flag cloud.sync.enabled (default OFF).
+            // OFF (ou config incompleta) → app idêntico ao atual: offline-first, sem rede.
+            if (TryBuildSyncOptions(dataDir, ctx, vault, out SyncSessionOptions syncOptions))
+            {
+                _syncSession = SyncSessionFactory.Create(syncOptions);
+                _syncSession.Orchestrator.StatusChanged += OnSyncStatusChanged;
+                OnSyncStatusChanged(_syncSession.Orchestrator.Status);
+                _ = StartSyncAsync(_syncSession);
+            }
         }
-
-        _mainViewModel = _serviceProvider.GetRequiredService<MainViewModel>();
-        var window = new MainWindow(_mainViewModel);
-        window.Show();
-
-        // Cloud sync (ADR-013) atrás da feature flag cloud.sync.enabled (default OFF).
-        // OFF (ou config incompleta) → app idêntico ao atual: offline-first, sem rede.
-        if (TryBuildSyncOptions(dataDir, ctx, vault, out SyncSessionOptions syncOptions))
+        catch (Exception ex)
         {
-            _syncSession = SyncSessionFactory.Create(syncOptions);
-            _syncSession.Orchestrator.StatusChanged += OnSyncStatusChanged;
-            OnSyncStatusChanged(_syncSession.Orchestrator.Status);
-            _ = StartSyncAsync(_syncSession);
+            MessageBox.Show(
+                $"Falha ao iniciar o RemoteOps Desktop:\n\n{ex.Message}",
+                "Erro de inicialização",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+            Shutdown();
         }
     }
 
