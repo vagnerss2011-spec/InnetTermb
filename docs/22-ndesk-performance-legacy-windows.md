@@ -52,6 +52,11 @@ flowchart LR
 - Encaminha fallback para relay TCP/TLS quando necessário.
 - Controla expiração, revogação e auditoria.
 
+**Status:** implementado em `src/RemoteOps.NDesk.Broker` (ver `adr/ADR-018-ndesk-signaling-api.md`)
+para a parte de tickets/consentimento/signaling opaco (SDP/ICE) e telemetria/auditoria. Troca de
+candidatos ICE/STUN/TURN reais depende do agente/viewer (pendentes) — o broker só repassa o
+envelope, não interpreta.
+
 ### Relay/TURN/Media Relay
 
 - Deve rodar em servidor próprio da empresa.
@@ -198,6 +203,10 @@ Por sessão:
 - motivo de encerramento.
 
 Sem capturar conteúdo de tela no log.
+
+**Status:** captura/persistência das amostras acima implementada no broker
+(`NDeskTelemetryService`, `POST /ndesk/sessions/{sessionId}/telemetry`); emissão das amostras
+pelo agente/viewer ainda pendente.
 
 ## Segurança e abuso
 

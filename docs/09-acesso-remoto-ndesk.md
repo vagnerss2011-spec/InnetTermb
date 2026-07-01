@@ -190,3 +190,17 @@ Eventos obrigatórios:
 - Agente roda em Windows 10 (21H2+) e Windows 11 sem instalar runtime adicional (publish .NET self-contained).
 - Sessão via relay funciona atrás de NAT/CGNAT.
 - Link degradado de baixa banda mantém controle utilizável com qualidade reduzida.
+
+## Status de implementação
+
+- **Broker/Signaling — implementado** (`src/RemoteOps.NDesk.Broker`, ver `adr/ADR-018-ndesk-signaling-api.md`):
+  emissão/resgate de ticket (TTL curto, uso único, link token nunca persistido em claro),
+  validação de consentimento antes de liberar signaling, hub SignalR para troca de SDP/ICE
+  (sem mídia), telemetria e auditoria de sessão.
+  - Pendente: rate limit por tenant/operador/sessão; revalidação `workspaceId ↔ operador`
+    contra RBAC completo (débito registrado em ADR-018); compare-and-swap atômico no redeem
+    para deploy horizontal com múltiplas instâncias do broker.
+- **Agente temporário, Viewer/Operator, Relay/TURN, captura/codec — pendentes.** Nenhum dos
+  critérios de aceite acima que dependem do agente/viewer/relay foi implementado nesta frente;
+  a nota sobre suporte a Windows 7 SP1 acima está sob revisão em `adr/ADR-016-ndesk-pivo-win10-net.md`
+  (PR aberta, ainda não mesclada em `main` no momento desta implementação).
