@@ -1,0 +1,50 @@
+<Window x:Class="RemoteOps.Desktop.Views.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Configurações" Height="420" Width="520"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Background="{DynamicResource Brush.Bg.App}"
+        Foreground="{DynamicResource Brush.Text.Primary}"
+        FontFamily="{DynamicResource Font.Family.Base}"
+        FontSize="{DynamicResource Font.Size.Body}">
+    <DockPanel Margin="16">
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Margin="0,12,0,0">
+            <TextBlock Text="{Binding UpdateStatus}" VerticalAlignment="Center"
+                       Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,0,12,0"/>
+            <Button Content="Salvar" Command="{Binding SaveCommand}" MinWidth="88" Padding="10,4"/>
+        </StackPanel>
+        <TabControl>
+            <TabItem Header="Aparência">
+                <StackPanel Margin="12">
+                    <TextBlock Text="Tema" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <TextBlock Text="{Binding ThemeName}" Foreground="{DynamicResource Brush.Text.Secondary}"/>
+                </StackPanel>
+            </TabItem>
+            <TabItem Header="Recursos">
+                <StackPanel Margin="12">
+                    <CheckBox Content="Habilitar RDP (rdp.enabled)" IsChecked="{Binding RdpEnabled}" Margin="0,0,0,8"/>
+                    <CheckBox Content="Habilitar assistência NDesk (ndesk.enabled)" IsChecked="{Binding NdeskEnabled}"/>
+                    <TextBlock Text="Alterações em recursos podem exigir reiniciar o app."
+                               Foreground="{DynamicResource Brush.Text.Tertiary}"
+                               FontSize="11" Margin="0,12,0,0" TextWrapping="Wrap"/>
+                </StackPanel>
+            </TabItem>
+            <TabItem Header="Atualização">
+                <StackPanel Margin="12">
+                    <TextBlock Text="{Binding VersionText}" Margin="0,0,0,8"/>
+                    <Button Content="Verificar agora" Command="{Binding CheckForUpdatesCommand}"
+                            HorizontalAlignment="Left" Padding="10,4"/>
+                </StackPanel>
+            </TabItem>
+            <TabItem Header="Sobre">
+                <StackPanel Margin="12">
+                    <TextBlock Text="RemoteOps Desktop" FontWeight="SemiBold"/>
+                    <TextBlock Text="{Binding VersionText}" Foreground="{DynamicResource Brush.Text.Secondary}"/>
+                    <TextBlock Text="Console de operação de rede." Margin="0,8,0,0"
+                               Foreground="{DynamicResource Brush.Text.Secondary}"/>
+                </StackPanel>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</Window>
