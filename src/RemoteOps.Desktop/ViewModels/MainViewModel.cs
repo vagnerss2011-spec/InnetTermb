@@ -24,6 +24,8 @@ public sealed class MainViewModel : BaseViewModel
     private readonly IRdpSessionProvider? _rdpProvider;
     private readonly IRdpCredentialResolver? _rdpCredentialResolver;
     private readonly IFeatureFlags? _featureFlags;
+    private readonly RemoteOps.Desktop.Infrastructure.ISettingsStore? _settingsStore;
+    private readonly RemoteOps.Desktop.Update.IUpdateService? _updateService;
 
     private string _syncStatus = "Offline";
     private string _searchText = string.Empty;
@@ -41,8 +43,12 @@ public sealed class MainViewModel : BaseViewModel
         [FromKeyedServices(RemoteProtocol.Telnet)] ITerminalSessionProvider? telnetProvider = null,
         [FromKeyedServices(RemoteProtocol.Rdp)] IRdpSessionProvider? rdpProvider = null,
         IRdpCredentialResolver? rdpCredentialResolver = null,
-        INDeskBrokerClient? ndeskBrokerClient = null)
+        INDeskBrokerClient? ndeskBrokerClient = null,
+        RemoteOps.Desktop.Infrastructure.ISettingsStore? settingsStore = null,
+        RemoteOps.Desktop.Update.IUpdateService? updateService = null)
     {
+        _settingsStore = settingsStore;
+        _updateService = updateService;
         _sshProvider = sshProvider;
         _telnetProvider = telnetProvider;
         _rdpProvider = rdpProvider;
@@ -77,6 +83,12 @@ public sealed class MainViewModel : BaseViewModel
     public HostListViewModel HostList { get; }
     public InspectorViewModel Inspector { get; }
     public TabsViewModel Tabs { get; }
+
+    public SettingsViewModel CreateSettingsViewModel() =>
+        new(_settingsStore ?? new RemoteOps.Desktop.Infrastructure.JsonSettingsStore(), _updateService);
+
+    public string AppVersionText =>
+        $"RemoteOps Desktop {typeof(MainViewModel).Assembly.GetName().Version?.ToString(3) ?? "?"}";
 
     public string SyncStatus
     {
