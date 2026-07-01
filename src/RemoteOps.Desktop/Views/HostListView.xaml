@@ -26,12 +26,14 @@
             <Button Grid.Column="2"
                     Content="Adicionar"
                     Command="{Binding AddHostCommand}"
+                    Style="{DynamicResource Button.Primary}"
                     Padding="8,2"
                     Margin="0,0,4,0"/>
 
             <Button Grid.Column="3"
                     Content="Remover"
                     Command="{Binding DeleteHostCommand}"
+                    Style="{DynamicResource Button.Danger}"
                     Padding="8,2"/>
         </Grid>
 
@@ -48,7 +50,16 @@
             <DataGrid.Columns>
                 <DataGridTextColumn Header="Nome"     Binding="{Binding Name}"           Width="*"/>
                 <DataGridTextColumn Header="Protocolo" Binding="{Binding PrimaryProtocol}" Width="80"/>
-                <DataGridTextColumn Header="Endereço"  Binding="{Binding PrimaryAddress}"  Width="*"/>
+                <!-- Fonte mono para endereço técnico (IP/FQDN) — convenção de console de
+                     operação, ver Themes/Tokens/Typography.xaml (Font.Family.Mono). -->
+                <DataGridTextColumn Header="Endereço"  Binding="{Binding PrimaryAddress}"  Width="*">
+                    <DataGridTextColumn.ElementStyle>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="FontFamily" Value="{DynamicResource Font.Family.Mono}"/>
+                            <Setter Property="Padding" Value="0,2"/>
+                        </Style>
+                    </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
                 <DataGridTextColumn Header="Vendor"    Binding="{Binding Vendor}"           Width="100"/>
                 <DataGridTextColumn Header="Tags"      Binding="{Binding Tags}"             Width="120"/>
             </DataGrid.Columns>

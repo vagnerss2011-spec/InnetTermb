@@ -24,7 +24,7 @@
             <TextBlock Text="{Binding Title}"
                        VerticalAlignment="Center"
                        HorizontalAlignment="Center"
-                       Foreground="#bbb"
+                       Foreground="{DynamicResource Brush.Text.Secondary}"
                        FontSize="13"
                        FontStyle="Italic"/>
         </DataTemplate>
@@ -35,7 +35,7 @@
         <TextBlock Text="Nenhuma sessão ativa. Selecione um host e clique em SSH, Telnet ou RDP."
                    VerticalAlignment="Center"
                    HorizontalAlignment="Center"
-                   Foreground="#aaa"
+                   Foreground="{DynamicResource Brush.Text.Secondary}"
                    TextWrapping="Wrap"
                    Margin="16">
             <TextBlock.Style>
@@ -54,7 +54,9 @@
         <TabControl ItemsSource="{Binding Tabs}"
                     SelectedItem="{Binding ActiveTab, Mode=TwoWay}">
             <TabControl.Style>
-                <Style TargetType="TabControl">
+                <!-- BasedOn obrigatório: TabControl.Style local aqui substituiria por
+                     completo o Style implícito escuro de Themes/Controls/TabControl.xaml. -->
+                <Style TargetType="TabControl" BasedOn="{StaticResource {x:Type TabControl}}">
                     <Setter Property="Visibility" Value="Collapsed"/>
                     <Style.Triggers>
                         <DataTrigger Binding="{Binding HasTabs}" Value="True">
@@ -66,22 +68,50 @@
             <TabControl.ItemTemplate>
                 <DataTemplate DataType="{x:Type vm:SessionTabViewModel}">
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="{Binding ProtocolLabel}"
-                                   FontSize="9"
-                                   Foreground="#888"
-                                   Margin="0,0,4,0"
-                                   VerticalAlignment="Center"/>
+                        <!-- Selo de protocolo: ícone por ProtocolLabel (SSH/TELNET/RDP/NDESK),
+                             lido do mesmo dado que já formatava o texto antigo — nenhum
+                             binding novo, só um Style com DataTrigger sobre ele. -->
+                        <TextBlock Margin="0,0,4,0" VerticalAlignment="Center">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource Icon.Style}">
+                                    <Setter Property="FontSize" Value="10"/>
+                                    <Setter Property="Text" Value="{DynamicResource Icon.Connect}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding ProtocolLabel}" Value="RDP">
+                                            <Setter Property="Text" Value="{DynamicResource Icon.RemoteDesktop}"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding ProtocolLabel}" Value="NDESK">
+                                            <Setter Property="Text" Value="{DynamicResource Icon.Shield}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
                         <TextBlock Text="{Binding Title}" VerticalAlignment="Center"/>
-                        <Button Content="✕"
-                                Command="{Binding DataContext.CloseTabCommand,
+                        <Button Command="{Binding DataContext.CloseTabCommand,
                                           RelativeSource={RelativeSource AncestorType=TabControl}}"
                                 CommandParameter="{Binding}"
+                                Style="{DynamicResource Button.Ghost}"
                                 Margin="6,0,0,0"
                                 Padding="2,0"
-                                VerticalAlignment="Center"
-                                BorderThickness="0"
-                                Background="Transparent"
-                                FontSize="9"/>
+                                VerticalAlignment="Center">
+                            <!-- Abas fixadas (IsPinned, ex. NDesk) não podem ser fechadas
+                                 (CloseTabCommand.CanExecute já bloqueia) — trocamos o glifo
+                                 para um pino em vez do X, deixando o estado existente visível
+                                 em vez de só desabilitar silenciosamente o botão. -->
+                            <TextBlock FontFamily="{DynamicResource Font.Family.Icons}" FontSize="9">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Text" Value="{DynamicResource Icon.Close}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsPinned}" Value="True">
+                                                <Setter Property="Text" Value="{DynamicResource Icon.Pin}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Button>
                     </StackPanel>
                 </DataTemplate>
             </TabControl.ItemTemplate>

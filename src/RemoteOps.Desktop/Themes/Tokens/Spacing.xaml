@@ -1,0 +1,26 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib">
+
+    <!-- Escala de espaçamento em grade de 4px — casa com os valores de Margin/Padding
+         já usados nas Views existentes (4/8/12/16), então aplicar os tokens não muda
+         nenhuma métrica de layout, só nomeia o que já existia. -->
+    <sys:Double x:Key="Space.XXS">2</sys:Double>
+    <sys:Double x:Key="Space.XS">4</sys:Double>
+    <sys:Double x:Key="Space.SM">8</sys:Double>
+    <sys:Double x:Key="Space.MD">12</sys:Double>
+    <sys:Double x:Key="Space.LG">16</sys:Double>
+    <sys:Double x:Key="Space.XL">24</sys:Double>
+
+    <!-- Thickness prontos para os usos mais comuns nas Views -->
+    <Thickness x:Key="Thickness.PanelPadding">8</Thickness>
+    <Thickness x:Key="Thickness.CardPadding">12,8,12,8</Thickness>
+    <Thickness x:Key="Thickness.ControlPadding">8,4,8,4</Thickness>
+    <Thickness x:Key="Thickness.SectionSpacing">0,0,0,8</Thickness>
+
+    <!-- Raio de canto único do sistema — sutil, alinhado à estética Windows 11 sem
+         adotar um toolkit Fluent completo (docs/06 §Sistema de design). -->
+    <CornerRadius x:Key="Radius.Control">4</CornerRadius>
+    <CornerRadius x:Key="Radius.Surface">6</CornerRadius>
+
+</ResourceDictionary>
