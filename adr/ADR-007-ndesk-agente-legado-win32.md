@@ -2,7 +2,9 @@
 
 ## Status
 
-Aceita para spike e MVP do agente temporário. Confirmada pelo SPIKE-016 (`docs/spikes/SPIKE-016-ndesk-buy-vs-build.md` / `adr/ADR-015-ndesk-buy-vs-build.md`), que descobriu um risco novo de toolchain — ver "Critério de revisão futura" abaixo.
+**Superada pela `ADR-016` (`adr/ADR-016-ndesk-pivo-win10-net.md`).** O produto removeu o suporte a Windows 7/8/8.1 do NDesk; o agente temporário deixa de ser Win32/C++ nativo e passa a ser .NET moderno, single-file self-contained. Este arquivo é mantido para histórico da decisão original — não reflete mais a direção atual do módulo. Ver `ADR-016` para a decisão vigente.
+
+Histórico anterior à superação: Aceita para spike e MVP do agente temporário. Confirmada pelo SPIKE-016 (`docs/spikes/SPIKE-016-ndesk-buy-vs-build.md` / `adr/ADR-015-ndesk-buy-vs-build.md`), que descobriu um risco novo de toolchain — ver "Critério de revisão futura" abaixo (risco eliminado, não apenas mitigado, pela `ADR-016`).
 
 ## Contexto
 

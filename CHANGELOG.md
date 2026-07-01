@@ -2,6 +2,20 @@
 
 Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.com/) e versionamento SemVer interno.
 
+## [0.10.0-ndesk-pivo-win10] - 2026-07-01
+
+### Alterado
+
+- **ADR-016 — NDesk pivota para Windows 10/11 + agente temporário .NET moderno (DOC-ONLY, sem código de produto):**
+  - `adr/ADR-016-ndesk-pivo-win10-net.md`: nova ADR (Aceita) — supera `ADR-007`; revisa `ADR-005`/`ADR-015`. Alvo passa a ser exclusivamente Windows 10 (21H2+) e Windows 11; Windows 7/8/8.1 saem de escopo. Agente temporário deixa de ser Win32/C++ nativo e passa a ser .NET moderno, single-file self-contained, permanecendo temporário (sem serviço, sem persistência silenciosa). Captura via DXGI Desktop Duplication, com captura/input abstraídos atrás de interface para roadmap futuro de portabilidade (Linux/PipeWire, macOS/`CGDisplayStream`).
+  - `adr/ADR-007-ndesk-agente-legado-win32.md`: status → "Superada pela ADR-016"; arquivo mantido para histórico, aponta para a decisão vigente.
+  - `adr/ADR-005-acesso-remoto-webrtc.md`: nova seção "Atualização (ADR-016)" — remove a restrição de Windows 7 e reabre a escolha de stack de transporte (`libwebrtc`/`libdatachannel` nativa vs. stack C# gerenciada), a resolver em `SPIKE-017`/`ADR-017`.
+  - `docs/09-acesso-remoto-ndesk.md`, `docs/22-ndesk-performance-legacy-windows.md`: substituídas as seções de captura por versão Win7/Win8.1/Win10-11 e a matriz de plataformas por uma matriz única Windows 10/11, com nota de roadmap cross-platform; critérios de aceite e listas de componentes ajustados para o agente .NET self-contained. Histórico de decisão anterior preservado, marcado como revisto pela `ADR-016`.
+
+### Reavaliado
+
+- **Reavaliação buy-vs-build (`ADR-015`) sob o critério de reversão disparado pela remoção de Windows 7:** RustDesk continua desqualificado por licença AGPL-3.0 + modo oculto configurável; MeshCentral continua desqualificado por consentimento silenciável + Intel AMT out-of-band + instalação padrão como serviço persistente — os três bloqueios são independentes de Windows 7. Conclusão de `ADR-015` ("construir") mantida; apenas a tecnologia do agente pivota de Win32/C++ para .NET. O risco de toolchain VS2026/Windows 7 registrado em `ADR-007`/`ADR-015` deixa de existir (eliminado, não mitigado).
+
 ## [0.9.0-spike-ndesk-buy-vs-build] - 2026-06-30
 
 ### Adicionado
