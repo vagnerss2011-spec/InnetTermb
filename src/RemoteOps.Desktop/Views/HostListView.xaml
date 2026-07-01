@@ -35,23 +35,56 @@
                     Padding="8,2"/>
         </Grid>
 
-        <!-- Lista de hosts -->
-        <DataGrid ItemsSource="{Binding Assets}"
-                  SelectedItem="{Binding SelectedAsset, Mode=TwoWay}"
-                  AutoGenerateColumns="False"
-                  IsReadOnly="True"
-                  HeadersVisibility="Column"
-                  GridLinesVisibility="Horizontal"
-                  SelectionMode="Single"
-                  BorderThickness="0"
-                  CanUserResizeRows="False">
-            <DataGrid.Columns>
-                <DataGridTextColumn Header="Nome"     Binding="{Binding Name}"           Width="*"/>
-                <DataGridTextColumn Header="Protocolo" Binding="{Binding PrimaryProtocol}" Width="80"/>
-                <DataGridTextColumn Header="Endereço"  Binding="{Binding PrimaryAddress}"  Width="*"/>
-                <DataGridTextColumn Header="Vendor"    Binding="{Binding Vendor}"           Width="100"/>
-                <DataGridTextColumn Header="Tags"      Binding="{Binding Tags}"             Width="120"/>
-            </DataGrid.Columns>
-        </DataGrid>
+        <!-- Lista de hosts + estado vazio -->
+        <Grid>
+            <TextBlock Text="Nenhum host neste grupo. Digite um nome acima e clique em Adicionar."
+                       Foreground="{DynamicResource Brush.Text.Tertiary}"
+                       TextWrapping="Wrap" Margin="16"
+                       HorizontalAlignment="Center" VerticalAlignment="Center">
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Assets.Count}" Value="0">
+                                <Setter Property="Visibility" Value="Visible"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
+
+            <DataGrid ItemsSource="{Binding Assets}"
+                      SelectedItem="{Binding SelectedAsset, Mode=TwoWay}"
+                      AutoGenerateColumns="False"
+                      IsReadOnly="True"
+                      HeadersVisibility="Column"
+                      GridLinesVisibility="Horizontal"
+                      SelectionMode="Single"
+                      BorderThickness="0"
+                      CanUserResizeRows="False">
+                <DataGrid.RowStyle>
+                    <Style TargetType="DataGridRow">
+                        <EventSetter Event="PreviewMouseRightButtonDown" Handler="Row_PreviewMouseRightButtonDown"/>
+                    </Style>
+                </DataGrid.RowStyle>
+                <DataGrid.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="Conectar via SSH"    Command="{Binding ConnectCommand}" CommandParameter="ssh"/>
+                        <MenuItem Header="Conectar via Telnet" Command="{Binding ConnectCommand}" CommandParameter="telnet"/>
+                        <MenuItem Header="Conectar via RDP"    Command="{Binding ConnectCommand}" CommandParameter="rdp"/>
+                        <MenuItem Header="Abrir WinBox"        Command="{Binding OpenWinBoxCommand}"/>
+                        <Separator/>
+                        <MenuItem Header="Excluir"             Command="{Binding DeleteHostCommand}"/>
+                    </ContextMenu>
+                </DataGrid.ContextMenu>
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Nome"     Binding="{Binding Name}"           Width="*"/>
+                    <DataGridTextColumn Header="Protocolo" Binding="{Binding PrimaryProtocol}" Width="80"/>
+                    <DataGridTextColumn Header="Endereço"  Binding="{Binding PrimaryAddress}"  Width="*"/>
+                    <DataGridTextColumn Header="Vendor"    Binding="{Binding Vendor}"           Width="100"/>
+                    <DataGridTextColumn Header="Tags"      Binding="{Binding Tags}"             Width="120"/>
+                </DataGrid.Columns>
+            </DataGrid>
+        </Grid>
     </DockPanel>
 </UserControl>
