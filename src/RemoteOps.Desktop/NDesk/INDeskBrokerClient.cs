@@ -3,8 +3,8 @@ using RemoteOps.Contracts.NDesk;
 namespace RemoteOps.Desktop.NDesk;
 
 /// <summary>
-/// Seam do broker NDesk. Hoje só existe <see cref="LoopbackNDeskBrokerClient"/> (fake
-/// in-memory, sem rede) — a implementação real (Frente 3) entra depois via DI.
+/// Seam do broker NDesk. Hoje só existe uma implementação fake in-memory (sem rede) —
+/// a implementação real (Frente 3) entra depois via troca de registro DI.
 /// </summary>
 public interface INDeskBrokerClient
 {
