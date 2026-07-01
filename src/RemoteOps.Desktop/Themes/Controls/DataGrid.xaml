@@ -1,0 +1,74 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        DataGrid (lista de hosts).
+
+        Deliberadamente NÃO templamos DataGridRow/DataGridCell aqui: o estilo padrão do WPF
+        para essas duas partes já embute os gatilhos de AlternationIndex (zebra) e de seleção
+        via as chaves SystemColors sobrescritas em Colors.xaml — redefinir o Style implícito
+        delas do zero substituiria (não estenderia) esses gatilhos porque não há um jeito
+        seguro de herdar o Style padrão do tema sem acoplar a um assembly de tema específico.
+        Preferimos expor RowBackground/AlternatingRowBackground/Foreground no próprio DataGrid,
+        que são as propriedades que os gatilhos padrão já leem — clique de linha, seleção e
+        clique-para-ordenar continuam exatamente como hoje.
+
+        DataGridColumnHeader É templado (visual de botão 3D do Aero2 destoa de um tema flat
+        escuro) — mas mantém os dois Thumb com nome "PART_*HeaderGripper" exigidos
+        internamente para o redimensionamento de coluna por arraste continuar funcionando.
+    -->
+
+    <Style TargetType="DataGrid">
+        <Setter Property="Background" Value="{DynamicResource Brush.Bg.Surface}"/>
+        <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Primary}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border.Subtle}"/>
+        <Setter Property="RowBackground" Value="Transparent"/>
+        <Setter Property="AlternatingRowBackground" Value="{DynamicResource Brush.Bg.Hover}"/>
+        <Setter Property="HorizontalGridLinesBrush" Value="{DynamicResource Brush.Border.Subtle}"/>
+        <Setter Property="VerticalGridLinesBrush" Value="{DynamicResource Brush.Border.Subtle}"/>
+        <Setter Property="RowHeaderWidth" Value="0"/>
+        <Setter Property="ColumnHeaderHeight" Value="30"/>
+        <Setter Property="FontFamily" Value="{DynamicResource Font.Family.Base}"/>
+        <Setter Property="FontSize" Value="{DynamicResource Font.Size.Body}"/>
+        <Setter Property="RowHeight" Value="26"/>
+    </Style>
+
+    <Style TargetType="DataGridColumnHeader">
+        <Setter Property="Background" Value="{DynamicResource Brush.Bg.SurfaceRaised}"/>
+        <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Secondary}"/>
+        <Setter Property="FontFamily" Value="{DynamicResource Font.Family.Base}"/>
+        <Setter Property="FontSize" Value="{DynamicResource Font.Size.Caption}"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Padding" Value="8,0"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border.Subtle}"/>
+        <Setter Property="BorderThickness" Value="0,0,0,1"/>
+        <Setter Property="SnapsToDevicePixels" Value="True"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="DataGridColumnHeader">
+                    <Grid>
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}">
+                            <ContentPresenter Margin="{TemplateBinding Padding}"
+                                              VerticalAlignment="Center"
+                                              HorizontalAlignment="Left"
+                                              RecognizesAccessKey="True"/>
+                        </Border>
+                        <Thumb x:Name="PART_LeftHeaderGripper"
+                               HorizontalAlignment="Left"
+                               Width="4"
+                               Background="Transparent"
+                               Cursor="SizeWE"/>
+                        <Thumb x:Name="PART_RightHeaderGripper"
+                               HorizontalAlignment="Right"
+                               Width="4"
+                               Background="Transparent"
+                               Cursor="SizeWE"/>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+</ResourceDictionary>

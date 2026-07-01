@@ -1,0 +1,32 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        Tema escuro base do RemoteOps Desktop — ponto único mesclado em App.xaml.
+
+        Ordem importa: os tokens (cores/tipografia/espaçamento/ícones) precisam estar
+        disponíveis antes dos estilos de controle, que os consomem via DynamicResource.
+        Ver docs/06-desktop-ui-ux.md §Sistema de design para o racional de cada decisão
+        (paleta, ícones, e por que não adotamos um toolkit de terceiro nem o ThemeMode
+        Fluent experimental do .NET).
+    -->
+    <ResourceDictionary.MergedDictionaries>
+
+        <!-- Tokens (caminhos relativos a este arquivo — resolvidos pelo compilador XAML) -->
+        <ResourceDictionary Source="Tokens/Colors.xaml"/>
+        <ResourceDictionary Source="Tokens/Typography.xaml"/>
+        <ResourceDictionary Source="Tokens/Spacing.xaml"/>
+        <ResourceDictionary Source="Tokens/Icons.xaml"/>
+
+        <!-- Estilos de controle -->
+        <ResourceDictionary Source="Controls/Buttons.xaml"/>
+        <ResourceDictionary Source="Controls/TextInputs.xaml"/>
+        <ResourceDictionary Source="Controls/TabControl.xaml"/>
+        <ResourceDictionary Source="Controls/DataGrid.xaml"/>
+        <ResourceDictionary Source="Controls/TreeView.xaml"/>
+        <ResourceDictionary Source="Controls/ScrollBar.xaml"/>
+        <ResourceDictionary Source="Controls/Misc.xaml"/>
+
+    </ResourceDictionary.MergedDictionaries>
+
+</ResourceDictionary>
