@@ -31,6 +31,13 @@ public partial class MainWindow : Window
 
     private void ToggleSidebar_Changed(object sender, RoutedEventArgs e)
     {
+        // O Checked de um MenuItem IsChecked="True" dispara DURANTE o InitializeComponent,
+        // antes do campo nomeado SidebarColumn existir. Ignora até a árvore estar montada.
+        if (SidebarColumn is null)
+        {
+            return;
+        }
+
         if (((MenuItem)sender).IsChecked)
         {
             SidebarColumn.Width = _sidebarWidth;
@@ -44,6 +51,11 @@ public partial class MainWindow : Window
 
     private void ToggleInspector_Changed(object sender, RoutedEventArgs e)
     {
+        if (InspectorColumn is null)
+        {
+            return;
+        }
+
         if (((MenuItem)sender).IsChecked)
         {
             InspectorColumn.Width = _inspectorWidth;
