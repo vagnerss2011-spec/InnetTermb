@@ -74,4 +74,37 @@ public sealed class NDeskOperatorViewModelTests
         Assert.Equal(NDeskSessionState.Ended, vm.State);
         Assert.False(vm.EndCommand.CanExecute(null));
     }
+
+    [Fact]
+    public async Task ConnectCommand_AfterExternalConsentAccepted_ReflectsConnectedState()
+    {
+        // Prova que quando o lado atendido aceita (RespondConsentAsync),
+        // a transição AwaitingConsent → Connected dispara OnSessionStateChanged,
+        // que atualiza State, IsSessionActive e EndCommand.CanExecute.
+        var broker = new LoopbackNDeskBrokerClient();
+        var vm = new NDeskOperatorViewModel(broker);
+        INDeskAgentSession? capturedSession = null;
+
+        // Captura a sessão quando IncomingSessionRequested é levantado
+        broker.IncomingSessionRequested += session => capturedSession = session;
+
+        vm.GenerateTicketCommand.Execute(null);
+        await Task.Delay(20);
+
+        vm.ConnectCommand.Execute(null);
+        await Task.Delay(20);
+
+        // Neste ponto, a sessão está em AwaitingConsent
+        Assert.Equal(NDeskSessionState.AwaitingConsent, vm.State);
+
+        // Simula o lado atendido aceitando o consentimento
+        Assert.NotNull(capturedSession);
+        await capturedSession.RespondConsentAsync(accepted: true);
+        await Task.Delay(20);
+
+        // Agora deve estar Connected
+        Assert.Equal(NDeskSessionState.Connected, vm.State);
+        Assert.True(vm.IsSessionActive);
+        Assert.True(vm.EndCommand.CanExecute(null));
+    }
 }
