@@ -1,8 +1,10 @@
-# 22 — NDesk: performance, NAT e Windows antigo
+# 22 — NDesk: performance, NAT e plataformas suportadas
+
+> **Nota (`ADR-016`):** este documento foi revisto para remover Windows 7/8/8.1 do escopo do NDesk. O título e o conteúdo original tratavam "Windows antigo" como requisito de primeira classe (incluindo Windows 7 SP1); essa premissa foi revertida — ver `adr/ADR-016-ndesk-pivo-win10-net.md`. O histórico de decisão anterior permanece rastreável em `adr/ADR-007-ndesk-agente-legado-win32.md` (superada) e `docs/spikes/SPIKE-016-ndesk-buy-vs-build.md`.
 
 ## Objetivo
 
-Definir uma arquitetura de acesso remoto que funcione bem em conexão lenta, através de NAT/CGNAT/firewall, e com agente temporário leve para Windows 10 e Windows 7, sem Java, sem WebView2 e sem exigir instalação de .NET moderno na máquina atendida.
+Definir uma arquitetura de acesso remoto que funcione bem em conexão lenta, através de NAT/CGNAT/firewall, e com agente temporário leve para Windows 10 e Windows 11, sem Java e sem WebView2. O agente é publicado como .NET moderno single-file self-contained, sem exigir instalação de runtime na máquina atendida (`ADR-016`). Roadmap futuro (não comprometido neste documento) prevê portabilidade para Linux e macOS.
 
 ## Princípios
 
@@ -17,12 +19,12 @@ Definir uma arquitetura de acesso remoto que funcione bem em conexão lenta, atr
 
 | Plataforma | Status | Estratégia |
 |---|---|---|
-| Windows 11 | Principal | captura moderna, codec adaptativo, WebRTC/relay |
-| Windows 10 | Principal | captura moderna quando disponível, fallback DXGI/GDI |
-| Windows 8.1 | Secundário opcional | DXGI Desktop Duplication se mantido no escopo |
-| Windows 7 SP1 | Legado | agente Win32 nativo, GDI/BitBlt ou caminho DXGI com Platform Update quando validado, sem WebView2/.NET moderno |
+| Windows 11 | Principal | DXGI Desktop Duplication, codec adaptativo, WebRTC/relay |
+| Windows 10 (21H2+) | Principal | DXGI Desktop Duplication, codec adaptativo, WebRTC/relay |
 
-Windows 7 deve ser suportado como necessidade operacional, mas marcado como legado e com risco de segurança. O projeto não deve prometer a mesma performance de Windows 10/11 em todas as máquinas antigas.
+Windows 7, Windows 8 e Windows 8.1 estão **fora de escopo** do NDesk por decisão de produto (`ADR-016`, que supera `ADR-007`). Essa remoção não é apenas uma simplificação de matriz: ela elimina o único motivo técnico para o agente ser Win32/C++ nativo, permitindo o pivô para .NET moderno self-contained (ver "Componentes > Agente temporário" abaixo).
+
+**Roadmap futuro (não comprometido neste documento):** captura e input ficam atrás de uma interface (`IScreenCaptureProvider`/`IInputInjector`) para permitir, quando priorizado, implementações equivalentes em Linux (PipeWire) e macOS (`CGDisplayStream`) sem reabrir a arquitetura do agente.
 
 ## Arquitetura de alto nível
 
@@ -61,11 +63,9 @@ flowchart LR
 ### Agente temporário
 
 - Binário assinado.
-- Idealmente single-file.
-- Runtime C/C++ estático quando possível.
+- .NET moderno, publicado single-file self-contained (`ADR-016`) — sem exigir instalação de runtime .NET na máquina atendida.
 - Não exige Java.
 - Não exige WebView2.
-- Não exige .NET moderno.
 - Exibe janela de consentimento e banner permanente durante sessão.
 - Encerra e limpa arquivos temporários ao final.
 - Pode oferecer instalação de serviço apenas em modo explícito, com consentimento e política.
@@ -162,36 +162,23 @@ Ajusta resolução, FPS e bitrate com base em RTT, perda e throughput.
 - Usar apenas em LAN ou link bom.
 - Maior uso de CPU/banda.
 
-## Captura de tela por versão
+## Captura de tela — Windows 10/11
 
-### Windows 10/11
-
-- Preferir Windows.Graphics.Capture quando disponível.
-- Alternativa: DXGI Desktop Duplication.
-- Fallback: GDI BitBlt para casos problemáticos.
-
-### Windows 8/8.1
-
-- Preferir DXGI Desktop Duplication.
-- Fallback: GDI BitBlt.
-
-### Windows 7 SP1
-
-- Começar com GDI BitBlt e detecção de regiões alteradas.
-- Validar DXGI com Platform Update em spike separado.
-- Evitar driver/mirror driver no MVP para não exigir instalação administrativa complexa.
-- Aceitar que performance pode variar por CPU/GPU/driver.
+- Caminho primário: **DXGI Desktop Duplication**.
+- Fallback: GDI BitBlt para casos problemáticos (ex.: sessões RDP/console sem suporte a duplicação, apps com proteção DRM que bloqueiam DXGI).
+- Captura fica atrás de uma interface (`IScreenCaptureProvider`) para permitir, no roadmap futuro, uma implementação equivalente em Linux (PipeWire) e macOS (`CGDisplayStream`) — ver `ADR-016`. Esta seção substitui a antiga matriz por versão (Windows 10/11 vs 8/8.1 vs 7 SP1), revista pela `ADR-016`.
 
 ## Transporte
 
 ### Caminho principal
 
-- WebRTC com ICE, STUN e TURN/relay próprio para Windows 10/11.
+- WebRTC com ICE, STUN e TURN/relay próprio.
+- Escolha final entre stack WebRTC nativa (`libwebrtc`/`libdatachannel`, acessada via interop) e stack C# gerenciada fica para `SPIKE-017`/`ADR-017` (ver `adr/ADR-005-acesso-remoto-webrtc.md`, seção "Atualização (ADR-016)").
 
-### Fallback legado
+### Fallback para redes restritivas
 
-- Relay TCP/TLS 443 com protocolo próprio simples para Windows 7.
-- UDP hole punching pode ser pesquisado, mas não deve ser requisito do MVP legado.
+- Relay TCP/TLS 443 com protocolo próprio simples, para redes onde WebRTC/UDP é bloqueado por firewall corporativo.
+- UDP hole punching pode ser pesquisado, mas não deve ser requisito do MVP.
 - O fallback deve priorizar confiabilidade e baixa latência percebida, mesmo com qualidade visual menor.
 
 ## Telemetria obrigatória
@@ -228,8 +215,7 @@ Sem capturar conteúdo de tela no log.
 
 - Gerar link temporário.
 - Baixar agente assinado.
-- Rodar agente em Windows 10 sem instalar runtime adicional.
-- Rodar agente em Windows 7 SP1 de laboratório sem Java/WebView2/.NET moderno.
+- Rodar agente em Windows 10 (21H2+) e Windows 11 sem instalar runtime adicional (publish .NET self-contained).
 - Mostrar consentimento com permissões separadas.
 - Visualização funcional em link com 2 Mbps de upload e 80 ms RTT.
 - Controle opcional separado da visualização.
@@ -240,13 +226,14 @@ Sem capturar conteúdo de tela no log.
 
 ## Spikes obrigatórios
 
-1. Captura Win7: GDI BitBlt com dirty-region e compressão.
-2. Captura Win10: Windows.Graphics.Capture vs DXGI.
-3. Codec: H.264/OpenH264, VP8 ou alternativa leve.
-4. Transporte: WebRTC nativo vs relay TCP/TLS legado.
-5. UAC/admin: helper temporário visível e removível.
-6. Antivírus/EDR: assinatura, reputação e comportamento transparente.
-7. Teste de conexão lenta: 1 Mbps, 2 Mbps, 5 Mbps, perda 1%, 3%, 5%.
+1. Captura Windows 10/11: DXGI Desktop Duplication, incluindo fallback GDI BitBlt.
+2. Codec: H.264/OpenH264, VP8 ou alternativa leve.
+3. Transporte (`SPIKE-017`): WebRTC nativo (`libwebrtc`/`libdatachannel`) vs stack C# gerenciada, mais fallback relay TCP/TLS para redes restritivas.
+4. UAC/admin: helper temporário visível e removível.
+5. Antivírus/EDR: assinatura, reputação e comportamento transparente — inclui revalidação do perfil de detecção do binário .NET self-contained (`ADR-016`).
+6. Teste de conexão lenta: 1 Mbps, 2 Mbps, 5 Mbps, perda 1%, 3%, 5%.
+
+> Nota: o spike de captura Windows 7 (GDI BitBlt legado) previsto anteriormente nesta lista, e o `SPIKE-011` correspondente em `docs/15-pesquisa-e-spikes.md`, ficam órfãos após `ADR-016` remover Windows 7 do escopo. A descontinuação/reformulação formal de `docs/15` fica para uma atualização futura, fora do escopo desta revisão.
 
 ## Fronteiras para agentes
 
@@ -264,7 +251,7 @@ Revisa consentimento, elevação, logs, assinatura e abuso.
 
 ### QA Agent
 
-Monta laboratório Windows 7/10/11, NAT/CGNAT simulado e links degradados.
+Monta laboratório Windows 10/11, NAT/CGNAT simulado e links degradados.
 
 ### DevOps Agent
 

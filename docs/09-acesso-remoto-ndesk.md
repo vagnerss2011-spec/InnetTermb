@@ -10,9 +10,9 @@ O NDesk só deve funcionar com autorização clara do usuário assistido. Não d
 
 ## Decisão importante
 
-O viewer do operador fica dentro do RemoteOps Desktop. O agente baixado pelo usuário atendido deve ser um componente separado, preferencialmente **Win32/C++ nativo**, sem exigir Java, WebView2 ou .NET moderno. Isso é necessário para atendimento esporádico em máquinas antigas, incluindo Windows 7 SP1.
+O viewer do operador fica dentro do RemoteOps Desktop. O agente baixado pelo usuário atendido deve ser um componente separado, publicado como **.NET moderno single-file self-contained**, sem exigir instalação de runtime, Java ou WebView2 na máquina atendida — a decisão de stack e de escopo de plataforma está registrada em `adr/ADR-016-ndesk-pivo-win10-net.md` (supera `adr/ADR-007-ndesk-agente-legado-win32.md`, que tratava o agente como Win32/C++ nativo para atender Windows 7 SP1; esse requisito foi removido do escopo do NDesk por ora).
 
-Detalhes de performance, Windows legado e NAT estão em `docs/22-ndesk-performance-legacy-windows.md`.
+Detalhes de performance, matriz de plataformas suportadas e NAT estão em `docs/22-ndesk-performance-legacy-windows.md`.
 
 ## Fases do NDesk
 
@@ -77,12 +77,10 @@ flowchart LR
 
 ### Agente temporário
 
-- Binário Windows assinado.
-- Pode ser single-file.
+- Binário Windows assinado, .NET moderno publicado como single-file self-contained (`ADR-016`) — a máquina atendida não precisa ter runtime .NET pré-instalado.
 - Não instala serviço no MVP.
 - Não exige Java.
 - Não exige WebView2.
-- Não exige .NET moderno.
 - Mostra tela de consentimento.
 - Mostra banner durante sessão.
 - Expira após uso ou tempo.
@@ -107,13 +105,12 @@ flowchart LR
 
 ## Pipeline de mídia
 
-Caminho recomendado:
+Caminho recomendado (Windows 10/11 — matriz completa em `docs/22-ndesk-performance-legacy-windows.md`, revista pela `ADR-016`):
 
-- Captura Windows 10/11: Windows.Graphics.Capture ou DXGI Desktop Duplication.
-- Captura Windows 7: GDI BitBlt com dirty-region no MVP legado; DXGI com Platform Update apenas após spike.
+- Captura: DXGI Desktop Duplication como caminho primário.
+- Captura e input ficam atrás de uma interface (`IScreenCaptureProvider`/`IInputInjector`) para permitir, no roadmap futuro, implementações equivalentes em Linux (PipeWire) e macOS (`CGDisplayStream`) sem reabrir a arquitetura do agente — ver `ADR-016`.
 - Codec: H.264/OpenH264, VP8 ou codec validado no spike.
-- Transporte moderno: WebRTC.
-- Transporte legado: relay TCP/TLS 443 com protocolo próprio.
+- Transporte: WebRTC, com fallback de relay TCP/TLS 443 para redes restritivas. Escolha final entre stack WebRTC nativa (`libwebrtc`/`libdatachannel`) e stack C# gerenciada fica para `SPIKE-017`/`ADR-017` (ver `ADR-005`, seção "Atualização (ADR-016)").
 - Canal de controle: DataChannel ou canal TLS separado.
 - Input: API Windows autorizada, com bloqueios para teclas sensíveis conforme política.
 
@@ -159,9 +156,9 @@ Tela do cliente deve mostrar:
 - UAC Secure Desktop pode bloquear controle em prompts elevados sem helper autorizado.
 - Captura de tela pode ter restrições por política Windows.
 - Baixa latência exige tuning de codec e rede.
-- Antivírus pode alertar em ferramentas de acesso remoto; assinatura e transparência são essenciais.
-- Implementar WebRTC nativo pode ser complexo; validar biblioteca no spike.
-- Windows 7 é legado e pode ter performance inferior por captura, driver e CPU.
+- Antivírus pode alertar em ferramentas de acesso remoto; assinatura e transparência são essenciais. Perfil de detecção de binário .NET self-contained precisa ser revalidado (não é equivalente ao de um binário C++ nativo) — ver `ADR-016`.
+- Implementar/escolher WebRTC pode ser complexo; validar stack no `SPIKE-017`.
+- Windows 7/8/8.1 estão fora do escopo do NDesk por ora (`ADR-016`); atendimento a essas plataformas não é suportado até decisão de produto explícita reabrindo esse escopo.
 
 ## Auditoria NDesk
 
@@ -190,7 +187,6 @@ Eventos obrigatórios:
 - Usuário consegue encerrar imediatamente.
 - Sessão gera audit log.
 - Agente não fica persistente sem instalação explícita.
-- Agente roda em Windows 10 sem runtime adicional.
-- Agente roda em Windows 7 SP1 de laboratório sem Java/WebView2/.NET moderno.
+- Agente roda em Windows 10 (21H2+) e Windows 11 sem instalar runtime adicional (publish .NET self-contained).
 - Sessão via relay funciona atrás de NAT/CGNAT.
 - Link degradado de baixa banda mantém controle utilizável com qualidade reduzida.
