@@ -14,16 +14,26 @@ public sealed class TabsViewModel : BaseViewModel
         CloseTabCommand = new RelayCommand(
             obj => CloseTab(obj as SessionTabViewModel),
             obj => obj is SessionTabViewModel tab && !tab.IsPinned);
+
+        CloseActiveTabCommand = new RelayCommand(
+            () => CloseTab(ActiveTab),
+            () => ActiveTab is { IsPinned: false });
     }
 
     public ObservableCollection<SessionTabViewModel> Tabs { get; } = [];
 
     public RelayCommand CloseTabCommand { get; }
 
+    public RelayCommand CloseActiveTabCommand { get; }
+
     public SessionTabViewModel? ActiveTab
     {
         get => _activeTab;
-        set => Set(ref _activeTab, value);
+        set
+        {
+            Set(ref _activeTab, value);
+            CloseActiveTabCommand.RaiseCanExecuteChanged();
+        }
     }
 
     public bool HasTabs => Tabs.Count > 0;
@@ -89,5 +99,6 @@ public sealed class TabsViewModel : BaseViewModel
         }
 
         RaisePropertyChanged(nameof(HasTabs));
+        CloseActiveTabCommand.RaiseCanExecuteChanged();
     }
 }

@@ -66,6 +66,11 @@ public sealed class MainViewModel : BaseViewModel
             Inspector.Asset = assetVm;
 
         Inspector.SessionRequested += OnSessionRequested;
+
+        HostList.ConnectRequested += (_, protocol) =>
+            Inspector.OpenSessionCommand.Execute(protocol);
+        HostList.WinBoxRequested += (_, _) =>
+            Inspector.OpenWinBoxCommand.Execute(null);
     }
 
     public SidebarViewModel Sidebar { get; }
