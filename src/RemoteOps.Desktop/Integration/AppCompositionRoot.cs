@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using RemoteOps.Contracts.Sessions;
 using RemoteOps.Desktop.Infrastructure;
+using RemoteOps.Desktop.NDesk;
 using RemoteOps.MikroTik;
 using RemoteOps.Rdp;
 using RemoteOps.Security;
@@ -76,6 +77,9 @@ internal static class AppCompositionRoot
         services.AddSingleton<IRdpCredentialResolver, RdpCredentialResolver>();
         services.AddSingleton<IRdpAuditSink, StructuredRdpAuditSink>();
         services.AddSingleton<IRdpSecurityContext, AppTerminalSecurityContext>();
+
+        // Adaptador Desktop→NDesk (fake loopback — troca pelo broker real da Frente 3 vem depois via DI)
+        services.AddSingleton<INDeskBrokerClient, LoopbackNDeskBrokerClient>();
 
         // Provedores de sessão terminal (chaveados por protocolo — ADR-009)
         services.AddKeyedSingleton<ITerminalSessionProvider, SshSessionProvider>(RemoteProtocol.Ssh);

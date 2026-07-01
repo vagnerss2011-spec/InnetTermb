@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 using RemoteOps.Contracts.Sessions;
 using RemoteOps.Desktop.Infrastructure;
+using RemoteOps.Desktop.NDesk;
 using RemoteOps.Desktop.Rdp;
 using RemoteOps.Desktop.Terminal;
 using RemoteOps.MikroTik;
@@ -39,7 +40,8 @@ public sealed class MainViewModel : BaseViewModel
         [FromKeyedServices(RemoteProtocol.Ssh)] ITerminalSessionProvider? sshProvider = null,
         [FromKeyedServices(RemoteProtocol.Telnet)] ITerminalSessionProvider? telnetProvider = null,
         [FromKeyedServices(RemoteProtocol.Rdp)] IRdpSessionProvider? rdpProvider = null,
-        IRdpCredentialResolver? rdpCredentialResolver = null)
+        IRdpCredentialResolver? rdpCredentialResolver = null,
+        INDeskBrokerClient? ndeskBrokerClient = null)
     {
         _sshProvider = sshProvider;
         _telnetProvider = telnetProvider;
@@ -51,6 +53,11 @@ public sealed class MainViewModel : BaseViewModel
         HostList = new HostListViewModel(store, DefaultWorkspaceId);
         Inspector = new InspectorViewModel(store, winBoxRunner, featureFlags);
         Tabs = new TabsViewModel();
+
+        if ((featureFlags?.IsEnabled(FeatureFlagNames.NdeskEnabled) ?? false) && ndeskBrokerClient != null)
+        {
+            Tabs.OpenNdeskTab(new NDeskTabViewModel(ndeskBrokerClient));
+        }
 
         Sidebar.GroupSelected += (_, groupVm) =>
             _ = HostList.LoadAsync(groupVm?.Id);
