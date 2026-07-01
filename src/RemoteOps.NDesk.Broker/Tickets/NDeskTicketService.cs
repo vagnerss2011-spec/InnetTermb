@@ -62,10 +62,16 @@ public sealed class NDeskTicketService(
         return ToContract(entity, linkToken: rawToken);
     }
 
-    public async Task<NDeskTicket?> GetStatusAsync(Guid ticketId, CancellationToken ct = default)
+    /// <summary>
+    /// Status do ticket, escopado ao operador que o criou — evita IDOR: um operador autenticado
+    /// não pode consultar tickets de outro só adivinhando/enumerando o GUID. Retorna null (→ 404
+    /// no endpoint) tanto para "não existe" quanto para "existe mas não é seu", para não vazar
+    /// um oráculo de enumeração.
+    /// </summary>
+    public async Task<NDeskTicket?> GetStatusAsync(Guid ticketId, Guid callerUserId, CancellationToken ct = default)
     {
         var entity = await db.Tickets.FirstOrDefaultAsync(t => t.Id == ticketId, ct);
-        if (entity is null) return null;
+        if (entity is null || entity.CreatedByUserId != callerUserId) return null;
         await ExpireIfDueAsync(entity, ct);
         return ToContract(entity);
     }

@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 using RemoteOps.NDesk.Broker;
 
@@ -13,8 +14,6 @@ public sealed record GrantConsentBody(
     string? ConsentTextVersion);
 
 public sealed record DenyConsentBody(string? Reason);
-
-public sealed record RevokeConsentBody(string RevokedBy);
 
 public static class NDeskConsentEndpoints
 {
@@ -75,18 +74,28 @@ public static class NDeskConsentEndpoints
             return Results.NoContent();
         }).AllowAnonymous();
 
+        // Revogação imediata (CLAUDE.md princípio 3) — chamável por qualquer lado da sessão.
+        // O agente (usuário assistido) é anônimo por design; só possui o sessionId (mesmo nível
+        // de confiança já aceito em NDeskSignalingHub.EndSession). Por isso este endpoint não
+        // exige autenticação — mas, precisamente por não poder verificar identidade, NUNCA confia
+        // num "revokedBy" vindo do corpo da requisição (permitiria forjar o autor no log de
+        // auditoria); o autor é sempre derivado do contexto, nunca de input do cliente.
         group.MapPost("/revoke", async (
             string sessionId,
-            [FromBody] RevokeConsentBody body,
             NDeskPermissionGrantService svc,
+            HttpContext ctx,
             CancellationToken ct) =>
         {
             if (!Guid.TryParse(sessionId, out var sid))
                 return Results.NotFound();
 
-            await svc.RevokeConsentAsync(sid, body.RevokedBy, ct);
+            var revokedBy = ctx.User.Identity?.IsAuthenticated == true
+                ? (ctx.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? ctx.User.FindFirstValue("sub") ?? "operator")
+                : "assisted-user";
+
+            await svc.RevokeConsentAsync(sid, revokedBy, ct);
             return Results.NoContent();
-        });
+        }).AllowAnonymous();
 
         return app;
     }

@@ -105,12 +105,13 @@ public sealed class NDeskTicketServiceTests
     public async Task GetStatus_Reflects_Expiration_Lazily()
     {
         using var ctx = new NDeskTestContext();
+        var operatorId = Guid.NewGuid();
         var ticket = await ctx.Tickets.IssueTicketAsync(new IssueTicketRequest(
-            Guid.NewGuid(), null, "basic", ["view"], TimeSpan.FromMinutes(1), null, false, false));
+            Guid.NewGuid(), operatorId, "basic", ["view"], TimeSpan.FromMinutes(1), null, false, false));
 
         ctx.Clock.UtcNowValue = ctx.Clock.UtcNowValue.AddMinutes(2);
 
-        var status = await ctx.Tickets.GetStatusAsync(Guid.Parse(ticket.Id));
+        var status = await ctx.Tickets.GetStatusAsync(Guid.Parse(ticket.Id), operatorId);
 
         Assert.Equal("expired", status!.Status);
     }
@@ -121,12 +122,26 @@ public sealed class NDeskTicketServiceTests
     public async Task GetStatus_Never_Returns_LinkToken()
     {
         using var ctx = new NDeskTestContext();
+        var operatorId = Guid.NewGuid();
         var ticket = await ctx.Tickets.IssueTicketAsync(new IssueTicketRequest(
-            Guid.NewGuid(), null, "basic", ["view"], null, null, false, false));
+            Guid.NewGuid(), operatorId, "basic", ["view"], null, null, false, false));
 
-        var status = await ctx.Tickets.GetStatusAsync(Guid.Parse(ticket.Id));
+        var status = await ctx.Tickets.GetStatusAsync(Guid.Parse(ticket.Id), operatorId);
 
         Assert.Null(status!.LinkToken);
+    }
+
+    [Fact]
+    public async Task GetStatus_By_Different_Caller_Returns_Null()
+    {
+        using var ctx = new NDeskTestContext();
+        var ticket = await ctx.Tickets.IssueTicketAsync(new IssueTicketRequest(
+            Guid.NewGuid(), Guid.NewGuid(), "basic", ["view"], null, null, false, false));
+
+        // Um operador diferente do criador não deve conseguir consultar o ticket — evita IDOR.
+        var status = await ctx.Tickets.GetStatusAsync(Guid.Parse(ticket.Id), Guid.NewGuid());
+
+        Assert.Null(status);
     }
 
     [Fact]

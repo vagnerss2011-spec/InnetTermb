@@ -100,14 +100,15 @@ public sealed class NDeskPermissionGrantServiceTests
     public async Task DenyConsent_Closes_Ticket_As_Denied()
     {
         using var ctx = new NDeskTestContext();
+        var operatorId = Guid.NewGuid();
         var ticket = await ctx.Tickets.IssueTicketAsync(new IssueTicketRequest(
-            Guid.NewGuid(), null, "basic", ["view"], null, null, false, false));
+            Guid.NewGuid(), operatorId, "basic", ["view"], null, null, false, false));
         var redeemed = await ctx.Tickets.RedeemTicketAsync(ticket.LinkToken!);
         var sessionId = redeemed.SessionId!.Value;
 
         await ctx.Grants.DenyConsentAsync(sessionId, "usuário recusou");
 
-        var status = await ctx.Tickets.GetStatusAsync(Guid.Parse(ticket.Id));
+        var status = await ctx.Tickets.GetStatusAsync(Guid.Parse(ticket.Id), operatorId);
         Assert.Equal("denied", status!.Status);
         Assert.False(await ctx.Grants.IsSessionAuthorizedAsync(sessionId));
     }

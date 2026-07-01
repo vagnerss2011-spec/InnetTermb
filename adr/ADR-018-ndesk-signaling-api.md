@@ -33,8 +33,9 @@ apenas a tecnologia do agente/captura, fora do escopo desta ADR.
   padrão já usado por `RefreshTokenEntity.TokenHash` em `RemoteOps.Cloud`. Nenhum log do broker
   imprime o valor cru do token (`NoSecretInLogTests` no projeto de testes é o guarda de
   regressão).
-- `GET /ndesk/tickets/{id}` (operador autenticado): status atual do ticket. Nunca devolve o
-  link token.
+- `GET /ndesk/tickets/{id}` (operador autenticado): status atual do ticket, **escopado ao
+  operador que o criou** (`CreatedByUserId`) — consultar o ticket de outro operador devolve 404,
+  não 403, para não expor um oráculo de enumeração. Nunca devolve o link token.
 - `POST /ndesk/tickets/redeem` (anônimo — o usuário assistido não tem conta): recebe o link
   token cru, valida hash + TTL + **uso único** (status precisa ser `waiting`) e transiciona para
   `connected`, atribuindo um `sessionId` novo. Resgate de um token já usado retorna 409;
@@ -72,6 +73,12 @@ apenas a tecnologia do agente/captura, fora do escopo desta ADR.
   rendezvous, mídia real trafega direto entre operador/agente (P2P) ou por um relay dedicado
   fora do escopo deste ADR (`docs/09` §Relay).
 - `EndSession(sessionId, reason)`: revoga o grant, fecha o ticket e notifica o grupo.
+- `POST /ndesk/sessions/{sessionId}/revoke` (REST, equivalente HTTP do `EndSession`):
+  intencionalmente anônimo — o agente não tem conta, só o `sessionId` (mesmo nível de confiança
+  já aceito no Hub). Precisamente por não poder autenticar o chamador, o `revokedBy` gravado na
+  auditoria **nunca** vem do corpo da requisição — é sempre derivado do `ClaimsPrincipal` quando
+  autenticado, ou do literal `"assisted-user"` quando anônimo, para não permitir forjar o autor
+  no log de auditoria.
 
 ### 4. Telemetria (`src/RemoteOps.NDesk.Broker/Telemetry`)
 
@@ -108,13 +115,26 @@ apenas a tecnologia do agente/captura, fora do escopo desta ADR.
   Mitigação futura: `ExecuteUpdateAsync` com `WHERE status = 'waiting'` (compare-and-swap no
   banco) antes de qualquer deploy horizontal — registrado aqui como débito conhecido, não
   bloqueante para o MVP de instância única.
-- O broker confia no claim `sub` do JWT do operador para autorizar `POST /ndesk/tickets` e
-  `JoinSession(role: "operator")`, mas **não** revalida a associação `workspaceId ↔ operador`
-  contra uma tabela de `Memberships` (que vive só em `RemoteOps.Cloud`, propositalmente não
-  referenciado aqui para não misturar módulos). Um operador autenticado pode hoje declarar
-  qualquer `workspaceId` no corpo do pedido. Aceitável para o MVP porque o principal controle de
-  segurança (consentimento explícito do lado assistido) independe do workspace declarado, mas
-  deve ser revisado se/quando o broker precisar de RBAC completo por workspace.
+- **[RISCO ABERTO, RASTREADO — não é aceitação silenciosa]** O broker confia no claim `sub` do
+  JWT do operador para autorizar `POST /ndesk/tickets` e `JoinSession(role: "operator")`, mas
+  **não** revalida a associação `workspaceId ↔ operador` contra uma tabela de `Memberships`
+  (que vive só em `RemoteOps.Cloud`, propositalmente não referenciado aqui para não misturar
+  módulos/acoplar deployments). Um operador autenticado pode hoje declarar qualquer
+  `workspaceId` no corpo do pedido de emissão — isso foi confirmado como achado HIGH (IDOR /
+  multi-tenant scoping) em revisão de segurança automática desta mesma PR.
+  - **Blast radius mitigado, não eliminado, nesta PR:** `GET /ndesk/tickets/{id}` agora escopa
+    a consulta ao `CreatedByUserId` do ticket (ver seção 1) — um operador de outro workspace não
+    consegue *ler* tickets de terceiros só adivinhando o GUID. O que permanece possível é
+    *criar* um ticket rotulado com um `workspaceId` que não é seu, poluindo a atribuição de
+    auditoria daquele workspace. Isso **não** concede acesso a credenciais/dados do workspace
+    alvo — a capacidade real de controle remoto continua exigindo que um humano do lado
+    assistido resgate o ticket e conceda consentimento explícito, fora de banda.
+  - **Bloqueante antes de:** (a) qualquer UI/relatório que confie em "listar tickets por
+    workspace" para decisões de segurança; (b) exposição deste endpoint fora da rede interna
+    confiável de operadores autenticados. Fechar exige uma de duas rotas: referenciar
+    `Memberships` do `RemoteOps.Cloud` (acopla os módulos) ou o `RemoteOps.Cloud` passar a
+    emitir um claim de workspace verificável no JWT (mudança no emissor, fora do escopo deste
+    ADR) — decisão a tomar antes do próximo passo do NDesk que dependa de isolamento de tenant.
 - `SendSignal` não faz nenhuma validação de forma sobre `payload` além de ser uma string — é
   deliberado (o broker não deve interpretar SDP/ICE), mas significa que um payload malformado
   só é detectado pelo lado receptor (operador/agente), não pelo broker.
