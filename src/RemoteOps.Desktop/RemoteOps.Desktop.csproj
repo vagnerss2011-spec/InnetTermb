@@ -12,6 +12,7 @@
          rodar antes de qualquer infraestrutura do WPF, então App.xaml deixa de ser
          ApplicationDefinition (que gera Main() automático) e o Main() explícito assume. -->
     <StartupObject>RemoteOps.Desktop.App</StartupObject>
+    <ApplicationIcon>assets\appicon.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="RemoteOps.UnitTests" />
