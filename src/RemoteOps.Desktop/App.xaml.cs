@@ -26,21 +26,30 @@ public partial class App : Application
 
     public App()
     {
-        // ADR-019: precisa ser a primeira coisa executada — antes de UI/DI/vault — porque
-        // o Setup.exe do Velopack invoca o app com argumentos internos (instalação,
-        // pós-update, etc.) que só são interceptados aqui. WPF cria a instância de `App`
-        // antes de chamar InitializeComponent()/Run(), então o construtor é o ponto mais
-        // cedo disponível sem reescrever o entry point gerado.
-        VelopackApp.Build().Run();
-
         // Rede de segurança: nenhuma exceção não tratada deve derrubar o app sem diálogo
         // (CLAUDE.md — nunca crash silencioso). DispatcherUnhandledException cobre a UI
         // thread depois que o startup termina (ex.: async void em MainWindow.Loaded);
         // AppDomain.UnhandledException é o último recurso para exceções fora dela.
         // Falhas SÍNCRONAS dentro do próprio OnStartup (antes do dispatcher bombear
-        // mensagens) não passam por nenhuma delas — por isso o try/catch abaixo.
+        // mensagens) não passam por nenhuma delas — por isso o try/catch de OnStartup.
         DispatcherUnhandledException += OnDispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += OnAppDomainUnhandledException;
+    }
+
+    // Entry point custom (ADR-019): App.xaml não é mais ApplicationDefinition (ver
+    // RemoteOps.Desktop.csproj), então este Main() substitui o gerado automaticamente
+    // pelo WPF. VelopackApp.Build().Run() precisa ser a primeiríssima instrução — antes
+    // de qualquer InitializeComponent()/DI/vault — porque o Setup.exe do Velopack invoca
+    // o app com argumentos internos (instalação, pós-update etc.) que só são
+    // interceptados aqui, e a própria ferramenta `vpk pack` avisa quando essa chamada não
+    // está no início do Main() (validado localmente: o aviso desaparece com este padrão).
+    [STAThread]
+    private static void Main(string[] args)
+    {
+        VelopackApp.Build().SetArgs(args).Run();
+        var app = new App();
+        app.InitializeComponent();
+        app.Run();
     }
 
     protected override async void OnStartup(StartupEventArgs e)
