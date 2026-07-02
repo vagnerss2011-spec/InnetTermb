@@ -13,6 +13,8 @@ public sealed class SettingsViewModel : BaseViewModel
     private AppSettings _settings;
     private bool _rdpEnabled;
     private bool _ndeskEnabled;
+    private string? _winBoxExePath;
+    private string? _winBoxSha256;
     private string _updateStatus = string.Empty;
 
     public SettingsViewModel(ISettingsStore store, IUpdateService? updateService = null)
@@ -22,6 +24,8 @@ public sealed class SettingsViewModel : BaseViewModel
         _settings = store.Load();
         _rdpEnabled = _settings.Flags.TryGetValue(FeatureFlagNames.RdpEnabled, out bool rdp) && rdp;
         _ndeskEnabled = _settings.Flags.TryGetValue(FeatureFlagNames.NdeskEnabled, out bool nd) && nd;
+        _winBoxExePath = _settings.WinBoxExePath;
+        _winBoxSha256 = _settings.WinBoxSha256;
 
         SaveCommand = new RelayCommand(Save);
         CheckForUpdatesCommand = new RelayCommand(
@@ -31,6 +35,16 @@ public sealed class SettingsViewModel : BaseViewModel
 
     public bool RdpEnabled { get => _rdpEnabled; set => Set(ref _rdpEnabled, value); }
     public bool NdeskEnabled { get => _ndeskEnabled; set => Set(ref _ndeskEnabled, value); }
+
+    /// <summary>Caminho do executável do WinBox escolhido pela GUI (Ferramentas externas).</summary>
+    public string? WinBoxExePath { get => _winBoxExePath; set => Set(ref _winBoxExePath, value); }
+
+    /// <summary>SHA-256 fixado do WinBox (validado no launch; fail-closed se divergir).</summary>
+    public string? WinBoxSha256 { get => _winBoxSha256; set => Set(ref _winBoxSha256, value); }
+
+    /// <summary>True quando há um WinBox configurado (habilita "Re-fixar hash").</summary>
+    public bool HasWinBox => !string.IsNullOrWhiteSpace(_winBoxExePath);
+
     public string ThemeName => "Slate Signal (escuro)";
     public string VersionText =>
         $"Versão {typeof(SettingsViewModel).Assembly.GetName().Version?.ToString(3) ?? "?"}";
@@ -48,6 +62,14 @@ public sealed class SettingsViewModel : BaseViewModel
     /// <summary>Disparado após persistir; a janela fecha e avisa "requer reinício" se necessário.</summary>
     public event EventHandler? Saved;
 
+    /// <summary>Fixa o WinBox escolhido (caminho + hash calculado). A UI zera nada — dados não sensíveis.</summary>
+    public void SetWinBox(string path, string sha256)
+    {
+        WinBoxExePath = path;
+        WinBoxSha256 = sha256;
+        RaisePropertyChanged(nameof(HasWinBox));
+    }
+
     private void Save()
     {
         var flags = new Dictionary<string, bool>(_settings.Flags, StringComparer.OrdinalIgnoreCase)
@@ -55,7 +77,12 @@ public sealed class SettingsViewModel : BaseViewModel
             [FeatureFlagNames.RdpEnabled] = RdpEnabled,
             [FeatureFlagNames.NdeskEnabled] = NdeskEnabled,
         };
-        _settings = _settings with { Flags = flags };
+        _settings = _settings with
+        {
+            Flags = flags,
+            WinBoxExePath = WinBoxExePath,
+            WinBoxSha256 = WinBoxSha256,
+        };
         _store.Save(_settings);
         Saved?.Invoke(this, EventArgs.Empty);
     }
