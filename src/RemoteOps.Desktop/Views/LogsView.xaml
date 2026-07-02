@@ -1,0 +1,56 @@
+<UserControl x:Class="RemoteOps.Desktop.Views.LogsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <DockPanel Background="{DynamicResource Brush.Bg.Surface}">
+
+        <TextBlock DockPanel.Dock="Top"
+                   Text="Logs"
+                   Style="{DynamicResource Text.Title}"
+                   Margin="{DynamicResource Thickness.PanelPadding}"/>
+
+        <Border DockPanel.Dock="Top"
+                Background="{DynamicResource Brush.Accent.Muted}"
+                BorderBrush="{DynamicResource Brush.Border.Default}"
+                BorderThickness="1"
+                CornerRadius="{DynamicResource Radius.Control}"
+                Padding="8,6"
+                Margin="8,0,8,8">
+            <TextBlock Text="Histórico persistente (busca, exportação, retenção) em breve. Esta lista mostra apenas os eventos da sessão atual."
+                       Style="{DynamicResource Text.Caption}"
+                       TextWrapping="Wrap"/>
+        </Border>
+
+        <!-- Estado vazio -->
+        <TextBlock Text="Nenhum evento registrado nesta sessão ainda."
+                   TextWrapping="Wrap"
+                   Margin="24"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center">
+            <TextBlock.Style>
+                <Style TargetType="TextBlock" BasedOn="{StaticResource Text.Secondary}">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding Events.Count}" Value="0">
+                            <Setter Property="Visibility" Value="Visible"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </TextBlock.Style>
+        </TextBlock>
+
+        <ListBox ItemsSource="{Binding Events}"
+                 Background="{DynamicResource Brush.Bg.Canvas}"
+                 BorderThickness="0"
+                 ScrollViewer.HorizontalScrollBarVisibility="Auto">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock Text="{Binding}"
+                               Style="{DynamicResource Text.Mono}"
+                               FontSize="{DynamicResource Font.Size.Caption}"
+                               TextWrapping="NoWrap"/>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+    </DockPanel>
+</UserControl>

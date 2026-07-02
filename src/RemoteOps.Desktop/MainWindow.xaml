@@ -1,7 +1,12 @@
 <Window x:Class="RemoteOps.Desktop.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:RemoteOps.Desktop"
         xmlns:views="clr-namespace:RemoteOps.Desktop.Views"
+        xmlns:vm="clr-namespace:RemoteOps.Desktop.ViewModels"
+        xmlns:terminal="clr-namespace:RemoteOps.Desktop.Terminal"
+        xmlns:rdp="clr-namespace:RemoteOps.Desktop.Rdp"
+        xmlns:ndesk="clr-namespace:RemoteOps.Desktop.NDesk"
         Title="RemoteOps" Height="720" Width="1280"
         MinHeight="480" MinWidth="800"
         Background="{DynamicResource Brush.Bg.App}"
@@ -9,115 +14,75 @@
         FontFamily="{DynamicResource Font.Family.Base}"
         FontSize="{DynamicResource Font.Size.Body}">
 
-    <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="40"/>
-            <RowDefinition Height="2*"/>
-            <RowDefinition Height="4"/>
-            <RowDefinition Height="*" MinHeight="80"/>
-        </Grid.RowDefinitions>
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="220" MinWidth="150"/>
-            <ColumnDefinition Width="4"/>
-            <ColumnDefinition Width="*" MinWidth="300"/>
-            <ColumnDefinition Width="4"/>
-            <ColumnDefinition Width="260" MinWidth="200"/>
-        </Grid.ColumnDefinitions>
+    <Window.InputBindings>
+        <KeyBinding Modifiers="Ctrl" Key="W" Command="{Binding Tabs.CloseActiveTabCommand}"/>
+    </Window.InputBindings>
 
-        <!-- Barra superior -->
-        <Border Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="5"
-                Background="{DynamicResource Brush.Bg.SurfaceRaised}"
-                BorderBrush="{DynamicResource Brush.Border.Subtle}"
-                BorderThickness="0,0,0,1"
-                Padding="8,0">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
+    <Window.Resources>
+        <!-- Cabeçalho + conteúdo da aba fixa "Hosts": o item marcador na CompositeCollection
+             abaixo é o próprio WorkspaceViewModel (DataContext da janela). -->
+        <DataTemplate DataType="{x:Type vm:WorkspaceViewModel}" x:Key="HostsHeaderTemplate">
+            <TextBlock Text="Hosts"/>
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:WorkspaceViewModel}">
+            <views:BrowserView DataContext="{Binding Browser}"/>
+        </DataTemplate>
 
-                <TextBlock Grid.Column="0"
-                           Text="RemoteOps"
-                           Style="{DynamicResource Text.TitleLg}"
-                           VerticalAlignment="Center"
-                           Margin="0,0,16,0"/>
+        <!-- Cabeçalho das abas de sessão: protocolo + título + botão fechar -->
+        <DataTemplate DataType="{x:Type vm:SessionTabViewModel}" x:Key="SessionHeaderTemplate">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="{Binding ProtocolLabel}"
+                           FontSize="9"
+                           Foreground="{DynamicResource Brush.Text.Tertiary}"
+                           Margin="0,0,4,0"
+                           VerticalAlignment="Center"/>
+                <TextBlock Text="{Binding Title}" VerticalAlignment="Center"/>
+                <Button Content="✕"
+                        Command="{Binding DataContext.Tabs.CloseTabCommand,
+                                  RelativeSource={RelativeSource AncestorType=Window}}"
+                        CommandParameter="{Binding}"
+                        Margin="6,0,0,0"
+                        Padding="2,0"
+                        VerticalAlignment="Center"
+                        BorderThickness="0"
+                        Background="Transparent"
+                        FontSize="9"/>
+            </StackPanel>
+        </DataTemplate>
 
-                <TextBox Grid.Column="1"
-                         Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
-                         ToolTip="Busca global (nome, IP, FQDN, tag)"
-                         VerticalAlignment="Center"
-                         MaxWidth="400"/>
+        <!-- Conteúdo das abas de sessão (por tipo de ViewModel) — mesmo conjunto do TabsView -->
+        <DataTemplate DataType="{x:Type terminal:TerminalTabViewModel}">
+            <terminal:TerminalTabView/>
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type rdp:RdpTabViewModel}">
+            <rdp:RdpTabView/>
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type ndesk:NDeskTabViewModel}">
+            <ndesk:NDeskTabView/>
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:SessionTabViewModel}">
+            <TextBlock Text="{Binding Title}"
+                       VerticalAlignment="Center"
+                       HorizontalAlignment="Center"
+                       Foreground="{DynamicResource Brush.Text.Tertiary}"
+                       FontSize="13"
+                       FontStyle="Italic"/>
+        </DataTemplate>
 
-                <!-- Ponto de status: cor reflete o texto já emitido por App.xaml.cs
-                     (FormatStatus) via DataTrigger — não introduz binding novo, só lê
-                     com mais detalhe o que MainViewModel.SyncStatus já expõe. O padrão
-                     ("Sincronizado (N conflito(s))") cai no valor base Status.Pending,
-                     que é a cor semanticamente correta para "sincronizado com pendência". -->
-                <StackPanel Grid.Column="2"
-                            Orientation="Horizontal"
-                            VerticalAlignment="Center">
-                    <Ellipse Width="8" Height="8" Margin="0,0,4,0">
-                        <Ellipse.Style>
-                            <Style TargetType="Ellipse">
-                                <Setter Property="Fill" Value="{DynamicResource Brush.Status.Pending}"/>
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding SyncStatus}" Value="Offline">
-                                        <Setter Property="Fill" Value="{DynamicResource Brush.Status.Idle}"/>
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding SyncStatus}" Value="Sincronizando…">
-                                        <Setter Property="Fill" Value="{DynamicResource Brush.Status.Pending}"/>
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding SyncStatus}" Value="Sincronizado">
-                                        <Setter Property="Fill" Value="{DynamicResource Brush.Status.Online}"/>
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding SyncStatus}" Value="Erro de sincronização">
-                                        <Setter Property="Fill" Value="{DynamicResource Brush.Status.Error}"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Ellipse.Style>
-                    </Ellipse>
-                    <TextBlock Text="{Binding SyncStatus}"
-                               Style="{DynamicResource Text.Caption}"
-                               VerticalAlignment="Center"/>
-                </StackPanel>
-            </Grid>
-        </Border>
+        <!-- Escolhe o DataTemplate de cabeçalho pelo tipo do item: WorkspaceViewModel (aba
+             fixa Hosts, com x:Key acima) ou SessionTabViewModel/derivados (abas de sessão). -->
+        <local:MainTabHeaderTemplateSelector x:Key="TabHeaderSelector"
+                                              HostsTemplate="{StaticResource HostsHeaderTemplate}"
+                                              SessionTemplate="{StaticResource SessionHeaderTemplate}"/>
+    </Window.Resources>
 
-        <!-- Sidebar -->
-        <views:SidebarView Grid.Row="1" Grid.Column="0" Grid.RowSpan="3"
-                           DataContext="{Binding Sidebar}"
-                           Background="{DynamicResource Brush.Bg.Surface}"
-                           BorderBrush="{DynamicResource Brush.Border.Subtle}"
-                           BorderThickness="0,0,1,0"/>
-
-        <GridSplitter Grid.Row="1" Grid.Column="1" Grid.RowSpan="3"
-                      Width="4" HorizontalAlignment="Stretch" Background="{DynamicResource Brush.Border.Default}"/>
-
-        <!-- Lista de hosts -->
-        <views:HostListView Grid.Row="1" Grid.Column="2"
-                            DataContext="{Binding HostList}"
-                            Background="{DynamicResource Brush.Bg.Surface}"/>
-
-        <!-- Divisor entre lista e abas -->
-        <GridSplitter Grid.Row="2" Grid.Column="2"
-                      Height="4" HorizontalAlignment="Stretch"
-                      VerticalAlignment="Stretch" Background="{DynamicResource Brush.Border.Default}"/>
-
-        <!-- Área de abas -->
-        <views:TabsView Grid.Row="3" Grid.Column="2"
-                        DataContext="{Binding Tabs}"
-                        Background="{DynamicResource Brush.Bg.Canvas}"/>
-
-        <GridSplitter Grid.Row="1" Grid.Column="3" Grid.RowSpan="3"
-                      Width="4" HorizontalAlignment="Stretch" Background="{DynamicResource Brush.Border.Default}"/>
-
-        <!-- Inspector -->
-        <views:InspectorView Grid.Row="1" Grid.Column="4" Grid.RowSpan="3"
-                             DataContext="{Binding Inspector}"
-                             Background="{DynamicResource Brush.Bg.Surface}"
-                             BorderBrush="{DynamicResource Brush.Border.Subtle}"
-                             BorderThickness="1,0,0,0"/>
-    </Grid>
+    <!-- TabControl raiz: ItemsSource é montado em MainWindow.xaml.cs (item 0 = o próprio
+         WorkspaceViewModel, aba fixa "Hosts" sem botão fechar; itens seguintes espelham
+         Tabs.Tabs, uma aba por sessão aberta). Um Binding declarativo dentro de
+         CompositeCollection não é aceito pelo WPF ("Binding só pode ser definido em uma
+         DependencyProperty"), daí o merge ser feito em código. O ContentTemplate resolve
+         implicitamente pelos DataTemplate sem x:Key acima (por DataType). -->
+    <TabControl x:Name="TabsHost"
+                Background="{DynamicResource Brush.Bg.App}"
+                ItemTemplateSelector="{StaticResource TabHeaderSelector}"/>
 </Window>

@@ -4,6 +4,22 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ## [Unreleased]
 
+### Alterado
+
+- **Merge de `origin/main` (NDesk #37-#41) em `feature/gui-termius-nav`:** reconcilia a
+  navegação Termius (shell `TabControl`, `WorkspaceViewModel`, `SessionLauncher`,
+  `BrowserView`/`HostsView`/`KeychainView`/`LogsView`) com o trabalho de NDesk do main. Views
+  antigas do shell (`SidebarView`, `HostListView`, `InspectorView`, `TabsView` **não** foi
+  removida — continua embutida em `MainWindow.xaml` como a área de abas de sessão) e
+  `MainViewModel`/`SidebarViewModel`/`HostListViewModel`/`InspectorViewModel` permanecem
+  removidos, conforme decidido nesta frente. `NDeskTabView.xaml` mantém o crash-fix de
+  `Mode=OneWay` (#37) e ganha a temática Slate Signal. `AppCompositionRoot` mantém o registro
+  de `INDeskBrokerClient`/`LoopbackNDeskBrokerClient` e as demais dependências de NDesk.
+  **Débito aceito:** o auto-open de aba NDesk (`ndesk.enabled` → abre `NDeskTabViewModel` no
+  startup), antes em `MainViewModel`, não foi re-conectado a `WorkspaceViewModel` nesta
+  passagem — `TabsViewModel.OpenNdeskTab` e `FeatureFlagNames.NdeskEnabled` continuam
+  disponíveis, só falta o ponto de chamada no novo shell.
+
 ### Adicionado
 
 - **NDesk — operador descobre o `sessionId` pelo status do ticket (`ADR-020`):** o

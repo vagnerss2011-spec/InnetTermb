@@ -1,0 +1,164 @@
+<UserControl x:Class="RemoteOps.Desktop.Views.BrowserView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:RemoteOps.Desktop.ViewModels"
+             xmlns:views="clr-namespace:RemoteOps.Desktop.Views">
+
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+
+        <!-- Item do rail (Hosts/Keychain/Logs): RadioButton sem moldura padrão, ícone
+             empilhado sobre um rótulo curto; "ativo" muda fundo/cor via IsChecked. -->
+        <Style x:Key="Rail.Item" TargetType="RadioButton">
+            <Setter Property="GroupName" Value="RailSection"/>
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Secondary}"/>
+            <Setter Property="Padding" Value="0,10"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Chrome"
+                                Background="Transparent"
+                                Margin="8,4"
+                                CornerRadius="{DynamicResource Radius.Control}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource Brush.Bg.Hover}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource Brush.Bg.Selected}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource Brush.Accent.Base}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <DockPanel>
+
+        <!-- Rail à esquerda: seções (Hosts/Keychain/Logs) + avatar/menu da conta no rodapé -->
+        <Border DockPanel.Dock="Left"
+                Width="70"
+                Background="{DynamicResource Brush.Bg.Surface}"
+                BorderBrush="{DynamicResource Brush.Border.Subtle}"
+                BorderThickness="0,0,1,0">
+            <DockPanel>
+
+                <!-- Avatar da conta: abre o menu (Configurações / Verificar atualizações / Sobre) -->
+                <Button DockPanel.Dock="Bottom"
+                        Margin="8,4,8,12"
+                        Padding="0"
+                        Width="36" Height="36"
+                        HorizontalAlignment="Center"
+                        Background="{DynamicResource Brush.Accent.Muted}"
+                        BorderBrush="{DynamicResource Brush.Border.Default}"
+                        BorderThickness="1"
+                        ToolTip="Conta"
+                        Click="AvatarButton_Click">
+                    <Button.Resources>
+                        <Style TargetType="Border">
+                            <Setter Property="CornerRadius" Value="18"/>
+                        </Style>
+                    </Button.Resources>
+                    <TextBlock Text="{DynamicResource Icon.Person}"
+                               FontFamily="{DynamicResource Font.Family.Icons}"
+                               Foreground="{DynamicResource Brush.Text.Primary}"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"/>
+                    <Button.ContextMenu>
+                        <ContextMenu x:Name="AccountMenu" Placement="Top">
+                            <MenuItem Header="Configurações" Command="{Binding OpenSettingsCommand}">
+                                <MenuItem.Icon>
+                                    <TextBlock Text="{DynamicResource Icon.Settings}" FontFamily="{DynamicResource Font.Family.Icons}"/>
+                                </MenuItem.Icon>
+                            </MenuItem>
+                            <MenuItem Header="Verificar atualizações" Command="{Binding CheckUpdatesCommand}">
+                                <MenuItem.Icon>
+                                    <TextBlock Text="{DynamicResource Icon.Sync}" FontFamily="{DynamicResource Font.Family.Icons}"/>
+                                </MenuItem.Icon>
+                            </MenuItem>
+                            <Separator/>
+                            <MenuItem Header="Sobre" Command="{Binding AboutCommand}">
+                                <MenuItem.Icon>
+                                    <TextBlock Text="{DynamicResource Icon.Info}" FontFamily="{DynamicResource Font.Family.Icons}"/>
+                                </MenuItem.Icon>
+                            </MenuItem>
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
+
+                <!-- Seções de navegação -->
+                <StackPanel DockPanel.Dock="Top" Margin="0,8,0,0">
+                    <RadioButton Style="{DynamicResource Rail.Item}"
+                                 IsChecked="{Binding IsHosts, Mode=OneWay}"
+                                 Command="{Binding ShowHostsCommand}"
+                                 ToolTip="Hosts">
+                        <StackPanel>
+                            <TextBlock Text="{DynamicResource Icon.Network}"
+                                       FontFamily="{DynamicResource Font.Family.Icons}"
+                                       FontSize="18"
+                                       HorizontalAlignment="Center"/>
+                            <TextBlock Text="Hosts"
+                                       Style="{DynamicResource Text.Micro}"
+                                       Foreground="{Binding RelativeSource={RelativeSource AncestorType=RadioButton}, Path=Foreground}"
+                                       HorizontalAlignment="Center"
+                                       Margin="0,2,0,0"/>
+                        </StackPanel>
+                    </RadioButton>
+
+                    <RadioButton Style="{DynamicResource Rail.Item}"
+                                 IsChecked="{Binding IsKeychain, Mode=OneWay}"
+                                 Command="{Binding ShowKeychainCommand}"
+                                 ToolTip="Chaveiro">
+                        <StackPanel>
+                            <TextBlock Text="{DynamicResource Icon.Keychain}"
+                                       FontFamily="{DynamicResource Font.Family.Icons}"
+                                       FontSize="18"
+                                       HorizontalAlignment="Center"/>
+                            <TextBlock Text="Chaveiro"
+                                       Style="{DynamicResource Text.Micro}"
+                                       Foreground="{Binding RelativeSource={RelativeSource AncestorType=RadioButton}, Path=Foreground}"
+                                       HorizontalAlignment="Center"
+                                       Margin="0,2,0,0"/>
+                        </StackPanel>
+                    </RadioButton>
+
+                    <RadioButton Style="{DynamicResource Rail.Item}"
+                                 IsChecked="{Binding IsLogs, Mode=OneWay}"
+                                 Command="{Binding ShowLogsCommand}"
+                                 ToolTip="Logs">
+                        <StackPanel>
+                            <TextBlock Text="{DynamicResource Icon.Logs}"
+                                       FontFamily="{DynamicResource Font.Family.Icons}"
+                                       FontSize="18"
+                                       HorizontalAlignment="Center"/>
+                            <TextBlock Text="Logs"
+                                       Style="{DynamicResource Text.Micro}"
+                                       Foreground="{Binding RelativeSource={RelativeSource AncestorType=RadioButton}, Path=Foreground}"
+                                       HorizontalAlignment="Center"
+                                       Margin="0,2,0,0"/>
+                        </StackPanel>
+                    </RadioButton>
+                </StackPanel>
+
+            </DockPanel>
+        </Border>
+
+        <!-- Conteúdo: alterna Hosts/Keychain/Logs conforme a seção ativa -->
+        <Grid>
+            <views:HostsView DataContext="{Binding Hosts}"
+                              Visibility="{Binding DataContext.IsHosts, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVis}}"/>
+            <views:KeychainView DataContext="{Binding Keychain}"
+                                 Visibility="{Binding DataContext.IsKeychain, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVis}}"/>
+            <views:LogsView DataContext="{Binding Logs}"
+                             Visibility="{Binding DataContext.IsLogs, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVis}}"/>
+        </Grid>
+
+    </DockPanel>
+</UserControl>

@@ -33,11 +33,17 @@
     <sys:String x:Key="Icon.Network">&#xEC05;</sys:String>
     <sys:String x:Key="Icon.ChevronDown">&#xE70D;</sys:String>
     <sys:String x:Key="Icon.ChevronRight">&#xE76C;</sys:String>
+    <sys:String x:Key="Icon.Back">&#xE72B;</sys:String>
     <sys:String x:Key="Icon.Sync">&#xE895;</sys:String>
     <sys:String x:Key="Icon.Warning">&#xE7BA;</sys:String>
     <sys:String x:Key="Icon.ErrorBadge">&#xEA39;</sys:String>
     <sys:String x:Key="Icon.Pin">&#xE718;</sys:String>
     <sys:String x:Key="Icon.Close">&#xE8BB;</sys:String>
+    <sys:String x:Key="Icon.Keychain">&#xEA18;</sys:String>
+    <sys:String x:Key="Icon.Logs">&#xE9D9;</sys:String>
+    <sys:String x:Key="Icon.Settings">&#xE713;</sys:String>
+    <sys:String x:Key="Icon.Info">&#xE946;</sys:String>
+    <sys:String x:Key="Icon.Person">&#xE77B;</sys:String>
 
     <!-- Estilo base para um glifo renderizado como TextBlock: <TextBlock Text="{DynamicResource Icon.Add}" Style="{DynamicResource Icon.Style}"/> -->
     <Style x:Key="Icon.Style" TargetType="TextBlock">

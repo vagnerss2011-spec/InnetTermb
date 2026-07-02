@@ -94,11 +94,52 @@ public sealed class CompositionRootSmokeTests : IDisposable
     public void Resolve_INDeskBrokerClient() =>
         Assert.NotNull(_provider.GetRequiredService<INDeskBrokerClient>());
 
-    // ViewModel -----------------------------------------------------------
+    // Shell Termius (Fase 1, Task 12) --------------------------------------
 
     [Fact]
-    public void Resolve_MainViewModel() =>
-        Assert.NotNull(_provider.GetRequiredService<MainViewModel>());
+    public void Resolve_WorkspaceViewModel() =>
+        Assert.NotNull(_provider.GetRequiredService<WorkspaceViewModel>());
+
+    [Fact]
+    public void Resolve_BrowserViewModel() =>
+        Assert.NotNull(_provider.GetRequiredService<BrowserViewModel>());
+
+    [Fact]
+    public void Resolve_SessionLauncher() =>
+        Assert.NotNull(_provider.GetRequiredService<RemoteOps.Desktop.Sessions.SessionLauncher>());
+
+    [Fact]
+    public void Resolve_TabsViewModel() =>
+        Assert.NotNull(_provider.GetRequiredService<TabsViewModel>());
+
+    [Fact]
+    public void Resolve_LogsViewModel() =>
+        Assert.NotNull(_provider.GetRequiredService<LogsViewModel>());
+
+    [Fact]
+    public void Resolve_IUiLogSink_IsSameInstanceAsLogsViewModel()
+    {
+        var sink = _provider.GetRequiredService<IUiLogSink>();
+        var logs = _provider.GetRequiredService<LogsViewModel>();
+        Assert.Same(logs, sink);
+    }
+
+    [Fact]
+    public void TabsViewModel_IsSingleton()
+    {
+        var a = _provider.GetRequiredService<TabsViewModel>();
+        var b = _provider.GetRequiredService<WorkspaceViewModel>();
+        Assert.Same(a, b.Tabs);
+    }
+
+    [Fact]
+    public void BrowserViewModel_SharesHostsViewModel_WithSessionLauncher()
+    {
+        var workspace = _provider.GetRequiredService<WorkspaceViewModel>();
+        var tabs = _provider.GetRequiredService<TabsViewModel>();
+        Assert.Same(tabs, workspace.Tabs);
+        Assert.Same(workspace.Browser, _provider.GetRequiredService<BrowserViewModel>());
+    }
 
     // Invariante de segurança: ILocalStore singleton (sem múltiplas instâncias com dados diferentes)
     [Fact]

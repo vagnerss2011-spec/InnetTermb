@@ -1,0 +1,57 @@
+<UserControl x:Class="RemoteOps.Desktop.Views.KeychainView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <DockPanel Background="{DynamicResource Brush.Bg.Surface}">
+
+        <TextBlock DockPanel.Dock="Top"
+                   Text="Chaveiro"
+                   Style="{DynamicResource Text.Title}"
+                   Margin="{DynamicResource Thickness.PanelPadding}"/>
+
+        <Border DockPanel.Dock="Top"
+                Background="{DynamicResource Brush.Accent.Muted}"
+                BorderBrush="{DynamicResource Brush.Border.Default}"
+                BorderThickness="1"
+                CornerRadius="{DynamicResource Radius.Control}"
+                Padding="8,6"
+                Margin="8,0,8,8">
+            <TextBlock Text="Gerenciamento completo (criar, editar, rotacionar credenciais) em breve. Esta lista é somente leitura e nunca exibe segredos."
+                       Style="{DynamicResource Text.Caption}"
+                       TextWrapping="Wrap"/>
+        </Border>
+
+        <!-- Estado vazio -->
+        <TextBlock Text="Nenhuma credencial cadastrada neste workspace."
+                   TextWrapping="Wrap"
+                   Margin="24"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center">
+            <TextBlock.Style>
+                <Style TargetType="TextBlock" BasedOn="{StaticResource Text.Secondary}">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding Credentials.Count}" Value="0">
+                            <Setter Property="Visibility" Value="Visible"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </TextBlock.Style>
+        </TextBlock>
+
+        <DataGrid ItemsSource="{Binding Credentials}"
+                  AutoGenerateColumns="False"
+                  IsReadOnly="True"
+                  HeadersVisibility="Column"
+                  GridLinesVisibility="Horizontal"
+                  SelectionMode="Single"
+                  BorderThickness="0"
+                  CanUserResizeRows="False">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Nome"      Binding="{Binding Name}"               Width="*"/>
+                <DataGridTextColumn Header="Tipo"      Binding="{Binding Type}"                Width="120"/>
+                <DataGridTextColumn Header="Usuário"   Binding="{Binding Metadata.Username}"   Width="160"/>
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</UserControl>

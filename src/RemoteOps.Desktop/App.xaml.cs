@@ -21,7 +21,7 @@ namespace RemoteOps.Desktop;
 public partial class App : Application
 {
     private ServiceProvider? _serviceProvider;
-    private MainViewModel? _mainViewModel;
+    private WorkspaceViewModel? _workspaceViewModel;
     private SyncSession? _syncSession;
 
     public App()
@@ -56,6 +56,8 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        // async void: sem este try/catch, falha de vault/DB derruba o processo sem
+        // nenhum feedback ao operador (crash silencioso no despachante do WPF).
         try
         {
             string dataDir = Path.Combine(
@@ -89,8 +91,8 @@ public partial class App : Application
                 return;
             }
 
-            _mainViewModel = _serviceProvider.GetRequiredService<MainViewModel>();
-            var window = new MainWindow(_mainViewModel);
+            _workspaceViewModel = _serviceProvider.GetRequiredService<WorkspaceViewModel>();
+            var window = new MainWindow(_workspaceViewModel, store);
             window.Show();
 
             // Cloud sync (ADR-013) atrás da feature flag cloud.sync.enabled (default OFF).
@@ -221,7 +223,7 @@ public partial class App : Application
 
     private void OnSyncStatusChanged(SyncStatus status)
     {
-        MainViewModel? vm = _mainViewModel;
+        WorkspaceViewModel? vm = _workspaceViewModel;
         if (vm is null)
         {
             return;
