@@ -28,8 +28,13 @@
             <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"/>
         </StackPanel>
 
-        <!-- Linha "adicionar endpoint" -->
+        <!-- Linha "adicionar endpoint" (com rótulos — o seletor de protocolo sem
+             rótulo/seleção era interpretado como "checkboxes soltas" na edição) -->
         <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="100"/>
                 <ColumnDefinition Width="*"/>
@@ -38,7 +43,16 @@
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
-            <ComboBox Grid.Column="0"
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Protocolo" FontSize="11"
+                       Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="0,0,8,2"/>
+            <TextBlock Grid.Row="0" Grid.Column="1" Text="Endereço" FontSize="11"
+                       Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="0,0,8,2"/>
+            <TextBlock Grid.Row="0" Grid.Column="2" Text="Porta" FontSize="11"
+                       Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="0,0,8,2"/>
+            <TextBlock Grid.Row="0" Grid.Column="3" Text="Credencial (opcional)" FontSize="11"
+                       Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="0,0,8,2"/>
+
+            <ComboBox Grid.Row="1" Grid.Column="0"
                       SelectedValuePath="Content"
                       SelectedValue="{Binding NewEndpointProtocol, Mode=TwoWay}"
                       Margin="0,0,8,0" VerticalAlignment="Center">
@@ -48,17 +62,17 @@
                 <ComboBoxItem Content="mikrotik"/>
             </ComboBox>
 
-            <TextBox Grid.Column="1"
+            <TextBox Grid.Row="1" Grid.Column="1"
                      Text="{Binding NewEndpointAddress, UpdateSourceTrigger=PropertyChanged}"
                      ToolTip="Endereço (IPv4, IPv6 ou FQDN)"
                      Margin="0,0,8,0" VerticalAlignment="Center"/>
 
-            <TextBox Grid.Column="2"
+            <TextBox Grid.Row="1" Grid.Column="2"
                      Text="{Binding NewEndpointPort, UpdateSourceTrigger=PropertyChanged}"
                      ToolTip="Porta"
                      Margin="0,0,8,0" VerticalAlignment="Center"/>
 
-            <ComboBox Grid.Column="3"
+            <ComboBox Grid.Row="1" Grid.Column="3"
                       ItemsSource="{Binding AvailableCredentials}"
                       DisplayMemberPath="Name"
                       SelectedValuePath="Id"
@@ -66,7 +80,7 @@
                       ToolTip="Credencial (opcional) — crie na aba Keychain"
                       Margin="0,0,8,0" VerticalAlignment="Center"/>
 
-            <Button Grid.Column="4" Content="Adicionar endpoint"
+            <Button Grid.Row="1" Grid.Column="4" Content="Adicionar endpoint"
                     Command="{Binding AddEndpointCommand}"
                     Padding="10,4" VerticalAlignment="Center"/>
         </Grid>

@@ -29,6 +29,14 @@ public sealed class HostEditorViewModel : BaseViewModel
         {
             _name = existing.Name;
             foreach (var ep in existing.Endpoints) Endpoints.Add(ep);
+
+            // Sincroniza o seletor de protocolo com o endpoint salvo — antes ficava
+            // travado em "ssh" sem seleção visível, confundindo a edição.
+            if (existing.Endpoints.Count > 0)
+            {
+                _newEndpointProtocol = existing.Endpoints[0].Protocol;
+                _newEndpointPort = DefaultPortFor(_newEndpointProtocol);
+            }
         }
         AddEndpointCommand = new RelayCommand(AddEndpoint, () => !string.IsNullOrWhiteSpace(NewEndpointAddress));
         RemoveEndpointCommand = new RelayCommand(obj => { if (obj is Endpoint ep) Endpoints.Remove(ep); });
@@ -43,7 +51,16 @@ public sealed class HostEditorViewModel : BaseViewModel
     public ObservableCollection<CredentialRef> AvailableCredentials { get; } = [];
 
     public string Name { get => _name; set { Set(ref _name, value); SaveCommand.RaiseCanExecuteChanged(); } }
-    public string NewEndpointProtocol { get => _newEndpointProtocol; set { Set(ref _newEndpointProtocol, value); NewEndpointPort = value switch { "ssh" => 22, "telnet" => 23, "rdp" => 3389, "mikrotik" => 8291, _ => NewEndpointPort }; } }
+    public string NewEndpointProtocol { get => _newEndpointProtocol; set { Set(ref _newEndpointProtocol, value); NewEndpointPort = DefaultPortFor(value); } }
+
+    private int DefaultPortFor(string protocol) => protocol switch
+    {
+        "ssh" => 22,
+        "telnet" => 23,
+        "rdp" => 3389,
+        "mikrotik" => 8291,
+        _ => NewEndpointPort,
+    };
     public string NewEndpointAddress { get => _newEndpointAddress; set { Set(ref _newEndpointAddress, value); AddEndpointCommand.RaiseCanExecuteChanged(); } }
     public int NewEndpointPort { get => _newEndpointPort; set => Set(ref _newEndpointPort, value); }
     public string? NewEndpointCredentialId { get => _newEndpointCredentialId; set => Set(ref _newEndpointCredentialId, value); }

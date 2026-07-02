@@ -124,7 +124,12 @@ public partial class TerminalTabView : UserControl
         object? sender,
         CoreWebView2NavigationCompletedEventArgs e)
     {
-        if (!e.IsSuccess) return;
+        if (!e.IsSuccess)
+        {
+            // Antes: return silencioso deixava "Conectando…" pra sempre.
+            _loadingText.Text = $"Erro ao carregar o terminal (WebView2: {e.WebErrorStatus}).";
+            return;
+        }
 
         _webViewReady = true;
         _webView.Visibility = Visibility.Visible;
@@ -138,8 +143,29 @@ public partial class TerminalTabView : UserControl
             {
                 _sessionStarted = true;
                 // Connect at 80×24; FitAddon sends the real size via onResize immediately after
-                _ = _vm.ConnectAsync(80, 24);
+                _ = ConnectSafeAsync();
             }
+        }
+    }
+
+    /// <summary>
+    /// Conecta observando a exceção — o fire-and-forget anterior engolia falhas de
+    /// conexão (host inacessível, autenticação, DNS) e a aba ficava "Conectando…"
+    /// pra sempre. Agora a falha vira mensagem visível na própria aba.
+    /// </summary>
+    private async Task ConnectSafeAsync()
+    {
+        if (_vm is null) return;
+        try
+        {
+            await _vm.ConnectAsync(80, 24);
+        }
+        catch (Exception ex)
+        {
+            _sessionStarted = false; // permite tentar de novo ao reabrir a aba
+            _webView.Visibility = Visibility.Collapsed;
+            _loadingText.Text = $"Falha ao conectar: {ex.Message}";
+            _loadingText.Visibility = Visibility.Visible;
         }
     }
 
