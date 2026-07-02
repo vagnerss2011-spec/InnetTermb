@@ -1,8 +1,10 @@
 using System.Collections.Generic;
 using RemoteOps.Contracts.Assets;
+using RemoteOps.Contracts.ExternalTools;
 using RemoteOps.Contracts.Sessions;
 using RemoteOps.Desktop.Sessions;
 using RemoteOps.Desktop.ViewModels;
+using RemoteOps.MikroTik;
 using RemoteOps.Terminal;
 using Xunit;
 
@@ -41,11 +43,19 @@ public sealed class SessionLauncherTests
             Task.CompletedTask;
     }
 
-    private static Asset AssetWith(params string[] protocols)
+    private sealed class ThrowingWinBoxRunner : IWinBoxRunner
+    {
+        public Task<string> LaunchAsync(ExternalToolLaunchRequest request, CancellationToken ct = default)
+            => throw new WinBoxValidationException("manifesto sem sha256 valido");
+    }
+
+    private static Asset AssetWith(params string[] protocols) => AssetWithCred(credentialRefId: "c1", protocols);
+
+    private static Asset AssetWithCred(string? credentialRefId, params string[] protocols)
     {
         var eps = new List<Endpoint>();
         foreach (var p in protocols)
-            eps.Add(new Endpoint { Id = "e-" + p, AssetId = "a1", Protocol = p, Ipv4 = "10.0.0.1", Port = 22, CredentialRefId = "c1" });
+            eps.Add(new Endpoint { Id = "e-" + p, AssetId = "a1", Protocol = p, Ipv4 = "10.0.0.1", Port = 22, CredentialRefId = credentialRefId });
         return new Asset { Id = "a1", WorkspaceId = "ws-local", Name = "r1", Endpoints = eps };
     }
 
@@ -59,14 +69,89 @@ public sealed class SessionLauncherTests
     }
 
     [Fact]
-    public async Task LaunchAsync_Ssh_OpensTerminalTab()
+    public async Task LaunchAsync_Ssh_OpensTerminalTab_AndSucceeds()
     {
         var tabs = new TabsViewModel();
         var l = new SessionLauncher(tabs, null, null, new FakeTerminalProvider(), null, null, null);
 
-        await l.LaunchAsync(AssetWith("ssh"), "ssh");
+        LaunchResult result = await l.LaunchAsync(AssetWith("ssh"), "ssh");
 
+        Assert.True(result.Success);
         Assert.True(tabs.HasTabs);
+    }
+
+    [Fact]
+    public async Task LaunchAsync_NoEndpointForProtocol_FailsWithMessage()
+    {
+        var tabs = new TabsViewModel();
+        var l = new SessionLauncher(tabs, null, null, new FakeTerminalProvider(), null, null, null);
+
+        LaunchResult result = await l.LaunchAsync(AssetWith("ssh"), "telnet");
+
+        Assert.False(result.Success);
+        Assert.Contains("TELNET", result.Error);
+        Assert.False(tabs.HasTabs);
+    }
+
+    [Fact]
+    public async Task LaunchAsync_Ssh_WithoutCredential_FailsAndDoesNotOpenDeadTab()
+    {
+        var tabs = new TabsViewModel();
+        var l = new SessionLauncher(tabs, null, null, new FakeTerminalProvider(), null, null, null);
+
+        LaunchResult result = await l.LaunchAsync(AssetWithCred(credentialRefId: null, "ssh"), "ssh");
+
+        Assert.False(result.Success);
+        Assert.Contains("credencial", result.Error);
+        Assert.False(tabs.HasTabs);
+    }
+
+    [Fact]
+    public async Task LaunchAsync_Ssh_ProviderMissing_Fails()
+    {
+        var tabs = new TabsViewModel();
+        var l = new SessionLauncher(tabs, null, null, null, null, null, null);
+
+        LaunchResult result = await l.LaunchAsync(AssetWith("ssh"), "ssh");
+
+        Assert.False(result.Success);
+        Assert.Contains("indisponível", result.Error);
+        Assert.False(tabs.HasTabs);
+    }
+
+    [Fact]
+    public async Task LaunchAsync_MikroTik_RunnerMissing_Fails()
+    {
+        var l = new SessionLauncher(new TabsViewModel(), null, null, null, null, null, null);
+
+        LaunchResult result = await l.LaunchAsync(AssetWith("mikrotik"), "mikrotik");
+
+        Assert.False(result.Success);
+        Assert.Contains("WinBox", result.Error);
+    }
+
+    [Fact]
+    public async Task LaunchAsync_MikroTik_ValidationException_SurfacesReason()
+    {
+        var l = new SessionLauncher(new TabsViewModel(), new ThrowingWinBoxRunner(), null, null, null, null, null);
+
+        LaunchResult result = await l.LaunchAsync(AssetWith("mikrotik"), "mikrotik");
+
+        Assert.False(result.Success);
+        Assert.Contains("sha256", result.Error);
+    }
+
+    [Fact]
+    public async Task LaunchAsync_Rdp_FlagOff_FailsWithGuidance()
+    {
+        var tabs = new TabsViewModel();
+        var l = new SessionLauncher(tabs, null, null, null, null, null, null);
+
+        LaunchResult result = await l.LaunchAsync(AssetWith("rdp"), "rdp");
+
+        Assert.False(result.Success);
+        Assert.Contains("RDP", result.Error);
+        Assert.False(tabs.HasTabs);
     }
 
     [Fact]
