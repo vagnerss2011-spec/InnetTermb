@@ -121,6 +121,15 @@ internal static class AppCompositionRoot
         services.AddSingleton<ViewModels.LogsViewModel>();
         services.AddSingleton<Infrastructure.IUiLogSink>(sp => sp.GetRequiredService<ViewModels.LogsViewModel>());
 
+        // Changelog (offline) + bug report (mailto) — Fase 1, sem rede.
+        services.AddSingleton<Changelog.IChangelogSource, Changelog.EmbeddedChangelogSource>();
+        services.AddSingleton<Reporting.IDiagnosticsProvider>(sp => new Reporting.DiagnosticsProvider(
+            sp.GetRequiredService<ViewModels.LogsViewModel>(),
+            typeof(AppCompositionRoot).Assembly.GetName().Version?.ToString(3) ?? "?",
+            System.Runtime.InteropServices.RuntimeInformation.OSDescription,
+            ReadDeviceId()));
+        services.AddSingleton<Reporting.IBugReportComposer, Reporting.MailtoBugReportComposer>();
+
         services.AddSingleton<Sessions.SessionLauncher>(sp => new Sessions.SessionLauncher(
             sp.GetRequiredService<ViewModels.TabsViewModel>(),
             sp.GetService<IWinBoxRunner>(),
@@ -180,6 +189,21 @@ internal static class AppCompositionRoot
         services.AddSingleton(policyFeed);
         services.AddSingleton<IUpdateService>(sp => new VelopackUpdateService(
             manager, sp.GetRequiredService<IUpdatePolicyFeedSource>()));
+    }
+
+    private static string? ReadDeviceId()
+    {
+        try
+        {
+            string path = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "RemoteOps", "device.id");
+            return System.IO.File.Exists(path) ? System.IO.File.ReadAllText(path).Trim() : null;
+        }
+        catch (System.IO.IOException)
+        {
+            return null;
+        }
     }
 
     private static WinBoxToolManifest BuildWinBoxManifest(IServiceProvider sp)

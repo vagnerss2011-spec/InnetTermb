@@ -1,4 +1,7 @@
 using System;
+using System.Linq;
+using RemoteOps.Desktop.Changelog;
+using RemoteOps.Desktop.Infrastructure;
 
 namespace RemoteOps.Desktop.ViewModels;
 
@@ -7,12 +10,21 @@ public enum BrowserSection { Hosts, Keychain, Logs }
 public sealed class BrowserViewModel : BaseViewModel
 {
     private BrowserSection _activeSection = BrowserSection.Hosts;
+    private readonly IChangelogSource? _changelogSource;
+    private readonly ISettingsStore? _settingsStore;
 
-    public BrowserViewModel(HostsViewModel hosts, KeychainViewModel keychain, LogsViewModel logs)
+    public BrowserViewModel(
+        HostsViewModel hosts,
+        KeychainViewModel keychain,
+        LogsViewModel logs,
+        IChangelogSource? changelogSource = null,
+        ISettingsStore? settingsStore = null)
     {
         Hosts = hosts;
         Keychain = keychain;
         Logs = logs;
+        _changelogSource = changelogSource;
+        _settingsStore = settingsStore;
         ShowHostsCommand = new RelayCommand(() => ActiveSection = BrowserSection.Hosts);
         ShowKeychainCommand = new RelayCommand(() => { ActiveSection = BrowserSection.Keychain; _ = keychain.LoadAsync(); });
         ShowLogsCommand = new RelayCommand(() => ActiveSection = BrowserSection.Logs);
@@ -40,6 +52,24 @@ public sealed class BrowserViewModel : BaseViewModel
     public bool IsHosts => _activeSection == BrowserSection.Hosts;
     public bool IsKeychain => _activeSection == BrowserSection.Keychain;
     public bool IsLogs => _activeSection == BrowserSection.Logs;
+
+    /// <summary>Há versão de changelog não vista? (pontinho no avatar).</summary>
+    public bool HasUnreadChangelog
+    {
+        get
+        {
+            if (_changelogSource is null || _settingsStore is null)
+            {
+                return false;
+            }
+
+            string? latest = ChangelogVersioning.Latest(_changelogSource.Load().Select(e => e.Version));
+            return latest is not null && ChangelogVersioning.IsNewer(latest, _settingsStore.Load().LastSeenChangelogVersion);
+        }
+    }
+
+    /// <summary>Reavalia o badge (chamar quando o modal de Configurações fecha).</summary>
+    public void RefreshChangelogBadge() => RaisePropertyChanged(nameof(HasUnreadChangelog));
 
     public RelayCommand ShowHostsCommand { get; }
     public RelayCommand ShowKeychainCommand { get; }

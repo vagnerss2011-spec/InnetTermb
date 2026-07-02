@@ -16,4 +16,7 @@ public sealed record AppSettings
 
     /// <summary>SHA-256 fixado do executável do WinBox (validação fail-closed no launch).</summary>
     public string? WinBoxSha256 { get; init; }
+
+    /// <summary>Última versão de changelog que o operador já viu (badge "novidades"); null = nunca viu.</summary>
+    public string? LastSeenChangelogVersion { get; init; }
 }
