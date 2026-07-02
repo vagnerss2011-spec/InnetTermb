@@ -24,8 +24,8 @@ public sealed class HostsViewModel : BaseViewModel
 
         OpenGroupCommand = new RelayCommand(obj => { if (obj is GroupCardViewModel g) _ = OpenGroupAsync(g); });
         BackCommand = new RelayCommand(() => CurrentGroup = null, () => IsInGroup);
-        ConnectPrimaryCommand = new RelayCommand(obj => { if (obj is AssetViewModel a) _ = _launcher.LaunchAsync(a.Asset, _launcher.PrimaryProtocol(a.Asset)); });
-        ConnectCommand = new RelayCommand(obj => { if (SelectedHost != null && obj is string p) _ = _launcher.LaunchAsync(SelectedHost.Asset, p); }, _ => SelectedHost != null);
+        ConnectPrimaryCommand = new RelayCommand(obj => { if (obj is AssetViewModel a) _ = ConnectAsync(a, _launcher.PrimaryProtocol(a.Asset)); });
+        ConnectCommand = new RelayCommand(obj => { if (SelectedHost != null && obj is string p) _ = ConnectAsync(SelectedHost, p); }, _ => SelectedHost != null);
         NewGroupCommand = new RelayCommand(() => NewGroupRequested?.Invoke(this, EventArgs.Empty));
         NewHostCommand = new RelayCommand(() => NewHostRequested?.Invoke(this, CurrentGroup?.Id));
         EditHostCommand = new RelayCommand(() => { if (SelectedHost != null) EditHostRequested?.Invoke(this, SelectedHost); }, () => SelectedHost != null);
@@ -47,6 +47,29 @@ public sealed class HostsViewModel : BaseViewModel
     public event EventHandler<string?>? NewHostRequested;
     public event EventHandler<AssetViewModel>? EditHostRequested;
     public event EventHandler? NewGroupRequested;
+
+    /// <summary>Falha de conexão com mensagem acionável (MainWindow mostra ao operador).</summary>
+    public event EventHandler<string>? LaunchFailed;
+
+    /// <summary>
+    /// Conecta observando o resultado — antes o command descartava a Task
+    /// (`_ = LaunchAsync(...)`) e qualquer falha/exceção morria sem UI.
+    /// </summary>
+    public async Task ConnectAsync(AssetViewModel host, string protocol)
+    {
+        try
+        {
+            LaunchResult result = await _launcher.LaunchAsync(host.Asset, protocol);
+            if (!result.Success && result.Error is { } error)
+            {
+                LaunchFailed?.Invoke(this, error);
+            }
+        }
+        catch (Exception ex)
+        {
+            LaunchFailed?.Invoke(this, $"Falha inesperada ao conectar: {ex.Message}");
+        }
+    }
 
     public GroupCardViewModel? CurrentGroup
     {

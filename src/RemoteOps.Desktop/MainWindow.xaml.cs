@@ -54,6 +54,8 @@ public partial class MainWindow : Window
         viewModel.Browser.Hosts.NewHostRequested += (_, groupId) => OpenHostEditor(existing: null, groupId);
         viewModel.Browser.Hosts.EditHostRequested += (_, asset) => OpenHostEditor(existing: asset.Asset, asset.Asset.GroupId);
         viewModel.Browser.Hosts.NewGroupRequested += (_, _) => OpenNewGroupDialog();
+        viewModel.Browser.Hosts.LaunchFailed += (_, message) => Dispatcher.Invoke(() =>
+            MessageBox.Show(this, message, "Conectar", MessageBoxButton.OK, MessageBoxImage.Warning));
     }
 
     private WorkspaceViewModel Vm => (WorkspaceViewModel)DataContext;
