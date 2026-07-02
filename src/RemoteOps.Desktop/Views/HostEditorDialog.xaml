@@ -31,9 +31,10 @@
         <!-- Linha "adicionar endpoint" -->
         <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="110"/>
+                <ColumnDefinition Width="100"/>
                 <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="80"/>
+                <ColumnDefinition Width="60"/>
+                <ColumnDefinition Width="150"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
@@ -57,7 +58,15 @@
                      ToolTip="Porta"
                      Margin="0,0,8,0" VerticalAlignment="Center"/>
 
-            <Button Grid.Column="3" Content="Adicionar endpoint"
+            <ComboBox Grid.Column="3"
+                      ItemsSource="{Binding AvailableCredentials}"
+                      DisplayMemberPath="Name"
+                      SelectedValuePath="Id"
+                      SelectedValue="{Binding NewEndpointCredentialId, Mode=TwoWay}"
+                      ToolTip="Credencial (opcional) — crie na aba Keychain"
+                      Margin="0,0,8,0" VerticalAlignment="Center"/>
+
+            <Button Grid.Column="4" Content="Adicionar endpoint"
                     Command="{Binding AddEndpointCommand}"
                     Padding="10,4" VerticalAlignment="Center"/>
         </Grid>

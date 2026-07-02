@@ -17,6 +17,7 @@ public sealed class HostEditorViewModel : BaseViewModel
     private string _newEndpointProtocol = "ssh";
     private string _newEndpointAddress = string.Empty;
     private int _newEndpointPort = 22;
+    private string? _newEndpointCredentialId;
 
     public HostEditorViewModel(ILocalStore store, string workspaceId, Asset? existing, string? groupId)
     {
@@ -38,10 +39,14 @@ public sealed class HostEditorViewModel : BaseViewModel
     public string Title => IsEdit ? "Editar host" : "Novo host";
     public ObservableCollection<Endpoint> Endpoints { get; } = [];
 
+    /// <summary>Credenciais disponíveis (metadados) para anexar ao endpoint em edição.</summary>
+    public ObservableCollection<CredentialRef> AvailableCredentials { get; } = [];
+
     public string Name { get => _name; set { Set(ref _name, value); SaveCommand.RaiseCanExecuteChanged(); } }
     public string NewEndpointProtocol { get => _newEndpointProtocol; set { Set(ref _newEndpointProtocol, value); NewEndpointPort = value switch { "ssh" => 22, "telnet" => 23, "rdp" => 3389, "mikrotik" => 8291, _ => NewEndpointPort }; } }
     public string NewEndpointAddress { get => _newEndpointAddress; set { Set(ref _newEndpointAddress, value); AddEndpointCommand.RaiseCanExecuteChanged(); } }
     public int NewEndpointPort { get => _newEndpointPort; set => Set(ref _newEndpointPort, value); }
+    public string? NewEndpointCredentialId { get => _newEndpointCredentialId; set => Set(ref _newEndpointCredentialId, value); }
 
     public RelayCommand AddEndpointCommand { get; }
     public RelayCommand RemoveEndpointCommand { get; }
@@ -64,8 +69,18 @@ public sealed class HostEditorViewModel : BaseViewModel
             Ipv4 = v4 ? NewEndpointAddress : null,
             Ipv6 = v6 ? NewEndpointAddress : null,
             Fqdn = isIp ? null : NewEndpointAddress,
+            CredentialRefId = _newEndpointCredentialId,
         });
         NewEndpointAddress = string.Empty;
+        NewEndpointCredentialId = null;
+    }
+
+    /// <summary>Carrega as credenciais do workspace para o seletor (sem segredo).</summary>
+    public async Task LoadCredentialsAsync()
+    {
+        AvailableCredentials.Clear();
+        foreach (var c in await _store.GetCredentialRefsAsync(_workspaceId))
+            AvailableCredentials.Add(c);
     }
 
     public async Task SaveAsync()

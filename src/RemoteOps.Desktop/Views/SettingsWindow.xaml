@@ -30,6 +30,38 @@
                                FontSize="11" Margin="0,12,0,0" TextWrapping="Wrap"/>
                 </StackPanel>
             </TabItem>
+            <TabItem Header="Ferramentas externas">
+                <StackPanel Margin="12">
+                    <TextBlock Text="WinBox" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <TextBlock Text="Aponte o executável do WinBox. O RemoteOps calcula e fixa o SHA-256; no launch, valida o arquivo (fail-closed se o hash divergir)."
+                               Foreground="{DynamicResource Brush.Text.Secondary}"
+                               FontSize="11" TextWrapping="Wrap" Margin="0,0,0,10"/>
+
+                    <TextBlock Text="Caminho do executável" FontSize="11"
+                               Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="0,0,0,2"/>
+                    <Grid Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox Grid.Column="0" IsReadOnly="True"
+                                 Text="{Binding WinBoxExePath, Mode=OneWay, TargetNullValue='(não configurado)'}"
+                                 VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <Button Grid.Column="1" Content="Procurar…" Click="BrowseWinBox_Click"
+                                Padding="10,4"/>
+                    </Grid>
+
+                    <TextBlock Text="SHA-256 fixado" FontSize="11"
+                               Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="0,0,0,2"/>
+                    <TextBox IsReadOnly="True" FontFamily="Consolas"
+                             Text="{Binding WinBoxSha256, Mode=OneWay, TargetNullValue='(nenhum)'}"
+                             TextWrapping="Wrap" Margin="0,0,0,8"/>
+
+                    <Button Content="Re-fixar hash" Click="RepinWinBox_Click"
+                            HorizontalAlignment="Left" Padding="10,4"
+                            IsEnabled="{Binding HasWinBox}"/>
+                </StackPanel>
+            </TabItem>
             <TabItem Header="Atualização">
                 <StackPanel Margin="12">
                     <TextBlock Text="{Binding VersionText}" Margin="0,0,0,8"/>

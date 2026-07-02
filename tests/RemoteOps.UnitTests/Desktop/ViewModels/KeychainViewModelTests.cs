@@ -13,7 +13,7 @@ public sealed class KeychainViewModelTests
     {
         var store = new InMemoryLocalStore();
         await store.AddCredentialRefAsync(new CredentialRef { Id = "c1", Name = "root", Type = "password" });
-        var vm = new KeychainViewModel(store, "ws-local");
+        var vm = new KeychainViewModel(store, new FakeVault(), "ws-local");
 
         await vm.LoadAsync();
 

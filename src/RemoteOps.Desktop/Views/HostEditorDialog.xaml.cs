@@ -10,5 +10,6 @@ public partial class HostEditorDialog : Window
         InitializeComponent();
         DataContext = viewModel;
         viewModel.Saved += (_, _) => { DialogResult = true; Close(); };
+        Loaded += async (_, _) => await viewModel.LoadCredentialsAsync();
     }
 }

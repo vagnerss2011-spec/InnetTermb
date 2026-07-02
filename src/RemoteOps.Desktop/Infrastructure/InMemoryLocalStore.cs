@@ -161,6 +161,12 @@ public sealed class InMemoryLocalStore : ILocalStore
         return Task.FromResult(credentialRef);
     }
 
+    public Task<CredentialRef> UpdateCredentialRefAsync(CredentialRef credentialRef, CancellationToken ct = default)
+    {
+        _credentialRefs[credentialRef.Id] = credentialRef;
+        return Task.FromResult(credentialRef);
+    }
+
     public Task DeleteCredentialRefAsync(string id, CancellationToken ct = default)
     {
         _credentialRefs.Remove(id);

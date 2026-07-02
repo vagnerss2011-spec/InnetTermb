@@ -15,7 +15,7 @@ public sealed class WorkspaceViewModelTests
         var store = new InMemoryLocalStore();
         await store.AddGroupAsync("ws-local", "Innet");
         var hosts = new HostsViewModel(store, new SessionLauncher(new TabsViewModel(), null, null, null, null, null, null), "ws-local");
-        var browser = new BrowserViewModel(hosts, new KeychainViewModel(store, "ws-local"), new LogsViewModel());
+        var browser = new BrowserViewModel(hosts, new KeychainViewModel(store, new FakeVault(), "ws-local"), new LogsViewModel());
         var vm = new WorkspaceViewModel(browser, new TabsViewModel());
 
         await vm.InitializeAsync();

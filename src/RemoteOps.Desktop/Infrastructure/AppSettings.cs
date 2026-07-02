@@ -10,4 +10,10 @@ public sealed record AppSettings
 
     /// <summary>Identificador do tema ativo. Único por ora.</summary>
     public string Theme { get; init; } = "slate-signal-dark";
+
+    /// <summary>Caminho do executável do WinBox configurado pela GUI (Configurações → Ferramentas externas).</summary>
+    public string? WinBoxExePath { get; init; }
+
+    /// <summary>SHA-256 fixado do executável do WinBox (validação fail-closed no launch).</summary>
+    public string? WinBoxSha256 { get; init; }
 }
