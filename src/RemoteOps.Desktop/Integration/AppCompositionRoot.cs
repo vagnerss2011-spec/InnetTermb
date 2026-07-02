@@ -136,6 +136,7 @@ internal static class AppCompositionRoot
             DefaultWorkspaceId));
         services.AddSingleton<ViewModels.KeychainViewModel>(sp => new ViewModels.KeychainViewModel(
             sp.GetRequiredService<ILocalStore>(),
+            sp.GetRequiredService<RemoteOps.Security.Vault.IVault>(),
             DefaultWorkspaceId));
         services.AddSingleton<ViewModels.BrowserViewModel>();
         services.AddSingleton<ViewModels.WorkspaceViewModel>();
