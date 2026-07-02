@@ -18,23 +18,40 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <TextBlock Grid.Row="0" Text="Operador" Foreground="{DynamicResource Brush.Text.Primary}" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,8"/>
+            <TextBlock Grid.Row="0" Text="Operador" Style="{DynamicResource Text.Caption}" FontWeight="SemiBold" Margin="0,0,0,8"/>
 
             <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
                 <TextBox Width="140" Text="{Binding TicketIdInput, UpdateSourceTrigger=PropertyChanged}"
                          ToolTip="Ticket (gere um novo ou cole um existente)"/>
                 <Button Content="Gerar ticket" Command="{Binding GenerateTicketCommand}" Margin="6,0,0,0"/>
-                <Button Content="Conectar" Command="{Binding ConnectCommand}" Margin="6,0,0,0"/>
+                <Button Content="Conectar" Command="{Binding ConnectCommand}" Style="{DynamicResource Button.Primary}" Margin="6,0,0,0"/>
             </StackPanel>
 
+            <!-- Estado da sessão: cor reflete NDeskSessionState (Idle/AwaitingConsent/Connected/
+                 Ended) já emitido por State — mesmo dado, só lido com DataTrigger em vez de
+                 renderizado sempre na mesma cor cinza. -->
             <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
-                <TextBlock Text="Estado: " Foreground="{DynamicResource Brush.Text.Tertiary}" FontSize="11"/>
-                <TextBlock Text="{Binding State}" Foreground="{DynamicResource Brush.Text.Secondary}" FontSize="11" FontWeight="SemiBold" Margin="0,0,12,0"/>
+                <TextBlock Text="Estado: " Style="{DynamicResource Text.Caption}"/>
+                <TextBlock Text="{Binding State}" FontWeight="SemiBold" Margin="0,0,12,0">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock" BasedOn="{StaticResource Text.Caption}">
+                            <Setter Property="Foreground" Value="{DynamicResource Brush.Status.Idle}"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding State}" Value="AwaitingConsent">
+                                    <Setter Property="Foreground" Value="{DynamicResource Brush.Status.Pending}"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding State}" Value="Connected">
+                                    <Setter Property="Foreground" Value="{DynamicResource Brush.Status.Online}"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
                 <TextBlock Text="{Binding ErrorMessage}" Foreground="{DynamicResource Brush.Status.Error}" FontSize="11" TextWrapping="Wrap"/>
             </StackPanel>
 
             <!-- Superfície de vídeo placeholder -->
-            <Border Grid.Row="3" Background="{DynamicResource Brush.Bg.Canvas}" BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="1" Margin="0,0,0,8">
+            <Border Grid.Row="3" Background="{DynamicResource Brush.Bg.App}" BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="1" Margin="0,0,0,8">
                 <TextBlock Text="Tela remota (placeholder)" Foreground="{DynamicResource Brush.Text.Tertiary}" FontStyle="Italic"
                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 <Border.Style>
@@ -49,7 +66,8 @@
                 </Border.Style>
             </Border>
 
-            <!-- Banner + Encerrar sempre acessível durante a sessão -->
+            <!-- Banner + Encerrar sempre acessível durante a sessão (CLAUDE.md princípio 3:
+                 consentimento visível e revogação imediata) -->
             <Border Grid.Row="4" Background="{DynamicResource Brush.Status.CriticalSurface}" Padding="8,6">
                 <Border.Style>
                     <Style TargetType="Border">
@@ -63,17 +81,20 @@
                 </Border.Style>
                 <Grid>
                     <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="Sessão NDesk em andamento — visível para o usuário atendido"
+                    <TextBlock Grid.Column="0" Text="{DynamicResource Icon.Shield}" Style="{DynamicResource Icon.Style}"
+                               Foreground="{DynamicResource Brush.Text.Primary}" Margin="0,0,6,0"/>
+                    <TextBlock Grid.Column="1" Text="Sessão NDesk em andamento — visível para o usuário atendido"
                                Foreground="{DynamicResource Brush.Text.Primary}" FontSize="11" VerticalAlignment="Center"/>
-                    <Button Grid.Column="1" Content="Encerrar" Command="{Binding EndCommand}"/>
+                    <Button Grid.Column="2" Content="Encerrar" Command="{Binding EndCommand}" Style="{DynamicResource Button.Danger}"/>
                 </Grid>
             </Border>
         </Grid>
 
-        <Rectangle Grid.Column="1" Fill="{DynamicResource Brush.Border.Default}"/>
+        <Rectangle Grid.Column="1" Fill="{DynamicResource Brush.Border.Subtle}"/>
 
         <!-- Painel mock do lado atendido -->
         <Grid Grid.Column="2" DataContext="{Binding Assisted}" Margin="12">
@@ -82,7 +103,7 @@
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
-            <TextBlock Grid.Row="0" Text="Lado atendido (mock)" Foreground="{DynamicResource Brush.Text.Primary}" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,8"/>
+            <TextBlock Grid.Row="0" Text="Lado atendido (mock)" Style="{DynamicResource Text.Caption}" FontWeight="SemiBold" Margin="0,0,0,8"/>
 
             <StackPanel Grid.Row="1">
                 <TextBlock Text="Nenhuma solicitação pendente." Foreground="{DynamicResource Brush.Text.Tertiary}" FontStyle="Italic">
@@ -110,35 +131,56 @@
                         </Style>
                     </StackPanel.Style>
 
-                    <TextBlock Foreground="{DynamicResource Brush.Text.Secondary}" FontSize="11" Margin="0,0,0,4">
+                    <!-- Mode=OneWay explícito nos Run.Text abaixo: Run.Text tem
+                         BindsTwoWayByDefault=true no WPF. Sem isso, uma propriedade somente-leitura
+                         (como PermissionsRequestedText) derruba o app ao anexar o binding —
+                         InvalidOperationException não capturada em App.OnStartup (#37). -->
+                    <TextBlock Style="{DynamicResource Text.Caption}" Margin="0,0,0,4">
+
                         <Run Text="Operador: "/>
-                        <Run Text="{Binding PendingConsent.OperatorDisplayName}" FontWeight="SemiBold"/>
+                        <Run Text="{Binding PendingConsent.OperatorDisplayName, Mode=OneWay}" FontWeight="SemiBold"/>
                     </TextBlock>
-                    <TextBlock Foreground="{DynamicResource Brush.Text.Secondary}" FontSize="11" Margin="0,0,0,4">
+                    <TextBlock Style="{DynamicResource Text.Caption}" Margin="0,0,0,4">
                         <Run Text="Empresa: "/>
-                        <Run Text="{Binding PendingConsent.CompanyName}" FontWeight="SemiBold"/>
+                        <Run Text="{Binding PendingConsent.CompanyName, Mode=OneWay}" FontWeight="SemiBold"/>
                     </TextBlock>
-                    <TextBlock Foreground="{DynamicResource Brush.Text.Secondary}" FontSize="11" Margin="0,0,0,4">
+                    <TextBlock Style="{DynamicResource Text.Caption}" Margin="0,0,0,4">
                         <Run Text="Ticket: "/>
-                        <Run Text="{Binding PendingConsent.TicketId}" FontWeight="SemiBold"/>
+                        <Run Text="{Binding PendingConsent.TicketId, Mode=OneWay}" FontWeight="SemiBold"/>
                     </TextBlock>
-                    <TextBlock Foreground="{DynamicResource Brush.Text.Secondary}" FontSize="11" Margin="0,0,0,4">
+                    <TextBlock Style="{DynamicResource Text.Caption}" Margin="0,0,0,4">
                         <Run Text="Modo solicitado: "/>
-                        <Run Text="{Binding PendingConsent.RequestedMode}" FontWeight="SemiBold"/>
+                        <Run Text="{Binding PendingConsent.RequestedMode, Mode=OneWay}" FontWeight="SemiBold"/>
                     </TextBlock>
-                    <TextBlock Foreground="{DynamicResource Brush.Text.Secondary}" FontSize="11" Margin="0,0,0,8">
+                    <TextBlock Style="{DynamicResource Text.Caption}" Margin="0,0,0,8">
                         <Run Text="Permissões: "/>
-                        <Run Text="{Binding PermissionsRequestedText}" FontWeight="SemiBold"/>
+                        <Run Text="{Binding PermissionsRequestedText, Mode=OneWay}" FontWeight="SemiBold"/>
                     </TextBlock>
 
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <Button Content="Aceitar" Command="{Binding AcceptCommand}" Margin="0,0,6,0"/>
+                        <Button Content="Aceitar" Command="{Binding AcceptCommand}" Style="{DynamicResource Button.Primary}" Margin="0,0,6,0"/>
                         <Button Content="Recusar" Command="{Binding DeclineCommand}"/>
                     </StackPanel>
                 </StackPanel>
 
-                <TextBlock Text="{Binding State}" Foreground="{DynamicResource Brush.Text.Tertiary}" FontSize="11" Margin="0,8,0,8"/>
-                <Button Content="Encerrar" Command="{Binding EndCommand}" HorizontalAlignment="Left"/>
+                <!-- Mesmo mapeamento de cor por estado do painel do operador, aplicado ao
+                     State do lado atendido (NDeskAssistedViewModel). -->
+                <TextBlock Text="{Binding State}" Margin="0,8,0,8">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock" BasedOn="{StaticResource Text.Caption}">
+                            <Setter Property="Foreground" Value="{DynamicResource Brush.Status.Idle}"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding State}" Value="AwaitingConsent">
+                                    <Setter Property="Foreground" Value="{DynamicResource Brush.Status.Pending}"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding State}" Value="Connected">
+                                    <Setter Property="Foreground" Value="{DynamicResource Brush.Status.Online}"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+                <Button Content="Encerrar" Command="{Binding EndCommand}" Style="{DynamicResource Button.Danger}" HorizontalAlignment="Left"/>
             </StackPanel>
         </Grid>
     </Grid>

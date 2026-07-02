@@ -6,7 +6,7 @@
         <!-- Loading placeholder shown until the MSTSCAX control connects -->
         <TextBlock x:Name="_statusText"
                    Text="Conectando..."
-                   Foreground="{DynamicResource Brush.Text.Tertiary}"
+                   Foreground="{DynamicResource Brush.Text.Secondary}"
                    HorizontalAlignment="Center"
                    VerticalAlignment="Center"
                    FontSize="13"/>

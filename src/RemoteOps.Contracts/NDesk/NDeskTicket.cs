@@ -13,6 +13,13 @@ public sealed class NDeskTicket
     /// <summary>waiting | connected | expired | closed | denied.</summary>
     public required string Status { get; init; }
 
+    /// <summary>
+    /// Id da sessão de signaling, disponível após o resgate (status connected). O operador
+    /// criador o obtém no status do ticket para entrar no hub; null enquanto waiting. Só é
+    /// devolvido ao próprio criador (GetStatusAsync é escopado) e ao agente que resgatou.
+    /// </summary>
+    public string? SessionId { get; init; }
+
     public List<string> PermissionsRequested { get; init; } = [];
 
     /// <summary>basic | control | file | administrator.</summary>

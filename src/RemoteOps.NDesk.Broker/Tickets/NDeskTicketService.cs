@@ -143,6 +143,7 @@ public sealed class NDeskTicketService(
         CreatedBy = e.CreatedByUserId?.ToString(),
         ExpiresAt = e.ExpiresAt,
         Status = e.Status,
+        SessionId = e.SessionId?.ToString(),
         PermissionsRequested = NDeskEnums.ParseList(e.PermissionsRequested),
         RequestedMode = e.RequestedMode,
         LinkToken = linkToken,

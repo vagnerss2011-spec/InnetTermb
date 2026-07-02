@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using System.Windows.Threading;
 
 using Microsoft.Extensions.DependencyInjection;
 
@@ -22,6 +23,18 @@ public partial class App : Application
     private ServiceProvider? _serviceProvider;
     private WorkspaceViewModel? _workspaceViewModel;
     private SyncSession? _syncSession;
+
+    public App()
+    {
+        // Rede de segurança: nenhuma exceção não tratada deve derrubar o app sem diálogo
+        // (CLAUDE.md — nunca crash silencioso). DispatcherUnhandledException cobre a UI
+        // thread depois que o startup termina (ex.: async void em MainWindow.Loaded);
+        // AppDomain.UnhandledException é o último recurso para exceções fora dela.
+        // Falhas SÍNCRONAS dentro do próprio OnStartup (antes do dispatcher bombear
+        // mensagens) não passam por nenhuma delas — por isso o try/catch de OnStartup.
+        DispatcherUnhandledException += OnDispatcherUnhandledException;
+        AppDomain.CurrentDomain.UnhandledException += OnAppDomainUnhandledException;
+    }
 
     // Entry point custom (ADR-019): App.xaml não é mais ApplicationDefinition (ver
     // RemoteOps.Desktop.csproj), então este Main() substitui o gerado automaticamente
@@ -94,13 +107,55 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
-            MessageBox.Show(
-                $"Falha ao iniciar o RemoteOps Desktop:\n\n{ex.Message}",
-                "Erro de inicialização",
-                MessageBoxButton.OK,
+            // Qualquer falha de inicialização (DPAPI, SQLCipher nativo, permissão de disco,
+            // binding da primeira janela) vira mensagem amigável — o app nunca é utilizável
+            // sem vault/store, então encerra em seguida. Ver docs/26-runbook-teste-local.md
+            // §Solução de problemas.
+            ShowError(
+                "Não foi possível iniciar",
+                ex,
+                "Verifique se o WebView2 Runtime está instalado e se há permissão de escrita " +
+                "em %APPDATA%\\RemoteOps. Consulte docs/26-runbook-teste-local.md.",
                 MessageBoxImage.Error);
-            Shutdown();
+            Shutdown(1);
         }
+    }
+
+    private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
+    {
+        // Exceção não tratada na UI thread depois do startup (ex.: falha dentro de um
+        // "async void" de evento). Mostra o erro e deixa o app continuar — preferível a
+        // derrubar uma sessão em andamento sem aviso nenhum.
+        ShowError("Erro inesperado", e.Exception, hint: null, MessageBoxImage.Warning);
+        e.Handled = true;
+    }
+
+    private static void OnAppDomainUnhandledException(object sender, UnhandledExceptionEventArgs e)
+    {
+        // Último recurso: exceção fora da UI thread, quase sempre fatal a esta altura
+        // (IsTerminating). Só tentamos avisar antes do processo cair — best effort.
+        if (e.ExceptionObject is not Exception ex)
+        {
+            return;
+        }
+
+        try
+        {
+            ShowError("Erro fatal", ex, hint: null, MessageBoxImage.Error);
+        }
+        catch (Exception)
+        {
+            // Já era o último recurso antes do processo encerrar; nada mais a fazer.
+        }
+    }
+
+    private static void ShowError(string title, Exception ex, string? hint, MessageBoxImage icon)
+    {
+        string message = hint is null
+            ? $"{ex.GetType().Name}: {ex.Message}"
+            : $"{ex.GetType().Name}: {ex.Message}\n\n{hint}";
+
+        MessageBox.Show(message, $"RemoteOps — {title}", MessageBoxButton.OK, icon);
     }
 
     // Retorna true quando o app deve encerrar (update forçado aplicado/em aplicação).

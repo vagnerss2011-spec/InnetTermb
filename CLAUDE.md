@@ -1,5 +1,8 @@
 # Instruções para Claude Code — RemoteOps Suite
 
+> **Retomando o projeto?** Leia `CONTINUAR-LOCAL.md` — estado atual, como abrir uma sessão do
+> Claude local que edita esta pasta, como está organizado (worktrees/CI) e como rodar/validar.
+
 Você está trabalhando em um produto interno Windows para gestão de acessos remotos de infraestrutura. O projeto é sensível porque armazena credenciais, abre sessões administrativas e poderá executar assistência remota consentida.
 
 ## Princípios obrigatórios

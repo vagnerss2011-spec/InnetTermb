@@ -6,7 +6,7 @@
         <!-- Loading placeholder shown until WebView2 is ready -->
         <TextBlock x:Name="_loadingText"
                    Text="Conectando..."
-                   Foreground="{DynamicResource Brush.Text.Tertiary}"
+                   Foreground="{DynamicResource Brush.Text.Secondary}"
                    HorizontalAlignment="Center"
                    VerticalAlignment="Center"
                    FontSize="13"/>

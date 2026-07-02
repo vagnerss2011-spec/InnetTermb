@@ -28,9 +28,8 @@ public sealed class NDeskSignalingHub(
 
         if (role == "operator")
         {
-            var userIdStr = Context.User?.FindFirstValue("sub");
             if (Context.User?.Identity?.IsAuthenticated != true
-                || !Guid.TryParse(userIdStr, out var userId)
+                || !Guid.TryParse(CallerUserId(), out var userId)
                 || ticket.CreatedByUserId != userId)
             {
                 throw new HubException("Operador não autorizado para esta sessão.");
@@ -62,11 +61,17 @@ public sealed class NDeskSignalingHub(
         if (!Guid.TryParse(sessionId, out var sid)) return;
 
         var actor = Context.User?.Identity?.IsAuthenticated == true
-            ? Context.User.FindFirstValue("sub") ?? "operator"
+            ? CallerUserId() ?? "operator"
             : "agent";
 
         await grants.RevokeConsentAsync(sid, actor);
         await Clients.Group(sessionId).SendAsync("SessionEnded", reason);
         logger.LogInformation("NDesk signaling: sessão {SessionId} encerrada por {Actor}", sessionId, actor);
     }
+
+    // O middleware JWT mapeia o claim "sub" para ClaimTypes.NameIdentifier por padrão
+    // (MapInboundClaims=true). Ler só "sub" retorna null com um JWT real — mesma leitura dos
+    // endpoints REST (HttpContextExtensions.TryGetCallerUserId): NameIdentifier, com "sub" de reserva.
+    private string? CallerUserId() =>
+        Context.User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? Context.User?.FindFirstValue("sub");
 }

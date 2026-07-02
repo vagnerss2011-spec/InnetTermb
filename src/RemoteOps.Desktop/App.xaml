@@ -4,6 +4,7 @@
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
+                <!-- Sistema de design — tema escuro base (docs/06-desktop-ui-ux.md §Sistema de design) -->
                 <ResourceDictionary Source="Themes/DarkTheme.xaml"/>
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>

@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using RemoteOps.Desktop.Infrastructure;
 using RemoteOps.Desktop.Integration;
+using RemoteOps.Desktop.NDesk;
 using RemoteOps.Desktop.ViewModels;
 using RemoteOps.MikroTik;
 using RemoteOps.Security;
@@ -86,6 +87,12 @@ public sealed class CompositionRootSmokeTests : IDisposable
     [Fact]
     public void Resolve_IWinBoxRunner() =>
         Assert.NotNull(_provider.GetRequiredService<IWinBoxRunner>());
+
+    // NDesk -----------------------------------------------------------------
+
+    [Fact]
+    public void Resolve_INDeskBrokerClient() =>
+        Assert.NotNull(_provider.GetRequiredService<INDeskBrokerClient>());
 
     // Shell Termius (Fase 1, Task 12) --------------------------------------
 

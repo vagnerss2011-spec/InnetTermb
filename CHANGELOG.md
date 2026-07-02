@@ -2,6 +2,126 @@
 
 Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.com/) e versionamento SemVer interno.
 
+## [Unreleased]
+
+### Alterado
+
+- **Merge de `origin/main` (NDesk #37-#41) em `feature/gui-termius-nav`:** reconcilia a
+  navegação Termius (shell `TabControl`, `WorkspaceViewModel`, `SessionLauncher`,
+  `BrowserView`/`HostsView`/`KeychainView`/`LogsView`) com o trabalho de NDesk do main. Views
+  antigas do shell (`SidebarView`, `HostListView`, `InspectorView`, `TabsView` **não** foi
+  removida — continua embutida em `MainWindow.xaml` como a área de abas de sessão) e
+  `MainViewModel`/`SidebarViewModel`/`HostListViewModel`/`InspectorViewModel` permanecem
+  removidos, conforme decidido nesta frente. `NDeskTabView.xaml` mantém o crash-fix de
+  `Mode=OneWay` (#37) e ganha a temática Slate Signal. `AppCompositionRoot` mantém o registro
+  de `INDeskBrokerClient`/`LoopbackNDeskBrokerClient` e as demais dependências de NDesk.
+  **Débito aceito:** o auto-open de aba NDesk (`ndesk.enabled` → abre `NDeskTabViewModel` no
+  startup), antes em `MainViewModel`, não foi re-conectado a `WorkspaceViewModel` nesta
+  passagem — `TabsViewModel.OpenNdeskTab` e `FeatureFlagNames.NdeskEnabled` continuam
+  disponíveis, só falta o ponto de chamada no novo shell.
+
+### Adicionado
+
+- **NDesk — operador descobre o `sessionId` pelo status do ticket (`ADR-020`):** o
+  `GET /ndesk/tickets/{id}` passa a devolver o `sessionId` ao criador do ticket (campo novo,
+  opcional, em `contracts/ndesk-ticket.schema.json` e `NDeskTicket`), destravando o fluxo real
+  operador↔agente — antes só o agente recebia o `sessionId` no resgate e o operador não tinha
+  como entrar no signaling. Endpoint já escopado ao criador (anti-IDOR, `ADR-018`), então o
+  campo só chega a quem tem direito. Validado ao vivo: `tools/ndesk-signaling-check` agora
+  descobre o `sessionId` por esse endpoint (10/10 checks contra Postgres real).
+
+### Corrigido
+
+- **NDesk Broker — `JoinSession`/`EndSession` do hub liam só o claim `sub`**, mas o middleware
+  JWT mapeia `sub` para `ClaimTypes.NameIdentifier` (`MapInboundClaims=true`) — com um JWT real
+  o operador era **sempre recusado** no signaling. Passa a ler `NameIdentifier` (com `sub` de
+  reserva), igual aos endpoints REST. Bug encontrado ao rodar o broker de verdade (não pego
+  pelos testes unitários com fakes que setavam `sub` literal); blindado por 2 testes de
+  regressão em `NDeskSignalingHubTests` (com claim mapeado).
+
+### Adicionado
+
+- **NDesk Broker executável + runbook local:** o broker não subia contra um banco novo (sem
+  migrations nem `EnsureCreated`, a primeira escrita falhava). `Program.cs` passa a criar o
+  schema no startup via `EnsureCreated` (desligável por `NDESK_DB_SKIP_INIT=true`; débito de
+  migrations versionadas registrado em `docs/27` e ADR-018). `deploy/docker-compose.dev.yml`
+  (Postgres de dev) e `docs/27-executar-broker-local.md` (config, execução e smoke test do
+  fluxo ticket→redeem→consent→revoke). Validado de ponta a ponta contra um Postgres real:
+  emissão/uso-único/expiração de ticket, anti-IDOR no status, gate de consentimento, revogação;
+  e confirmado no banco que o link token só existe como hash SHA-256 (nunca em claro) e que a
+  auditoria não contém segredo.
+- **`tools/ndesk-signaling-check`** (cross-platform, fora da solution): verificador de
+  integração que opera operador+agente contra um broker real e valida o hub SignalR de ponta a
+  ponta (relay de SDP/ICE, recusa sem consentimento e após revogação). 9/9 checks executados de
+  fato contra um broker com Postgres real.
+- **DevOps — pipeline de release (`release.yml`):** novo workflow GitHub Actions, separado do
+  `ci.yml`, disparado por push de tag `v*`. Em `windows-latest`: deriva e valida a versão SemVer
+  a partir da tag (`VERSIONING.md`), publica o `RemoteOps.Desktop` self-contained (`win-x64`),
+  empacota com a Velopack CLI (`vpk pack`) gerando o instalador `Setup.exe`, gera um ZIP
+  portátil e expõe o executável avulso, calcula `SHA256SUMS.txt`/`build-manifest.json`, e publica
+  os 5 artefatos como assets do GitHub Release e como artefato do workflow. Usa somente
+  `GITHUB_TOKEN`; assinatura de binário fica fora de escopo. Consome a config Velopack do projeto
+  (ADR-019). `docs/11-devops-github-ci.md` documenta o fluxo completo.
+
+## [0.10.0-desktop-smoke-runbook] - 2026-07-01
+
+### Corrigido
+
+- **Crash de startup com `ndesk.enabled` ligada:** `src/RemoteOps.Desktop/NDesk/NDeskTabView.xaml`
+  tinha 5 bindings `<Run Text="{Binding ...}">` sem `Mode=OneWay` explícito. `Run.Text` tem
+  `BindsTwoWayByDefault=true` no WPF; `PermissionsRequestedText`
+  (`NDeskAssistedViewModel.cs`) é uma propriedade somente-leitura, então o WPF lançava
+  `System.InvalidOperationException` ao anexar o binding assim que a árvore visual era
+  layoutada — mesmo com o painel `Visibility=Collapsed` (WPF anexa bindings independente de
+  visibilidade) e sem nenhuma sessão NDesk iniciada. Como isso acontecia dentro de
+  `App.OnStartup` (síncrono, antes do dispatcher bombear mensagens), nenhum handler capturava a
+  exceção e o processo terminava sem diálogo nenhum (confirmado via Windows Event Log, provider
+  `.NET Runtime`, evento 1026). Corrigidas as 5 bindings com `Mode=OneWay` explícito.
+
+### Adicionado
+
+- **`App.xaml.cs` — rede de segurança contra crash silencioso** (defesa em profundidade, além da
+  correção da causa raiz acima): try/catch em volta do corpo de `OnStartup` (mensagem amigável via
+  `MessageBox` + `Shutdown(1)` em vez de crash cru quando vault/DPAPI/SQLCipher/DI/primeira janela
+  falham), `DispatcherUnhandledException` (erros na UI thread depois do startup, ex. um
+  `async void` de evento — mostra aviso e deixa o app continuar) e
+  `AppDomain.CurrentDomain.UnhandledException` (último recurso, best-effort, para exceções fora da
+  UI thread).
+- **`docs/26-runbook-teste-local.md`:** como rodar localmente, como ligar cada feature flag —
+  inclui nota explícita sobre os **dois mecanismos distintos** hoje no Desktop
+  (`REMOTEOPS_FEATURE_FLAGS=ndesk.enabled,rdp.enabled` via `IFeatureFlags`, vs.
+  `REMOTEOPS_CLOUD_SYNC_ENABLED=true` + `REMOTEOPS_CLOUD_URL`/`REMOTEOPS_CLOUD_WORKSPACE_ID` lidos
+  direto em `App.xaml.cs`, sem passar por `IFeatureFlags`) —, o que cada aba faz, limitações
+  conhecidas e um checklist de smoke por aba (terminal, mikrotik/winbox, rdp, ndesk).
+- Testes xUnit (`tests/RemoteOps.UnitTests/Desktop/NDesk/NDeskTabViewRenderTests.cs`): renderizam
+  `NDeskTabView` de verdade — thread STA manual + `Window` real minúscula (`ShowInTaskbar=false`),
+  sem depender de nenhum pacote NuGet novo — reproduzindo o stack trace exato do crash acima antes
+  da correção (TDD vermelho→verde) e cobrindo tanto o estado inicial (sem consentimento pendente,
+  o cenário que crashava) quanto o painel visível com um consentimento pendente. Técnica extraída
+  para `tests/RemoteOps.UnitTests/Desktop/StaThreadRunner.cs` (compartilhada pelos três arquivos
+  de teste de renderização abaixo).
+- `CompositionRootSmokeTests.Resolve_INDeskBrokerClient`: gap de cobertura notado durante a
+  investigação (nenhum teste de resolução DI cobria o broker NDesk).
+- **Revisão do `qa-agent`** encontrou um risco latente da mesma classe do bug acima, ainda não
+  ativo: as colunas de `HostListView.xaml` fazem bind de propriedades somente-leitura de
+  `AssetViewModel` (`Name`, `PrimaryProtocol`, `PrimaryAddress`, `Vendor`, `Tags`) — hoje inofensivo
+  porque `DataGrid.IsReadOnly="True"` impede o `TextBox` de edição (TwoWay por padrão) de ser
+  instanciado, mas um duplo-clique numa célula reproduziria o mesmo crash se essa trava for
+  removida sem proteção equivalente. Fechado com `tests/RemoteOps.UnitTests/Desktop/HostListViewRenderTests.cs`
+  (confirma `IsReadOnly` efetivo no grid e em cada coluna + teste de reflexão que falha se alguma
+  propriedade ganhar setter) — nenhuma mudança em `src/`, é só uma invariante travada por teste.
+- `tests/RemoteOps.UnitTests/Desktop/NDesk/NDeskTabViewConsentContentTests.cs` (`qa-agent`): fecha
+  uma lacuna dos testes de render acima — eles provam "não lança exceção", mas não que o
+  consentimento continua **visível** (exigência do `CLAUDE.md`). Um caminho de binding errado não
+  lançaria nada, só renderizaria vazio silenciosamente. Este teste lê o texto de fato renderizado
+  (`TextBlock.Inlines`) e confere que os 5 campos do `NDeskConsentRequest` aparecem tal como o
+  broker os forneceu.
+
+### Módulo
+
+- `src/RemoteOps.Desktop/App.xaml.cs`, `src/RemoteOps.Desktop/NDesk/NDeskTabView.xaml` — dono:
+  `desktop-shell-agent`
+
 ## [0.11.0-packaging-velopack] - 2026-07-01
 
 ### Adicionado
@@ -38,6 +158,56 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   - Testes (`tests/RemoteOps.UnitTests/Desktop/Update/`): comparação SemVer, gate de atualização
     forçada, combinação de resultado de checagem, e parsing/fail-open do feed de política —
     lógica pura, sem dependência de instalação real do Velopack.
+
+## [0.10.0-desktop-design-system] - 2026-07-01
+
+### Adicionado
+
+- **Sistema de design do Desktop — tema escuro base, sem toolkit de terceiro
+  (`src/RemoteOps.Desktop/Themes/`):**
+  - `Themes/Tokens/`: `Colors.xaml` (paleta "Slate Signal" + sobrescrita das chaves
+    `SystemColors.*BrushKey` usadas internamente pelos templates padrão do WPF),
+    `Typography.xaml` (Segoe UI Variable Text/Segoe UI + Consolas para dados técnicos),
+    `Spacing.xaml` (escala de 4px), `Icons.xaml` (glifos Segoe MDL2 Assets — licenciamento
+    verificado em duas páginas oficiais da Microsoft Learn, não em memória; ver docs/06
+    §Ícones).
+  - `Themes/Controls/`: estilos/templates para Button, TextBox, ComboBox, TabControl/TabItem,
+    DataGrid, TreeView/TreeViewItem, ScrollBar, Separator, ToolTip.
+  - `Themes/DarkTheme.xaml` mesclado em `App.xaml` (único ponto de merge; `App.xaml.cs` não foi
+    alterado).
+  - Aplicado a `MainWindow.xaml`, às Views do shell (`SidebarView`, `HostListView`,
+    `InspectorView`, `TabsView`) e às três Views de aba de sessão (`TerminalTabView`,
+    `RdpTabView`, `NDeskTabView`) — só XAML/recursos; nenhum ViewModel ou code-behind alterado,
+    nenhum binding removido ou renomeado.
+  - Corrige a inconsistência visual existente antes desta mudança (sidebar/lista de
+    hosts/inspector claros ao lado de abas de sessão escuras); `HostListView` não tinha nenhum
+    plano de fundo definido e herdava o branco padrão do WPF.
+  - Indicador de status de sync (barra superior) e de estado de sessão NDesk
+    (`NDeskSessionState`, lados operador e atendido) ganham cor semântica via `DataTrigger`
+    sobre os bindings que já existiam (`MainViewModel.SyncStatus`, `State`) — sem binding nem
+    converter novo.
+  - Ícones aplicados às ações rápidas do Inspector (SSH/Telnet/RDP/WinBox), aos selos de
+    protocolo das abas de sessão, ao indicador de aba fixada (`SessionTabViewModel.IsPinned`,
+    antes só desabilitava o botão de fechar silenciosamente) e ao aviso de erro do WinBox.
+  - `docs/06-desktop-ui-ux.md`: nova seção "Sistema de design" — paleta, decisão de ícones (com
+    fontes primárias citadas), e o racional para não adotar WPF-UI/MahApps/HandyControl nem o
+    `ThemeMode` Fluent nativo do .NET 9/10 (experimental, descartado por ora).
+
+### Restrições respeitadas
+
+- Nenhum ViewModel, code-behind ou contrato alterado — mudança inteiramente em XAML/recursos.
+- `App.xaml.cs` não foi tocado (fora do escopo do `desktop-shell-agent` nesta frente).
+- Nenhum segredo em log, binding, fixture ou screenshot.
+- `TreeView.ItemContainerStyle` (Sidebar) e os `Button.Style`/`TabControl.Style` locais
+  pré-existentes (Inspector, TabsView) foram atualizados para `BasedOn="{StaticResource
+  {x:Type T}}"` — sem isso, o Style local substituiria por completo o Style implícito do tema em
+  vez de estendê-lo, e esses elementos específicos voltariam a renderizar com o chrome claro
+  padrão do WPF.
+
+### Módulo
+
+- `src/RemoteOps.Desktop/Themes/` — dono: `desktop-shell-agent`
+- Depends-on: (nenhum)
 
 ## [0.10.0-spike-ndesk-webrtc-capture] - 2026-07-01
 
