@@ -18,6 +18,20 @@ public partial class SettingsWindow : Window
 
     private SettingsViewModel Vm => (SettingsViewModel)DataContext;
 
+    private void Tabs_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        // DataContext pode ainda ser null quando o SelectionChanged inicial dispara dentro de
+        // InitializeComponent (antes do ctor setar o DataContext); o 'as' evita NRE.
+        if (e.AddedItems.Count > 0
+            && e.AddedItems[0] is System.Windows.Controls.TabItem { Header: "Novidades" })
+        {
+            (DataContext as SettingsViewModel)?.Changelog?.MarkAllSeen();
+        }
+    }
+
+    private void Preview_Expanded(object sender, RoutedEventArgs e)
+        => (DataContext as SettingsViewModel)?.BugReport?.PreviewCommand.Execute(null);
+
     private void BrowseWinBox_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new OpenFileDialog
