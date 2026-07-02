@@ -11,8 +11,8 @@ namespace RemoteOps.Desktop;
 
 /// <summary>
 /// Shell Termius (Fase 1): TabControl com a aba fixa "Hosts" (BrowserView) + uma aba por
-/// sessão aberta (Tabs.Tabs). Substitui o antigo DockPanel+Menu+Grid — ver MainViewModel,
-/// que permanece até a Task 13 remover o shell anterior.
+/// sessão aberta (Tabs.Tabs). Substitui o antigo DockPanel+Menu+Grid (Sidebar/HostList/
+/// Inspector/MainViewModel, removidos na Task 13).
 /// </summary>
 public partial class MainWindow : Window
 {

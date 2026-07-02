@@ -87,12 +87,6 @@ public sealed class CompositionRootSmokeTests : IDisposable
     public void Resolve_IWinBoxRunner() =>
         Assert.NotNull(_provider.GetRequiredService<IWinBoxRunner>());
 
-    // ViewModel -----------------------------------------------------------
-
-    [Fact]
-    public void Resolve_MainViewModel() =>
-        Assert.NotNull(_provider.GetRequiredService<MainViewModel>());
-
     // Shell Termius (Fase 1, Task 12) --------------------------------------
 
     [Fact]

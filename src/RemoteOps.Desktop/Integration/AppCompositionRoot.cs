@@ -140,10 +140,6 @@ internal static class AppCompositionRoot
         services.AddSingleton<ViewModels.BrowserViewModel>();
         services.AddSingleton<ViewModels.WorkspaceViewModel>();
 
-        // MainViewModel permanece registrado até a Task 13 (remoção do shell antigo) — ainda
-        // coberto por MainViewModel*Tests.
-        services.AddSingleton<ViewModels.MainViewModel>();
-
         // validateOnBuild: false — ISshConnectionFactory/ITelnetConnectionFactory são internal
         // em RemoteOps.Terminal; os providers públicos usam null como factory (real default).
         // Cobertura equivalente via CompositionRootSmokeTests.
