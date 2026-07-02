@@ -68,6 +68,35 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.1.0] - 2026-07-02
+
+### Adicionado
+
+- **Chaveiro (Keychain) com CRUD pela GUI (#44):** criar/editar/trocar senha/excluir credenciais
+  login+senha, com os segredos no vault cifrado (envelope AES-256-GCM + DPAPI); a senha entra por
+  `PasswordBox`, trafega como `char[]`/`ReadOnlyMemory<char>` até o vault e é zerada (`Array.Clear`)
+  após o uso. Rótulos do Keychain em inglês. Novo `ILocalStore.UpdateCredentialRefAsync`
+  (InMemory + SqlCipher). Seletor de credencial (opcional) na linha "adicionar endpoint" do editor
+  de host, gravando `CredentialRefId`.
+- **WinBox configurável pela GUI (#44):** Configurações → Ferramentas externas → **Procurar** o
+  `.exe`; o app calcula e fixa o SHA-256 (`HashUtil.Sha256File`) e valida no launch (fail-closed se
+  divergir), com **Re-fixar hash**. `WinBoxManifestResolver.Resolve` resolve na precedência
+  Configurações → variável de ambiente (`WINBOX_EXE_PATH`/`WINBOX_SHA256`) → caminho padrão.
+- **Aba Novidades (changelog) (#45):** changelog curado embutido no binário
+  (`Resources/operator-changelog.json`, `EmbeddedResource`, offline), com cartões por versão, chip
+  "novo" e badge no avatar controlado por `AppSettings.LastSeenChangelogVersion` (marcado como visto
+  ao abrir a aba). Comparação SemVer reaproveita `Update/AppVersion`.
+- **Aba Reportar problema (bug report) (#45):** e-mail pré-preenchido (`mailto:suporte@innet.tec.br`,
+  `Uri.AbsoluteUri` para preservar o encoding) + cópia local em `%AppData%\RemoteOps\bug-reports\`.
+  Diagnósticos secret-free (device id, versão do app/SO, últimas 30 linhas de `LogsViewModel.Events`)
+  são **opt-in** com **preview** do texto exato antes de enviar; `Submit` é independente do `Save` do
+  modal.
+
+### Segurança
+
+- Segredos nunca na UI, log, e-mail, arquivo ou commit. Diagnósticos só de fontes secret-free; texto
+  livre do operador é revisado no preview antes de enviar (e vai a e-mail interno, não público).
+
 ## [0.10.0-desktop-smoke-runbook] - 2026-07-01
 
 ### Corrigido
