@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using RemoteOps.Contracts.Sessions;
 using RemoteOps.Desktop.Infrastructure;
 using RemoteOps.Desktop.NDesk;
+using RemoteOps.Desktop.Sessions;
 using RemoteOps.Desktop.Update;
 using RemoteOps.MikroTik;
 using RemoteOps.Rdp;
@@ -21,6 +22,9 @@ namespace RemoteOps.Desktop.Integration;
 
 internal static class AppCompositionRoot
 {
+    // Workspace único local (Fase 1 — sem multi-workspace na UI ainda).
+    private const string DefaultWorkspaceId = "ws-local";
+
     /// <summary>
     /// Caminho in-memory (testes/smoke): registra `InMemoryLocalStore` e um
     /// `CredentialVault` volátil construído pelo container.
@@ -109,7 +113,35 @@ internal static class AppCompositionRoot
         // config = sem verificação de update, nunca deixa o app inutilizável).
         RegisterUpdateService(services);
 
-        // ViewModels
+        // ViewModels — shell Termius (Fase 1, Task 12): TabsViewModel/LogsViewModel são
+        // singletons compartilhados entre SessionLauncher, BrowserViewModel (via HostsViewModel/
+        // LogsViewModel) e WorkspaceViewModel; LogsViewModel também é exposto como IUiLogSink
+        // (mesma instância) para os sinks de auditoria emitirem eventos na aba Logs.
+        services.AddSingleton<ViewModels.TabsViewModel>();
+        services.AddSingleton<ViewModels.LogsViewModel>();
+        services.AddSingleton<Infrastructure.IUiLogSink>(sp => sp.GetRequiredService<ViewModels.LogsViewModel>());
+
+        services.AddSingleton<Sessions.SessionLauncher>(sp => new Sessions.SessionLauncher(
+            sp.GetRequiredService<ViewModels.TabsViewModel>(),
+            sp.GetService<IWinBoxRunner>(),
+            sp.GetService<IFeatureFlags>(),
+            sp.GetKeyedService<ITerminalSessionProvider>(RemoteProtocol.Ssh),
+            sp.GetKeyedService<ITerminalSessionProvider>(RemoteProtocol.Telnet),
+            sp.GetKeyedService<IRdpSessionProvider>(RemoteProtocol.Rdp),
+            sp.GetService<IRdpCredentialResolver>()));
+
+        services.AddSingleton<ViewModels.HostsViewModel>(sp => new ViewModels.HostsViewModel(
+            sp.GetRequiredService<ILocalStore>(),
+            sp.GetRequiredService<Sessions.SessionLauncher>(),
+            DefaultWorkspaceId));
+        services.AddSingleton<ViewModels.KeychainViewModel>(sp => new ViewModels.KeychainViewModel(
+            sp.GetRequiredService<ILocalStore>(),
+            DefaultWorkspaceId));
+        services.AddSingleton<ViewModels.BrowserViewModel>();
+        services.AddSingleton<ViewModels.WorkspaceViewModel>();
+
+        // MainViewModel permanece registrado até a Task 13 (remoção do shell antigo) — ainda
+        // coberto por MainViewModel*Tests.
         services.AddSingleton<ViewModels.MainViewModel>();
 
         // validateOnBuild: false — ISshConnectionFactory/ITelnetConnectionFactory são internal
