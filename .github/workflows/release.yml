@@ -4,10 +4,15 @@ name: release
 # (SemVer interno, docs/23-governanca-versionamento-changelog.md / VERSIONING.md).
 #
 # Empacotamento via Velopack (`vpk`) — config do projeto (Velopack.Packaging no .csproj,
-# ícone, VelopackApp.Build().Run() no Main) vem da frente paralela
-# feature/packaging-velopack-update / ADR-019. Este workflow assume o publish self-contained
-# padrão do RemoteOps.Desktop e a CLI `vpk` (dotnet tool) — ajustar flags aqui se ADR-019
-# definir nomes/IDs diferentes.
+# ícone, VelopackApp.Build().Run() no Main) vem de ADR-019. Publish usa o profile canônico
+# `win-x64-velopack.pubxml` (self-contained, PublishReadyToRun, IncludeNativeLibrariesForSelfExtract)
+# para não divergir do que é documentado/validado em docs/26-empacotamento-atualizacao-velopack.md.
+#
+# `vpk upload github` publica o Release **e** o feed de auto-update (RELEASES/releases.win.json +
+# *.nupkg full/delta) consumido em runtime por `GithubSource`/`UpdateManager`
+# (`AppCompositionRoot.RegisterUpdateService`) — ver ADR-019 §4. Um `gh release create` manual
+# não gera esses artefatos de feed, então este workflow usa exclusivamente `vpk upload github`
+# como fonte de verdade da publicação.
 #
 # Sem segredos: usa apenas o GITHUB_TOKEN padrão. Assinatura de binário (SignTool/certificado)
 # fica fora de escopo (docs/11 §Secret management no CI) e deve ser um workflow/step separado
@@ -24,14 +29,16 @@ permissions:
 env:
   DOTNET_VERSION: "10.0.x"
   APP_PROJECT: src/RemoteOps.Desktop/RemoteOps.Desktop.csproj
-  APP_ID: RemoteOps.Desktop
+  APP_ICON: src/RemoteOps.Desktop/assets/appicon.ico
+  APP_ID: RemoteOpsDesktop
   APP_EXE: RemoteOps.Desktop.exe
   RUNTIME_ID: win-x64
-  PUBLISH_DIR: publish/RemoteOps.Desktop
-  RELEASE_DIR: release-artifacts
+  PUBLISH_DIR: publish/win-x64
+  RELEASE_DIR: Releases
+  REPO_URL: https://github.com/vagnerss2011-spec/InnetTermb
 
 jobs:
-  build-and-package:
+  build-and-release:
     name: Build, empacotar (Velopack) e publicar release
     runs-on: windows-latest
     steps:
@@ -60,20 +67,18 @@ jobs:
         shell: pwsh
         run: dotnet restore
 
-      - name: Publish self-contained (${{ env.RUNTIME_ID }})
-        shell: pwsh
-        run: |
-          dotnet publish "${{ env.APP_PROJECT }}" `
-            --configuration Release `
-            --runtime "${{ env.RUNTIME_ID }}" `
-            --self-contained true `
-            -p:Version=${{ env.VERSION }} `
-            -p:PublishSingleFile=false `
-            --output "${{ env.PUBLISH_DIR }}"
-
       - name: Instalar Velopack CLI (vpk)
         shell: pwsh
         run: dotnet tool install -g vpk
+
+      - name: Publish self-contained (profile win-x64-velopack — ADR-019/docs/26)
+        shell: pwsh
+        run: |
+          dotnet publish "${{ env.APP_PROJECT }}" `
+            -c Release `
+            -p:PublishProfile=win-x64-velopack `
+            -p:Version=${{ env.VERSION }} `
+            -o "${{ env.PUBLISH_DIR }}"
 
       - name: Empacotar com Velopack (vpk pack)
         shell: pwsh
@@ -84,34 +89,10 @@ jobs:
             --packVersion "${{ env.VERSION }}" `
             --packDir "${{ env.PUBLISH_DIR }}" `
             --mainExe "${{ env.APP_EXE }}" `
+            --packTitle "RemoteOps Desktop" `
+            --packAuthors "InnetTermb" `
+            --icon "${{ env.APP_ICON }}" `
             --outputDir "${{ env.RELEASE_DIR }}"
-
-      - name: Renomear instalador Velopack (Setup.exe -> nome versionado)
-        shell: pwsh
-        run: |
-          $setup = Get-ChildItem -Path "${{ env.RELEASE_DIR }}" -Filter "Setup.exe" | Select-Object -First 1
-          if (-not $setup) {
-            Write-Error "vpk pack nao gerou Setup.exe em ${{ env.RELEASE_DIR }}"
-            exit 1
-          }
-          $installerName = "${{ env.APP_ID }}-${{ env.VERSION }}-${{ env.RUNTIME_ID }}-Setup.exe"
-          Copy-Item $setup.FullName (Join-Path "${{ env.RELEASE_DIR }}" $installerName)
-          "INSTALLER_NAME=$installerName" >> $env:GITHUB_ENV
-
-      - name: Gerar ZIP portátil (sem instalação)
-        shell: pwsh
-        run: |
-          $zipName = "${{ env.APP_ID }}-${{ env.VERSION }}-${{ env.RUNTIME_ID }}-portable.zip"
-          $zipPath = Join-Path "${{ env.RELEASE_DIR }}" $zipName
-          Compress-Archive -Path "${{ env.PUBLISH_DIR }}\*" -DestinationPath $zipPath -Force
-          "PORTABLE_ZIP_NAME=$zipName" >> $env:GITHUB_ENV
-
-      - name: Publicar executável avulso como asset
-        shell: pwsh
-        run: |
-          $exeName = "${{ env.APP_ID }}-${{ env.VERSION }}-${{ env.RUNTIME_ID }}.exe"
-          Copy-Item (Join-Path "${{ env.PUBLISH_DIR }}" "${{ env.APP_EXE }}") (Join-Path "${{ env.RELEASE_DIR }}" $exeName)
-          "STANDALONE_EXE_NAME=$exeName" >> $env:GITHUB_ENV
 
       - name: Gerar manifest de build e hashes SHA-256 (docs/23)
         shell: pwsh
@@ -148,22 +129,19 @@ jobs:
           path: ${{ env.RELEASE_DIR }}/*
           if-no-files-found: error
 
-      - name: Publicar GitHub Release
+      - name: vpk upload github (publica o Release + feed de auto-update)
+        shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: pwsh
         run: |
-          $ghArgs = @(
-            "release", "create", "${{ github.ref_name }}",
-            "--title", "${{ env.APP_ID }} ${{ env.VERSION }}",
-            "--notes", "Release automatizada via release.yml. Ver CHANGELOG.md para detalhes desta versao."
+          $vpkArgs = @(
+            "upload", "github",
+            "--repoUrl", "${{ env.REPO_URL }}",
+            "--token", "$env:GH_TOKEN",
+            "--tag", "${{ github.ref_name }}",
+            "--releaseName", "RemoteOps Desktop ${{ env.VERSION }}",
+            "--outputDir", "${{ env.RELEASE_DIR }}",
+            "--publish"
           )
-          if ($env:IS_PRERELEASE -eq "True") { $ghArgs += "--prerelease" }
-          $ghArgs += @(
-            "${{ env.RELEASE_DIR }}/${{ env.INSTALLER_NAME }}",
-            "${{ env.RELEASE_DIR }}/${{ env.PORTABLE_ZIP_NAME }}",
-            "${{ env.RELEASE_DIR }}/${{ env.STANDALONE_EXE_NAME }}",
-            "${{ env.RELEASE_DIR }}/SHA256SUMS.txt",
-            "${{ env.RELEASE_DIR }}/build-manifest.json"
-          )
-          & gh @ghArgs
+          if ($env:IS_PRERELEASE -eq "True") { $vpkArgs += "--pre" }
+          & vpk @vpkArgs

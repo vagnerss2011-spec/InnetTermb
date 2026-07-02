@@ -148,33 +148,35 @@ internal static class AppCompositionRoot
 
     private static void RegisterUpdateService(ServiceCollection services)
     {
-        string? repoUrl = Environment.GetEnvironmentVariable("REMOTEOPS_UPDATE_FEED_REPO_URL");
-        string? policyUrlRaw = Environment.GetEnvironmentVariable("REMOTEOPS_UPDATE_POLICY_URL");
-        if (string.IsNullOrWhiteSpace(repoUrl)
-            || string.IsNullOrWhiteSpace(policyUrlRaw)
-            || !Uri.TryCreate(policyUrlRaw, UriKind.Absolute, out Uri? policyUrl))
-        {
-            return;
-        }
+        // Feed embutido por padrão (env sobrescreve) — auto-update funciona no app
+        // instalado sem configuração (ADR-019). Ver Update/UpdateFeedConfig.cs.
+        string repoUrl = Update.UpdateFeedConfig.ResolveRepoUrl(
+            Environment.GetEnvironmentVariable("REMOTEOPS_UPDATE_FEED_REPO_URL"));
 
         UpdateManager manager;
         try
         {
-            // Token opcional (repositório privado) — nunca hardcoded, sempre de variável
-            // de ambiente/GitHub Environment (ADR-019 §4). null é válido para repositório
-            // público.
+            // Token opcional (repo público → null); nunca hardcoded (ADR-019 §4).
             string? accessToken = Environment.GetEnvironmentVariable("REMOTEOPS_UPDATE_FEED_TOKEN");
             var source = new GithubSource(repoUrl, accessToken, prerelease: false);
             manager = new UpdateManager(source);
         }
         catch (InvalidOperationException)
         {
-            // VelopackApp.Build().Run() não rodou (ex.: execução fora de um app instalado
-            // pelo Velopack, como testes) — não há locator disponível; segue sem registrar.
+            // App não instalado pelo Velopack (Debug/testes) — sem locator; segue sem update.
             return;
         }
 
-        services.AddSingleton<IUpdatePolicyFeedSource>(_ => new HttpUpdatePolicyFeedSource(new HttpClient(), policyUrl));
+        // Política de update forçado é OPCIONAL: sem REMOTEOPS_UPDATE_POLICY_URL, usa um
+        // feed nulo (sem versão mínima) — o update voluntário funciona mesmo assim.
+        string? policyUrlRaw = Environment.GetEnvironmentVariable("REMOTEOPS_UPDATE_POLICY_URL");
+        IUpdatePolicyFeedSource policyFeed =
+            !string.IsNullOrWhiteSpace(policyUrlRaw)
+            && Uri.TryCreate(policyUrlRaw, UriKind.Absolute, out Uri? policyUrl)
+                ? new HttpUpdatePolicyFeedSource(new HttpClient(), policyUrl)
+                : new Update.NoPolicyFeedSource();
+
+        services.AddSingleton(policyFeed);
         services.AddSingleton<IUpdateService>(sp => new VelopackUpdateService(
             manager, sp.GetRequiredService<IUpdatePolicyFeedSource>()));
     }

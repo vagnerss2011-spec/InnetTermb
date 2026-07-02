@@ -111,26 +111,27 @@ Fluxo, em `windows-latest`:
 1. Deriva a versão a partir do nome da tag (`v` removido) e valida contra o SemVer interno de
    `VERSIONING.md` (`X.Y.Z` ou `X.Y.Z-alpha|beta|rc.N`); tag fora do padrão falha o job antes de
    compilar.
-2. `dotnet restore` + `dotnet publish` self-contained (`win-x64`) de
-   `src/RemoteOps.Desktop/RemoteOps.Desktop.csproj`.
-3. Empacota o publish com a Velopack CLI (`vpk pack`) — instalador `Setup.exe`. A configuração
-   do projeto para Velopack (referência de pacote, `VelopackApp.Build().Run()` no `Main`, ícone)
-   é entregue pela frente paralela `feature/packaging-velopack-update` (**ADR-019**); este
-   workflow assume o publish self-contained padrão e os nomes de `APP_ID`/`APP_EXE` definidos no
-   topo do arquivo — ajustar ali se a ADR-019 definir valores diferentes.
-4. Gera também um ZIP portátil (todo o publish self-contained, sem instalação) e expõe o
-   executável principal avulso como terceiro artefato.
-5. Gera `SHA256SUMS.txt` e `build-manifest.json` (commit, branch, tag, versão do SDK,
+2. `dotnet restore` + instala a Velopack CLI (`vpk`) + `dotnet publish` self-contained
+   (`win-x64`) de `src/RemoteOps.Desktop/RemoteOps.Desktop.csproj` usando o publish profile
+   canônico `win-x64-velopack.pubxml` (**ADR-019**, `docs/26-empacotamento-atualizacao-velopack.md`)
+   — mesmo profile usado localmente, para não divergir do publish documentado/validado
+   (`PublishReadyToRun`, `IncludeNativeLibrariesForSelfExtract`, sem `PublishSingleFile`).
+3. Empacota o publish com a Velopack CLI (`vpk pack`) — gera `Setup.exe`, `*-full.nupkg`/
+   `*-delta.nupkg` e `releases.win.json` em `Releases/`.
+4. Gera `SHA256SUMS.txt` e `build-manifest.json` (commit, branch, tag, versão do SDK,
    timestamp UTC) para os artefatos publicados, conforme a seção "Builds reproduzíveis" de
-   `VERSIONING.md`.
-6. Publica os 5 arquivos (instalador, ZIP portátil, executável avulso, hashes, manifest) como
-   artefato do workflow (`actions/upload-artifact`) **e** como assets do GitHub Release da tag
-   (`gh release create`, usando apenas `GITHUB_TOKEN` — nenhum segredo adicional). Tag com sufixo
-   `-alpha`/`-beta`/`-rc` marca o Release como prerelease.
+   `VERSIONING.md`, e publica tudo como artefato do workflow (`actions/upload-artifact`).
+5. Publica o Release **e** o feed de auto-update via `vpk upload github` (ADR-019 §4) —
+   sobe o instalador, os pacotes `.nupkg` (full/delta) e o índice `releases.win.json` como
+   assets do GitHub Release da tag, usando apenas `GITHUB_TOKEN` (nenhum segredo adicional; repo
+   de releases é público). Tag com sufixo `-alpha`/`-beta`/`-rc` passa `--pre` (marca o Release
+   como prerelease). Esse feed é o que `GithubSource`/`UpdateManager`
+   (`AppCompositionRoot.RegisterUpdateService`) consome em runtime — **não** usar
+   `gh release create` manual aqui, pois ele não gera os artefatos de feed Velopack.
 
 Fora de escopo deste workflow (ver `docs/11` §Secret management no CI e `ADR-019`):
-assinatura de binário/instalador com certificado, publicação em canal interno alpha/beta/stable
-e feed de auto-update do Velopack.
+assinatura de binário/instalador com certificado e publicação em canal interno alpha/beta/stable
+(hoje só existe o canal padrão `win`).
 
 ## Secret management no CI
 
