@@ -1,0 +1,13 @@
+{
+  "entries": [
+    {
+      "version": "1.0.0",
+      "date": "2026-07-02",
+      "highlights": [
+        "Chaveiro: crie login e senha direto no app (aba Keychain).",
+        "WinBox: escolha o executável em Configurações → Ferramentas externas; o app fixa o hash automaticamente.",
+        "Anexe uma credencial a um host no editor de endpoints."
+      ]
+    }
+  ]
+}

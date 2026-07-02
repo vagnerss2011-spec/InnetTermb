@@ -81,4 +81,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
+  <ItemGroup>
+    <!-- Changelog curado do operador (offline). LogicalName fixo → GetManifestResourceStream determinístico. -->
+    <EmbeddedResource Include="Resources\operator-changelog.json">
+      <LogicalName>operator-changelog.json</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
 </Project>
