@@ -1,12 +1,22 @@
 {
   "entries": [
     {
+      "version": "1.1.0",
+      "date": "2026-07-02",
+      "highlights": [
+        "Chaveiro: crie e gerencie login e senha direto no app (aba Keychain).",
+        "Anexe uma credencial salva a um host no editor de endpoints.",
+        "WinBox: escolha o executável em Configurações → Ferramentas externas; o app fixa e valida o hash SHA-256 automaticamente.",
+        "Nova aba Novidades: veja o que mudou a cada versão.",
+        "Nova aba Reportar problema: envie bugs por e-mail ao suporte, com diagnósticos opcionais."
+      ]
+    },
+    {
       "version": "1.0.0",
       "date": "2026-07-02",
       "highlights": [
-        "Chaveiro: crie login e senha direto no app (aba Keychain).",
-        "WinBox: escolha o executável em Configurações → Ferramentas externas; o app fixa o hash automaticamente.",
-        "Anexe uma credencial a um host no editor de endpoints."
+        "Nova interface Slate Signal (tema escuro) com navegação estilo Termius: Hosts, Chaveiro e Logs.",
+        "Atualização automática: verifique e baixe novas versões em Configurações → Atualização."
       ]
     }
   ]
