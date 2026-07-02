@@ -17,10 +17,16 @@ public sealed class SettingsViewModel : BaseViewModel
     private string? _winBoxSha256;
     private string _updateStatus = string.Empty;
 
-    public SettingsViewModel(ISettingsStore store, IUpdateService? updateService = null)
+    public SettingsViewModel(
+        ISettingsStore store,
+        IUpdateService? updateService = null,
+        ChangelogViewModel? changelog = null,
+        BugReportViewModel? bugReport = null)
     {
         _store = store;
         _updateService = updateService;
+        Changelog = changelog;
+        BugReport = bugReport;
         _settings = store.Load();
         _rdpEnabled = _settings.Flags.TryGetValue(FeatureFlagNames.RdpEnabled, out bool rdp) && rdp;
         _ndeskEnabled = _settings.Flags.TryGetValue(FeatureFlagNames.NdeskEnabled, out bool nd) && nd;
@@ -44,6 +50,12 @@ public sealed class SettingsViewModel : BaseViewModel
 
     /// <summary>True quando há um WinBox configurado (habilita "Re-fixar hash").</summary>
     public bool HasWinBox => !string.IsNullOrWhiteSpace(_winBoxExePath);
+
+    /// <summary>Aba "Novidades" (pode ser null em testes que não injetam os filhos).</summary>
+    public ChangelogViewModel? Changelog { get; }
+
+    /// <summary>Aba "Reportar problema" (pode ser null em testes que não injetam os filhos).</summary>
+    public BugReportViewModel? BugReport { get; }
 
     public string ThemeName => "Slate Signal (escuro)";
     public string VersionText =>
