@@ -515,6 +515,46 @@ public sealed class SqlCipherLocalStore : ILocalStore
         return credentialRef;
     }
 
+    public async Task<CredentialRef> UpdateCredentialRefAsync(
+        CredentialRef credentialRef, CancellationToken ct = default)
+    {
+        using SqliteConnection conn = await _ctx.OpenConnectionAsync(ct);
+        await EnsureSchemaAsync(conn, ct);
+
+        string? metaJson = credentialRef.Metadata is null
+            ? null
+            : JsonSerializer.Serialize(credentialRef.Metadata, s_json);
+
+        using SqliteCommand cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE credential_refs
+            SET name = $name, type = $type, scope = $scope, metadata_json = $meta,
+                secret_envelope_id = $seid, version = $ver
+            WHERE id = $id
+            """;
+        cmd.Parameters.AddWithValue("$id", credentialRef.Id);
+        cmd.Parameters.AddWithValue("$name", credentialRef.Name);
+        cmd.Parameters.AddWithValue("$type", credentialRef.Type);
+        cmd.Parameters.AddWithValue("$scope", (object?)credentialRef.Scope ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$meta", (object?)metaJson ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$seid", (object?)credentialRef.SecretEnvelopeId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$ver", credentialRef.Version);
+        await cmd.ExecuteNonQueryAsync(ct);
+
+        // SecretEnvelopeId é referência (não o segredo) — seguro incluir no outbox.
+        await PushChangeAsync("credential_ref", credentialRef.Id, "updated",
+            new()
+            {
+                ["id"] = credentialRef.Id,
+                ["name"] = credentialRef.Name,
+                ["type"] = credentialRef.Type,
+                ["scope"] = credentialRef.Scope,
+                ["secret_envelope_id"] = credentialRef.SecretEnvelopeId,
+            }, credentialRef.Version, ct);
+
+        return credentialRef;
+    }
+
     public async Task DeleteCredentialRefAsync(string id, CancellationToken ct = default)
     {
         using SqliteConnection conn = await _ctx.OpenConnectionAsync(ct);

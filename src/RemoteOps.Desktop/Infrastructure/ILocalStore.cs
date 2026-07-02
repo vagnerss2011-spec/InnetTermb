@@ -31,5 +31,6 @@ public interface ILocalStore
     Task<IReadOnlyList<CredentialRef>> GetCredentialRefsAsync(string workspaceId, CancellationToken ct = default);
     Task<CredentialRef?> GetCredentialRefAsync(string credentialRefId, CancellationToken ct = default);
     Task<CredentialRef> AddCredentialRefAsync(CredentialRef credentialRef, CancellationToken ct = default);
+    Task<CredentialRef> UpdateCredentialRefAsync(CredentialRef credentialRef, CancellationToken ct = default);
     Task DeleteCredentialRefAsync(string id, CancellationToken ct = default);
 }
