@@ -182,17 +182,13 @@ internal static class AppCompositionRoot
             manager, sp.GetRequiredService<IUpdatePolicyFeedSource>()));
     }
 
-    private static WinBoxToolManifest BuildWinBoxManifest(IServiceProvider _)
+    private static WinBoxToolManifest BuildWinBoxManifest(IServiceProvider sp)
     {
-        string exePath = Environment.GetEnvironmentVariable("WINBOX_EXE_PATH")
-            ?? @"C:\Tools\WinBox\winbox64.exe";
-        return new WinBoxToolManifest
-        {
-            Tool = "winbox",
-            Version = "unknown",
-            File = "winbox64.exe",
-            Sha256 = Environment.GetEnvironmentVariable("WINBOX_SHA256"),
-            ExecutablePath = exePath,
-        };
+        AppSettings settings = sp.GetRequiredService<ISettingsStore>().Load();
+        return WinBoxManifestResolver.Resolve(
+            settings.WinBoxExePath,
+            settings.WinBoxSha256,
+            Environment.GetEnvironmentVariable("WINBOX_EXE_PATH"),
+            Environment.GetEnvironmentVariable("WINBOX_SHA256"));
     }
 }
