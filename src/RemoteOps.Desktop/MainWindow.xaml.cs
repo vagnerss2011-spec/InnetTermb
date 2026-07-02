@@ -112,6 +112,7 @@ public partial class MainWindow : Window
     {
         var window = new SettingsWindow(Vm.CreateSettingsViewModel()) { Owner = this };
         window.ShowDialog();
+        Vm.Browser.RefreshChangelogBadge();
     }
 
     private void OpenHostEditor(Contracts.Assets.Asset? existing, string? groupId)

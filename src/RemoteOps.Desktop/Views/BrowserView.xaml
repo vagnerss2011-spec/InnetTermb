@@ -66,11 +66,20 @@
                             <Setter Property="CornerRadius" Value="18"/>
                         </Style>
                     </Button.Resources>
-                    <TextBlock Text="{DynamicResource Icon.Person}"
-                               FontFamily="{DynamicResource Font.Family.Icons}"
-                               Foreground="{DynamicResource Brush.Text.Primary}"
-                               HorizontalAlignment="Center"
-                               VerticalAlignment="Center"/>
+                    <Grid>
+                        <TextBlock Text="{DynamicResource Icon.Person}"
+                                   FontFamily="{DynamicResource Font.Family.Icons}"
+                                   Foreground="{DynamicResource Brush.Text.Primary}"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"/>
+                        <Ellipse Width="9" Height="9"
+                                 HorizontalAlignment="Right" VerticalAlignment="Top"
+                                 Margin="0,-2,-2,0"
+                                 Fill="{DynamicResource Brush.Accent.Base}"
+                                 Stroke="{DynamicResource Brush.Bg.Surface}" StrokeThickness="1.5"
+                                 ToolTip="Há novidades"
+                                 Visibility="{Binding HasUnreadChangelog, Converter={StaticResource BoolToVis}}"/>
+                    </Grid>
                     <Button.ContextMenu>
                         <ContextMenu x:Name="AccountMenu" Placement="Top">
                             <MenuItem Header="Configurações" Command="{Binding OpenSettingsCommand}">
