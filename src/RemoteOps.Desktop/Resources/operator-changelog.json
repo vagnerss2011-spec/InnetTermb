@@ -1,6 +1,16 @@
 {
   "entries": [
     {
+      "version": "1.1.1",
+      "date": "2026-07-02",
+      "highlights": [
+        "Conectar avisa o que falta: se o endpoint não tem credencial ou o protocolo não bate, o app mostra a orientação em vez de não fazer nada.",
+        "WinBox: configurar o executável em Ferramentas externas passa a valer na hora, sem reiniciar o app.",
+        "Editor de host: o protocolo do endpoint salvo aparece selecionado e a linha ganhou rótulos (Protocolo, Endereço, Porta, Credencial).",
+        "Aba de terminal: falha de conexão mostra o motivo em vez de ficar em \"Conectando…\" pra sempre."
+      ]
+    },
+    {
       "version": "1.1.0",
       "date": "2026-07-02",
       "highlights": [
