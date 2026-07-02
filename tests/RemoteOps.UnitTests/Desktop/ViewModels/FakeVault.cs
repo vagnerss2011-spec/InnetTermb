@@ -22,7 +22,18 @@ public sealed class FakeVault : IVault
 
     private static SecretEnvelope Env(string id, string cid, string ws) => new()
     {
-        EnvelopeId = id, WorkspaceId = ws, CredentialId = cid, Type = "password", Version = 1, Algorithm = "test",
-        WrappedCek = [], CekNonce = [], CekTag = [], Ciphertext = [], Nonce = [], Tag = [], CreatedAt = default,
+        EnvelopeId = id,
+        WorkspaceId = ws,
+        CredentialId = cid,
+        Type = "password",
+        Version = 1,
+        Algorithm = "test",
+        WrappedCek = [],
+        CekNonce = [],
+        CekTag = [],
+        Ciphertext = [],
+        Nonce = [],
+        Tag = [],
+        CreatedAt = default,
     };
 }
