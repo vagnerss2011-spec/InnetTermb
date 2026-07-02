@@ -62,6 +62,9 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   os 5 artefatos como assets do GitHub Release e como artefato do workflow. Usa somente
   `GITHUB_TOKEN`; assinatura de binário fica fora de escopo. Consome a config Velopack do projeto
   (ADR-019). `docs/11-devops-github-ci.md` documenta o fluxo completo.
+- Auto-update: feed de releases embutido por padrão (env sobrescreve) e feed de política
+  opcional (`NoPolicyFeedSource`); pipeline `release.yml` publica por tag `vX.Y.Z`; baseline
+  v0.13.0 publicada.
 
 ## [0.10.0-desktop-smoke-runbook] - 2026-07-01
 
