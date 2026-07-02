@@ -101,12 +101,16 @@ internal static class AppCompositionRoot
         services.AddSingleton<IWinBoxAuditSink, StructuredWinBoxAuditSink>();
         services.AddSingleton<IWinBoxCredentialResolver, StoreWinBoxCredentialResolver>();
         services.AddSingleton<IWinBoxPolicyProvider>(_ => new LocalWinBoxPolicyProvider(new WinBoxPolicyConfig()));
-        services.AddSingleton<WinBoxToolManifest>(BuildWinBoxManifest);
-        services.AddSingleton<IWinBoxRunner>(sp => WinBoxRunner.Create(
-            sp.GetRequiredService<WinBoxToolManifest>(),
-            sp.GetRequiredService<IWinBoxPolicyProvider>(),
-            sp.GetRequiredService<IWinBoxAuditSink>(),
-            sp.GetRequiredService<IWinBoxCredentialResolver>()));
+        // Manifesto reconstruído a CADA launch (FreshManifestWinBoxRunner): configurar o
+        // WinBox em Configurações → Ferramentas externas vale sem reiniciar o app. O
+        // manifesto singleton stale era a causa do "clico em Abrir WinBox e nada acontece".
+        services.AddSingleton<IWinBoxRunner>(sp => new FreshManifestWinBoxRunner(
+            manifestFactory: () => BuildWinBoxManifest(sp),
+            runnerFactory: manifest => WinBoxRunner.Create(
+                manifest,
+                sp.GetRequiredService<IWinBoxPolicyProvider>(),
+                sp.GetRequiredService<IWinBoxAuditSink>(),
+                sp.GetRequiredService<IWinBoxCredentialResolver>())));
 
         // Empacotamento/atualização (ADR-019) — sem REMOTEOPS_UPDATE_FEED_REPO_URL/
         // REMOTEOPS_UPDATE_POLICY_URL configurados, não registra nada (fail-open: sem
