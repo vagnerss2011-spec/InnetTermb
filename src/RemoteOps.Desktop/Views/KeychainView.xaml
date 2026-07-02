@@ -5,24 +5,20 @@
     <DockPanel Background="{DynamicResource Brush.Bg.Surface}">
 
         <TextBlock DockPanel.Dock="Top"
-                   Text="Chaveiro"
+                   Text="Keychain"
                    Style="{DynamicResource Text.Title}"
                    Margin="{DynamicResource Thickness.PanelPadding}"/>
 
-        <Border DockPanel.Dock="Top"
-                Background="{DynamicResource Brush.Accent.Muted}"
-                BorderBrush="{DynamicResource Brush.Border.Default}"
-                BorderThickness="1"
-                CornerRadius="{DynamicResource Radius.Control}"
-                Padding="8,6"
-                Margin="8,0,8,8">
-            <TextBlock Text="Gerenciamento completo (criar, editar, rotacionar credenciais) em breve. Esta lista é somente leitura e nunca exibe segredos."
-                       Style="{DynamicResource Text.Caption}"
-                       TextWrapping="Wrap"/>
-        </Border>
+        <!-- Toolbar -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="8,0,8,8">
+            <Button Content="Add credential" Click="Add_Click" Padding="8,3" Margin="0,0,6,0"/>
+            <Button Content="Edit" Click="Edit_Click" Padding="8,3" Margin="0,0,6,0"/>
+            <Button Content="Change password" Click="ChangePassword_Click" Padding="8,3" Margin="0,0,6,0"/>
+            <Button Content="Delete" Click="Delete_Click" Padding="8,3"/>
+        </StackPanel>
 
-        <!-- Estado vazio -->
-        <TextBlock Text="Nenhuma credencial cadastrada neste workspace."
+        <!-- Empty state -->
+        <TextBlock Text="No credentials in this workspace yet. Click “Add credential”."
                    TextWrapping="Wrap"
                    Margin="24"
                    HorizontalAlignment="Center"
@@ -40,6 +36,7 @@
         </TextBlock>
 
         <DataGrid ItemsSource="{Binding Credentials}"
+                  SelectedItem="{Binding SelectedCredential, Mode=TwoWay}"
                   AutoGenerateColumns="False"
                   IsReadOnly="True"
                   HeadersVisibility="Column"
@@ -48,9 +45,9 @@
                   BorderThickness="0"
                   CanUserResizeRows="False">
             <DataGrid.Columns>
-                <DataGridTextColumn Header="Nome"      Binding="{Binding Name}"               Width="*"/>
-                <DataGridTextColumn Header="Tipo"      Binding="{Binding Type}"                Width="120"/>
-                <DataGridTextColumn Header="Usuário"   Binding="{Binding Metadata.Username}"   Width="160"/>
+                <DataGridTextColumn Header="Name"     Binding="{Binding Name}"              Width="*"/>
+                <DataGridTextColumn Header="Type"     Binding="{Binding Type}"              Width="120"/>
+                <DataGridTextColumn Header="Username" Binding="{Binding Metadata.Username}" Width="160"/>
             </DataGrid.Columns>
         </DataGrid>
     </DockPanel>
