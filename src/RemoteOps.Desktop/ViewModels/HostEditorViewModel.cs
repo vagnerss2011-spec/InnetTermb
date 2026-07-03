@@ -18,6 +18,7 @@ public sealed class HostEditorViewModel : BaseViewModel
     private string _newEndpointAddress = string.Empty;
     private int _newEndpointPort = 22;
     private string? _newEndpointCredentialId;
+    private string _newEndpointSshProfile = "auto";
 
     public HostEditorViewModel(ILocalStore store, string workspaceId, Asset? existing, string? groupId)
     {
@@ -65,6 +66,9 @@ public sealed class HostEditorViewModel : BaseViewModel
     public int NewEndpointPort { get => _newEndpointPort; set => Set(ref _newEndpointPort, value); }
     public string? NewEndpointCredentialId { get => _newEndpointCredentialId; set => Set(ref _newEndpointCredentialId, value); }
 
+    /// <summary>Perfil de segurança SSH do endpoint: "auto" | "strict".</summary>
+    public string NewEndpointSshProfile { get => _newEndpointSshProfile; set => Set(ref _newEndpointSshProfile, value); }
+
     public RelayCommand AddEndpointCommand { get; }
     public RelayCommand RemoveEndpointCommand { get; }
     public RelayCommand SaveCommand { get; }
@@ -97,9 +101,13 @@ public sealed class HostEditorViewModel : BaseViewModel
             Ipv6 = v6 ? address : null,
             Fqdn = isIp ? null : address,
             CredentialRefId = _newEndpointCredentialId,
+            Profile = (NewEndpointProtocol == "ssh" && _newEndpointSshProfile == "strict")
+                ? new EndpointProfile { SshAlgorithmProfile = "strict" }
+                : null,
         });
         NewEndpointAddress = string.Empty;
         NewEndpointCredentialId = null;
+        NewEndpointSshProfile = "auto";
     }
 
     /// <summary>Carrega as credenciais do workspace para o seletor (sem segredo).</summary>
