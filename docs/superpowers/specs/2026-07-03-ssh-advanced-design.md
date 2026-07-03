@@ -13,7 +13,7 @@ Fechar o último ponto do feedback de campo: (1) **autenticação SSH por chave 
 | Decisão | Escolha |
 |---|---|
 | Formato de chave | **PEM/OpenSSH/ssh.com nativos** (RSA/DSA/ECDSA/Ed25519 — o que `Renci.SshNet 2024.2.0 PrivateKeyFile` lê). `.ppk` detectado explicitamente com orientação: *PuTTYgen → Conversions → Export OpenSSH key*. Sem parser PPK próprio. |
-| Algoritmos | **Perfil por endpoint** com 3 presets: **Automático** (defaults da lib), **Compatível** (garante `diffie-hellman-group14-sha1`, `ssh-rsa`, `aes*-cbc`, `hmac-sha1`), **Legado** (Compatível + `diffie-hellman-group1-sha1`, `3des-cbc`). Sem lista ordenável estilo PuTTY nesta frente. |
+| Algoritmos | **Perfil por endpoint** com 2 presets. **Achado (verificado rodando a lib):** SSH.NET 2024.2.0 **já habilita por padrão** todos os legados (`group1-sha1`, `group14-sha1`, `ssh-rsa`, `*-cbc`, `3des-cbc`, `hmac-sha1`) — logo equipamento antigo já conecta sem configurar. O perfil então **endurece** (não afrouxa): **Automático** (default da lib, conecta em tudo, inclusive legado) e **Estrito/Moderno** (remove os fracos via `.Remove()` no dicionário — só algoritmos fortes; para hosts modernos onde se quer hardening). Sem lista ordenável estilo PuTTY nesta frente. |
 | Passphrase | **Suportada**, guardada em **envelope separado** no vault (`CredentialMetadata.PassphraseEnvelopeId`) — rotaciona sem re-enviar a chave. |
 | Entrada da chave | **Arquivo (Procurar…) E colar texto**, com validação comum (`-----BEGIN`) e detecção de PPK. |
 | Auth no provider | **Dispatch estrito por `CredentialRef.Type`** (`privateKey` → chave; senão senha). Sem cadeia de fallback. |
@@ -34,7 +34,7 @@ Fechar o último ponto do feedback de campo: (1) **autenticação SSH por chave 
 **Contratos (`RemoteOps.Contracts.Assets`):**
 - Novo `CredentialTypes` estático: `Password = "password"`, `PrivateKey = "privateKey"`, `PrivateKeyPassphrase = "privateKeyPassphrase"`.
 - `CredentialMetadata` + `public string? PassphraseEnvelopeId { get; init; }` (aditivo; `metadata_json` serializa transparente).
-- `EndpointProfile` + `public string? SshAlgorithmProfile { get; init; }` (`"auto" | "compat" | "legacy"`; null = auto). Persistência já existe (`profile_json` no SqlCipher).
+- `EndpointProfile` + `public string? SshAlgorithmProfile { get; init; }` (`"auto" | "strict"`; null = auto). Persistência já existe (`profile_json` no SqlCipher).
 
 **Validação pura (`RemoteOps.Desktop/Infrastructure/PrivateKeyInput.cs`):**
 - `enum PrivateKeyKind { Valid, PuttyPpk, Invalid }`; `static PrivateKeyKind Classify(string text)`: `-----BEGIN` (qualquer variante PEM/OpenSSH) → Valid; começa com `PuTTY-User-Key-File` → PuttyPpk; senão Invalid. Puro, testável.
@@ -56,11 +56,10 @@ Fechar o último ponto do feedback de campo: (1) **autenticação SSH por chave 
 
 ### U2 — Perfis de algoritmos (`RemoteOps.Terminal.Ssh.SshAlgorithmPolicy`)
 
-- `static class SshAlgorithmPolicy` com `public const string Auto/Compat/Legacy` e `static void Apply(ConnectionInfo info, string? profile)`:
-  - `null`/`"auto"` → não toca nada (defaults da lib).
-  - `"compat"` → garante presentes (adicionando ao FIM da ordem, preferência continua moderna): KEX `diffie-hellman-group14-sha1`, `diffie-hellman-group-exchange-sha1`; HostKey `ssh-rsa`; Ciphers `aes128-cbc`, `aes192-cbc`, `aes256-cbc`; HMAC `hmac-sha1`. Entradas movidas/copiadas a partir do catálogo da própria lib (nunca implementação própria de crypto).
-  - `"legacy"` → compat + KEX `diffie-hellman-group1-sha1`; Cipher `3des-cbc`.
-- Como os dicionários da `ConnectionInfo` já vêm populados com tudo que a lib suporta, `Apply` **reordena/garante** entradas usando os `Func` originais do próprio dicionário (remove e re-insere no fim) — zero criptografia nova; testável inspecionando presença/ordem das chaves.
+- `static class SshAlgorithmPolicy` com `public const string Auto="auto"`, `Strict="strict"` e `static void Apply(ConnectionInfo info, string? profile)`:
+  - `null`/`"auto"` → não toca nada (defaults permissivos da lib; conecta a legado).
+  - `"strict"` → **remove** os algoritmos fracos dos dicionários da `ConnectionInfo` (`.Remove(nome)`): KEX `diffie-hellman-group1-sha1`, `diffie-hellman-group14-sha1`, `diffie-hellman-group-exchange-sha1`; HostKey `ssh-rsa`, `ssh-dss`, `ssh-rsa-cert-v01@openssh.com`, `ssh-dss-cert-v01@openssh.com`; Cipher `aes128-cbc`, `aes192-cbc`, `aes256-cbc`, `3des-cbc`; HMAC `hmac-sha1`, `hmac-sha1-etm@openssh.com`. Só remove chaves fracas — zero criptografia nova; nunca lança (Remove de chave ausente é no-op). Testável: após `Apply(strict)` os fracos somem e os fortes (curve25519, aes*-ctr/gcm, ed25519, hmac-sha2-*) permanecem.
+- Racional: SSH.NET 2024.2.0 já traz TODOS os algoritmos (fortes e fracos) habilitados por default — verificado rodando `ConnectionInfo` real. Por isso o perfil endurece (remove), não afrouxa (o default já afrouxa o suficiente para equipamento legado).
 
 ### U3 — Provider SSH (chave + perfil na conexão)
 
@@ -76,7 +75,7 @@ Fechar o último ponto do feedback de campo: (1) **autenticação SSH por chave 
 
 ### HostEditor (UI do perfil)
 
-- Linha "adicionar endpoint" ganha coluna **"Compat. SSH"** (ComboBox: Automático/Compatível/Legado, default Automático; tooltip explica quando usar e avisa que Legado usa algoritmos fracos — só para o host que precisa). Janela vai a 800px.
+- Linha "adicionar endpoint" ganha coluna **"Segurança SSH"** (ComboBox: **Automático** / **Estrito**, default Automático; tooltip: Automático conecta em qualquer equipamento inclusive antigo; Estrito exige algoritmos modernos — use em hosts novos para hardening). Janela vai a 800px.
 - Ao adicionar endpoint `ssh` com perfil ≠ Automático: `Endpoint.Profile = new EndpointProfile { SshAlgorithmProfile = valor }` (preserva `VendorProfile`/`TerminalEncoding` se editando endpoint existente — nesta frente só criação nova usa o combo). Para outros protocolos o combo é ignorado.
 
 ## Fluxo de dados
@@ -92,10 +91,10 @@ Keychain → vault (2 envelopes) → `CredentialRef(Type=privateKey, Metadata.Pa
 ## Testes (TDD)
 
 - `PrivateKeyInput.Classify` (PEM ok / OpenSSH ok / PPK detectado / lixo).
-- `SshAlgorithmPolicy.Apply` (auto intocado; compat contém group14-sha1+ssh-rsa+aes-cbc+hmac-sha1; legacy contém group1-sha1+3des; modernos continuam à frente).
+- `SshAlgorithmPolicy.Apply` (auto: dicionários intocados; strict: `group1-sha1`/`group14-sha1`/`ssh-rsa`/`*-cbc`/`3des`/`hmac-sha1` removidos, e curve25519/aes-ctr/ed25519/hmac-sha2-* permanecem).
 - `KeychainViewModel.CreateKeyAsync` (2 envelopes com/sem passphrase; metadata correto; buffers zerados — FakeVault registra tipos), `ReplaceKeyAsync`/`ChangePassphraseAsync` (rotação/criação), `DeleteAsync` revoga os dois, `ChangePasswordAsync` guarda por tipo.
 - `SshSessionProvider` com fake factory: credencial `privateKey` → options com `PrivateKeyUtf8` e sem `Password`; credencial `password` → inverso; perfil do endpoint chega em `AlgorithmProfile`.
-- `HostEditorViewModel`: endpoint ssh com perfil Compatível → `Profile.SshAlgorithmProfile == "compat"`; Automático → Profile null (ou campo null).
+- `HostEditorViewModel`: endpoint ssh com perfil Estrito → `Profile.SshAlgorithmProfile == "strict"`; Automático → Profile null.
 - Guarda de segredo: nenhum log/auditoria contém material de chave.
 
 ## Fora de escopo (registrado)
