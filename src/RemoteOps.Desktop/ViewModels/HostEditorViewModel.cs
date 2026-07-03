@@ -74,7 +74,17 @@ public sealed class HostEditorViewModel : BaseViewModel
     private void AddEndpoint()
     {
         if (string.IsNullOrWhiteSpace(NewEndpointAddress)) return;
-        bool isIp = System.Net.IPAddress.TryParse(NewEndpointAddress, out var ip);
+
+        // Normaliza a entrada: espaços e colchetes de IPv6 ("[2001:db8::1]" → "2001:db8::1").
+        // IPAddress.TryParse ACEITA a forma com colchetes, então sem o strip o IPv6 era
+        // salvo com colchetes e a conexão SSH/Telnet falhava com "host inválido".
+        string address = NewEndpointAddress.Trim();
+        if (address.Length > 2 && address[0] == '[' && address[^1] == ']')
+        {
+            address = address[1..^1];
+        }
+
+        bool isIp = System.Net.IPAddress.TryParse(address, out var ip);
         bool v6 = isIp && ip!.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6;
         bool v4 = isIp && ip!.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork;
         Endpoints.Add(new Endpoint
@@ -83,9 +93,9 @@ public sealed class HostEditorViewModel : BaseViewModel
             AssetId = _existing?.Id ?? string.Empty,
             Protocol = NewEndpointProtocol,
             Port = NewEndpointPort,
-            Ipv4 = v4 ? NewEndpointAddress : null,
-            Ipv6 = v6 ? NewEndpointAddress : null,
-            Fqdn = isIp ? null : NewEndpointAddress,
+            Ipv4 = v4 ? address : null,
+            Ipv6 = v6 ? address : null,
+            Fqdn = isIp ? null : address,
             CredentialRefId = _newEndpointCredentialId,
         });
         NewEndpointAddress = string.Empty;
