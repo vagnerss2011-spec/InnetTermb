@@ -1,3 +1,4 @@
+using System.IO;
 using Renci.SshNet;
 
 namespace RemoteOps.Terminal.Ssh;
@@ -7,16 +8,37 @@ namespace RemoteOps.Terminal.Ssh;
 /// </summary>
 internal sealed class RenciSshConnectionFactory : ISshConnectionFactory
 {
-    public ISshConnection Create(string host, int port, string username, string password)
+    public ISshConnection Create(SshConnectionOptions options)
     {
-        var authMethod = new PasswordAuthenticationMethod(username, password);
-        var info = new ConnectionInfo(host, port, username, authMethod)
+        AuthenticationMethod authMethod;
+        if (options.PrivateKeyUtf8 is { } keyBytes)
+        {
+            try
+            {
+                using var ms = new MemoryStream(keyBytes);
+                var keyFile = string.IsNullOrEmpty(options.PrivateKeyPassphrase)
+                    ? new PrivateKeyFile(ms)
+                    : new PrivateKeyFile(ms, options.PrivateKeyPassphrase);
+                authMethod = new PrivateKeyAuthenticationMethod(options.Username, keyFile);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException("Chave privada inválida ou passphrase incorreta.", ex);
+            }
+        }
+        else
+        {
+            authMethod = new PasswordAuthenticationMethod(options.Username, options.Password ?? string.Empty);
+        }
+
+        var info = new ConnectionInfo(options.Host, options.Port, options.Username, authMethod)
         {
             Timeout = TimeSpan.FromSeconds(30),
         };
+        SshAlgorithmPolicy.Apply(info, options.AlgorithmProfile);
+
         // Keepalive: envia keep-alive a cada 30 s para manter sessões ociosas vivas.
-        var client = new SshClient(info);
-        client.KeepAliveInterval = TimeSpan.FromSeconds(30);
+        var client = new SshClient(info) { KeepAliveInterval = TimeSpan.FromSeconds(30) };
         return new RenciSshConnection(client);
     }
 }

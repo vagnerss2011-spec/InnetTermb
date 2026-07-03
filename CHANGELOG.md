@@ -68,6 +68,30 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.2.0] - 2026-07-03
+
+### Adicionado
+
+- **Autenticação SSH por chave privada:** nova credencial "SSH key" no Keychain — importar
+  arquivo `.pem`/OpenSSH (RSA/ECDSA/Ed25519) **ou** colar o texto, com **passphrase opcional**
+  guardada em envelope separado no cofre (`CredentialMetadata.PassphraseEnvelopeId`). `.ppk` do
+  PuTTY é detectado com instrução de conversão (não há parser PPK nativo na SSH.NET). O
+  `SshSessionProvider` faz **dispatch por `CredentialRef.Type`** — a chave NUNCA vai como senha
+  ao servidor; o buffer da chave (byte[]) é zerado após o connect. Toolbar do Keychain ganha
+  **Replace key** e **Change passphrase** (só para credenciais de chave). Constantes canônicas
+  em `CredentialTypes` (o Type entra no AAD do AES-GCM).
+- **Perfil de segurança SSH por endpoint (`EndpointProfile.SshAlgorithmProfile`):** coluna
+  **Segurança SSH** no editor de host — **Automático** (defaults permissivos da SSH.NET, que já
+  habilitam algoritmos legados; conecta a equipamento antigo) e **Estrito** (`SshAlgorithmPolicy`
+  remove KEX/host-key/cifra/HMAC fracos — `group1/14-sha1`, `ssh-rsa`, `*-cbc`, `3des`,
+  `hmac-sha1` — para hardening em hosts modernos). Aplicado no `ConnectionInfo` antes do
+  `Connect()`.
+
+### Fora de escopo (registrado)
+
+- Keyboard-interactive (alguns MikroTik/Cisco), parser `.ppk` embutido, painel de algoritmos
+  ordenável estilo PuTTY, persistência do host-key store (TOFU) — follow-ups.
+
 ## [1.1.2] - 2026-07-03
 
 ### Adicionado

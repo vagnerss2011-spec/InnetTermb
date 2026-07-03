@@ -29,4 +29,7 @@ public sealed class EndpointProfile
     public string? VendorProfile { get; init; }
 
     public string? TerminalEncoding { get; init; }
+
+    /// <summary>Perfil de segurança SSH: "auto" (default permissivo) | "strict" (só algoritmos fortes). null = auto.</summary>
+    public string? SshAlgorithmProfile { get; init; }
 }

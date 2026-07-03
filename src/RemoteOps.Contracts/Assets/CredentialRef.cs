@@ -25,5 +25,8 @@ public sealed class CredentialMetadata
 
     public bool HasPrivateKey { get; init; }
 
+    /// <summary>Envelope da passphrase da chave privada (quando houver); null = chave sem passphrase.</summary>
+    public string? PassphraseEnvelopeId { get; init; }
+
     public DateTimeOffset? LastRotatedAt { get; init; }
 }

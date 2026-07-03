@@ -1,6 +1,16 @@
 {
   "entries": [
     {
+      "version": "1.2.0",
+      "date": "2026-07-03",
+      "highlights": [
+        "Conecte por chave SSH: crie uma credencial \"SSH key\" no Keychain (importe o arquivo .pem/OpenSSH ou cole a chave), com passphrase opcional.",
+        "Chave no formato PuTTY (.ppk)? O app avisa e orienta a converter no PuTTYgen (Export OpenSSH key).",
+        "Segurança SSH por host no editor: Automático conecta em qualquer equipamento (inclusive antigo); Estrito exige algoritmos modernos.",
+        "Aba Logs mostra o acesso por chave junto com os demais eventos de conexão."
+      ]
+    },
+    {
       "version": "1.1.2",
       "date": "2026-07-03",
       "highlights": [

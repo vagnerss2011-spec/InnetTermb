@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:assets="clr-namespace:RemoteOps.Contracts.Assets;assembly=RemoteOps.Contracts"
         xmlns:conv="clr-namespace:RemoteOps.Desktop.Converters"
-        Title="{Binding Title}" Height="500" Width="720" MinWidth="640" MinHeight="460"
+        Title="{Binding Title}" Height="500" Width="820" MinWidth="720" MinHeight="460"
         WindowStartupLocation="CenterOwner" ResizeMode="CanResizeWithGrips"
         Background="{DynamicResource Brush.Bg.App}"
         Foreground="{DynamicResource Brush.Text.Primary}"
@@ -40,6 +40,7 @@
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="60"/>
                 <ColumnDefinition Width="150"/>
+                <ColumnDefinition Width="110"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
@@ -50,6 +51,8 @@
             <TextBlock Grid.Row="0" Grid.Column="2" Text="Porta" FontSize="11"
                        Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="0,0,8,2"/>
             <TextBlock Grid.Row="0" Grid.Column="3" Text="Credencial (opcional)" FontSize="11"
+                       Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="0,0,8,2"/>
+            <TextBlock Grid.Row="0" Grid.Column="4" Text="Segurança SSH" FontSize="11"
                        Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="0,0,8,2"/>
 
             <ComboBox Grid.Row="1" Grid.Column="0"
@@ -80,7 +83,16 @@
                       ToolTip="Credencial (opcional) — crie na aba Keychain"
                       Margin="0,0,8,0" VerticalAlignment="Center"/>
 
-            <Button Grid.Row="1" Grid.Column="4" Content="Adicionar endpoint"
+            <ComboBox Grid.Row="1" Grid.Column="4"
+                      SelectedValuePath="Content"
+                      SelectedValue="{Binding NewEndpointSshProfile, Mode=TwoWay}"
+                      ToolTip="Automático: conecta em qualquer equipamento (inclusive antigo). Estrito: exige algoritmos modernos (hardening; use em hosts novos)."
+                      Margin="0,0,8,0" VerticalAlignment="Center">
+                <ComboBoxItem Content="auto"/>
+                <ComboBoxItem Content="strict"/>
+            </ComboBox>
+
+            <Button Grid.Row="1" Grid.Column="5" Content="Adicionar endpoint"
                     Command="{Binding AddEndpointCommand}"
                     Padding="10,4" VerticalAlignment="Center"/>
         </Grid>

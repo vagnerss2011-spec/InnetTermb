@@ -14,6 +14,10 @@
             <Button Content="Add credential" Click="Add_Click" Padding="8,3" Margin="0,0,6,0"/>
             <Button Content="Edit" Click="Edit_Click" Padding="8,3" Margin="0,0,6,0"/>
             <Button Content="Change password" Click="ChangePassword_Click" Padding="8,3" Margin="0,0,6,0"/>
+            <Button Content="Replace key" Click="ReplaceKey_Click" Padding="8,3" Margin="0,0,6,0"
+                    ToolTip="Substitui a chave privada (credenciais SSH key)"/>
+            <Button Content="Change passphrase" Click="ChangePassphrase_Click" Padding="8,3" Margin="0,0,6,0"
+                    ToolTip="Troca a passphrase da chave (credenciais SSH key)"/>
             <Button Content="Delete" Click="Delete_Click" Padding="8,3"/>
         </StackPanel>
 

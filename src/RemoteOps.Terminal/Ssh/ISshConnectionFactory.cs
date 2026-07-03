@@ -1,16 +1,32 @@
 namespace RemoteOps.Terminal.Ssh;
 
+/// <summary>Opções de conexão SSH: senha OU chave privada, mais o perfil de algoritmos.</summary>
+internal sealed record SshConnectionOptions
+{
+    public required string Host { get; init; }
+    public required int Port { get; init; }
+    public required string Username { get; init; }
+
+    /// <summary>Senha materializada de VaultSecret.RevealString() (auth por senha). Ver ADR-009 §FIX-3.</summary>
+    public string? Password { get; init; }
+
+    /// <summary>Bytes UTF-8 da chave privada PEM/OpenSSH (auth por chave). Zerar após uso.</summary>
+    public byte[]? PrivateKeyUtf8 { get; init; }
+
+    /// <summary>Passphrase da chave (quando houver).</summary>
+    public string? PrivateKeyPassphrase { get; init; }
+
+    /// <summary>Perfil de segurança SSH ("auto" | "strict"); null = auto.</summary>
+    public string? AlgorithmProfile { get; init; }
+}
+
 /// <summary>
 /// Fábrica de conexões SSH. Internal para permitir substituição em testes
 /// sem expor detalhes de SSH.NET na API pública do módulo.
 /// </summary>
 internal interface ISshConnectionFactory
 {
-    /// <param name="password">
-    /// String materializada de VaultSecret.RevealString(). Limitação de Renci.SshNet
-    /// (exige string na autenticação por senha). Minimizar escopo; ver ADR-009 §FIX-3.
-    /// </param>
-    ISshConnection Create(string host, int port, string username, string password);
+    ISshConnection Create(SshConnectionOptions options);
 }
 
 internal interface ISshConnection : IDisposable

@@ -75,6 +75,7 @@ public sealed class SshSessionProvider : ITerminalSessionProvider
         int cols = request.Terminal?.Cols ?? 80;
         int rows = request.Terminal?.Rows ?? 24;
         string termType = "xterm-256color";
+        string? algorithmProfile = endpoint.Profile?.SshAlgorithmProfile;
 
         var vaultCtx = new VaultAccessContext
         {
@@ -82,16 +83,51 @@ public sealed class SshSessionProvider : ITerminalSessionProvider
             DeviceId = _securityContext.DeviceId,
         };
 
-        // FIX 3: VaultSecret é descartado logo após autenticação para zerar o buffer UTF-8.
-        // Renci.SshNet exige string em PasswordAuthenticationMethod — essa conversão é inevitável
-        // e está documentada no ADR-009 §FIX-3 com os mitigantes adotados.
-        using var secret = await _vault.RetrieveAsync(envelopeId, vaultCtx, ct);
-        string password = secret.RevealString();
+        // Dispatch por tipo: credencial de chave usa PrivateKeyAuthenticationMethod (a chave
+        // NUNCA vai como senha ao servidor); senão, senha como antes. VaultSecret zera o buffer
+        // no using; a chave em byte[] é zerada após o connect. Ver ADR-009 §FIX-3.
+        SshConnectionOptions options;
+        if (credRef.Type == CredentialTypes.PrivateKey)
+        {
+            using var keySecret = await _vault.RetrieveAsync(envelopeId, vaultCtx, ct);
+            byte[] keyBytes = keySecret.RevealUtf8().ToArray();
+            string? passphrase = null;
+            if (credRef.Metadata?.PassphraseEnvelopeId is { } ppId)
+            {
+                using var ppSecret = await _vault.RetrieveAsync(ppId, vaultCtx, ct);
+                passphrase = ppSecret.RevealString();
+            }
+            options = new SshConnectionOptions
+            {
+                Host = host,
+                Port = port,
+                Username = username,
+                PrivateKeyUtf8 = keyBytes,
+                PrivateKeyPassphrase = passphrase,
+                AlgorithmProfile = algorithmProfile,
+            };
+        }
+        else
+        {
+            using var secret = await _vault.RetrieveAsync(envelopeId, vaultCtx, ct);
+            options = new SshConnectionOptions
+            {
+                Host = host,
+                Port = port,
+                Username = username,
+                Password = secret.RevealString(),
+                AlgorithmProfile = algorithmProfile,
+            };
+        }
 
         var (connection, shell, channel, readerCts) =
-            await ConnectWithTofuAsync(host, port, username, password, cols, rows, termType, request.SessionId, ct);
+            await ConnectWithTofuAsync(options, cols, rows, termType, request.SessionId, ct);
 
-        // VaultSecret é zerado ao sair do using acima; password persiste em SSH.NET até GC (ADR-009).
+        // Zera a cópia gerenciada da chave privada assim que a conexão foi estabelecida.
+        if (options.PrivateKeyUtf8 is { } usedKey)
+        {
+            Array.Clear(usedKey);
+        }
 
         var state = new SshSessionState(connection, shell, channel, readerCts);
         _sessions[request.SessionId] = state;
@@ -118,16 +154,17 @@ public sealed class SshSessionProvider : ITerminalSessionProvider
 
     private async Task<(ISshConnection, ISshShell, Channel<ReadOnlyMemory<byte>>, CancellationTokenSource)>
         ConnectWithTofuAsync(
-            string host, int port, string username, string password,
+            SshConnectionOptions options,
             int cols, int rows, string termType, string sessionId, CancellationToken ct)
     {
+        string host = options.Host;
         HostKeyRejectionReason? rejectionReason = null;
         string? capturedFp = null;
 
         ISshConnection? connection = null;
         try
         {
-            connection = _factory.Create(host, port, username, password);
+            connection = _factory.Create(options);
 
             // FIX 1: HostKeyValidator é callback síncrono — sem async/await/GetResult aqui.
             // Capturamos fingerprint e motivo; o fluxo assíncrono ocorre FORA do callback.
@@ -213,7 +250,7 @@ public sealed class SshSessionProvider : ITerminalSessionProvider
                 }, ct);
 
                 // Reconecta com key agora confiada no store.
-                connection = _factory.Create(host, port, username, password);
+                connection = _factory.Create(options);
                 connection.HostKeyValidator = fp => _hostKeyStore.IsKnown(host, fp);
                 await Task.Run(() => connection.Connect(), ct);
             }
