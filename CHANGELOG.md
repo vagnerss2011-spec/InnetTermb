@@ -68,6 +68,31 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.1.2] - 2026-07-03
+
+### Adicionado
+
+- **Atualização aplicável pela GUI:** o check em Configurações → Atualização passa a guardar o
+  `UpdateCheckResult` e habilitar **"Baixar e instalar"** (`IUpdateService.ApplyUpdateAsync` —
+  download + reinício automático via Velopack). Antes NENHUM caminho da GUI chamava o apply: o
+  operador via "atualização disponível" e tinha que baixar o `Setup.exe` na mão.
+- **Check de atualização no startup:** ao abrir o app (após carregar os hosts, sem bloquear),
+  verifica o feed em silêncio e, havendo versão nova, pergunta "Baixar e instalar agora?" —
+  "Depois" mantém o caminho manual. `WorkspaceViewModel.CheckForUpdatesQuietAsync` nunca lança
+  (ZIP portátil/offline → null).
+- **Auditoria de acessos na aba Logs:** `StructuredTerminalAuditSink`/`StructuredWinBoxAuditSink`
+  emitem linha legível no `IUiLogSink` (hora, protocolo://host, ação, ator) além do `Trace` —
+  a aba Logs deixou de ficar vazia. Sem segredo por construção.
+
+### Corrigido
+
+- **Campo Endereço cortado no editor de host:** a janela de 520px espremia a coluna do endereço
+  (~20px). Janela 720px, redimensionável, `MinWidth` no campo e tooltip com exemplos.
+- **IPv6 com colchetes quebrava a conexão:** `IPAddress.TryParse` aceita `[2001:db8::1]`, então
+  o IPv6 era salvo COM colchetes e o SSH/Telnet falhava. `AddEndpoint` agora normaliza (trim +
+  strip de colchetes) antes de classificar Ipv4/Ipv6/Fqdn; FQDN (ex.: `sn.mynetname.net`)
+  continua suportado.
+
 ## [1.1.1] - 2026-07-02
 
 ### Corrigido

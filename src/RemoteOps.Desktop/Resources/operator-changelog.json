@@ -1,6 +1,16 @@
 {
   "entries": [
     {
+      "version": "1.1.2",
+      "date": "2026-07-03",
+      "highlights": [
+        "Atualização com um clique: o app avisa quando há versão nova ao abrir e o botão \"Baixar e instalar\" baixa e reinicia sozinho — sem baixar instalador na mão.",
+        "Editor de host: o campo Endereço não fica mais cortado (janela maior e redimensionável).",
+        "Endereços IPv6 funcionam com ou sem colchetes ([2001:db8::1] ou 2001:db8::1) e FQDN é aceito (ex.: sn.mynetname.net).",
+        "Aba Logs: agora mostra a auditoria de acessos (conexões SSH/Telnet e aberturas de WinBox, com hora e ação)."
+      ]
+    },
+    {
       "version": "1.1.1",
       "date": "2026-07-02",
       "highlights": [

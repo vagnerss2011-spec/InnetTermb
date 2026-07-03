@@ -44,7 +44,11 @@ public partial class MainWindow : Window
         TabsHost.ItemsSource = _tabItems;
         TabsHost.SelectionChanged += TabsHost_SelectionChanged;
 
-        Loaded += async (_, _) => await viewModel.InitializeAsync();
+        Loaded += async (_, _) =>
+        {
+            await viewModel.InitializeAsync();
+            await PromptUpdateIfAvailableAsync();
+        };
 
         viewModel.Browser.SettingsRequested += (_, _) => OpenSettings();
         viewModel.Browser.UpdatesRequested += (_, _) => OpenSettings();
@@ -59,6 +63,38 @@ public partial class MainWindow : Window
     }
 
     private WorkspaceViewModel Vm => (WorkspaceViewModel)DataContext;
+
+    /// <summary>
+    /// Check de atualização no startup (não bloqueia a abertura): se houver versão nova,
+    /// pergunta ao operador e aplica na hora (Velopack baixa e reinicia). "Depois" deixa
+    /// o caminho manual em Configurações → Atualização.
+    /// </summary>
+    private async Task PromptUpdateIfAvailableAsync()
+    {
+        var check = await Vm.CheckForUpdatesQuietAsync();
+        if (check is not { UpdateAvailable: true, AvailableVersion: { } available })
+        {
+            return;
+        }
+
+        var answer = MessageBox.Show(
+            this,
+            $"Nova versão {available} disponível (você está na {check.CurrentVersion}).\n\n" +
+            "Baixar e instalar agora? O RemoteOps reinicia sozinho ao concluir.",
+            "Atualização disponível",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Information);
+
+        if (answer == MessageBoxResult.Yes && !await Vm.TryApplyUpdateAsync(check))
+        {
+            MessageBox.Show(
+                this,
+                "Não foi possível baixar/aplicar a atualização agora. Tente mais tarde em Configurações → Atualização.",
+                "Atualização",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+    }
 
     // Espelha Tabs.Tabs (abrir/fechar sessão) em _tabItems, mantendo o item 0 (Hosts) fixo.
     private void TabsOnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)

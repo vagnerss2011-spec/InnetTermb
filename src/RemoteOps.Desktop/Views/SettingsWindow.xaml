@@ -148,8 +148,16 @@
             <TabItem Header="Atualização">
                 <StackPanel Margin="12">
                     <TextBlock Text="{Binding VersionText}" Margin="0,0,0,8"/>
-                    <Button Content="Verificar agora" Command="{Binding CheckForUpdatesCommand}"
-                            HorizontalAlignment="Left" Padding="10,4"/>
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="Verificar agora" Command="{Binding CheckForUpdatesCommand}"
+                                Padding="10,4" Margin="0,0,8,0"/>
+                        <Button Content="Baixar e instalar" Command="{Binding ApplyUpdateCommand}"
+                                Style="{DynamicResource Button.Primary}" Padding="10,4"
+                                Visibility="{Binding UpdateAvailable, Converter={StaticResource BoolToVis}}"/>
+                    </StackPanel>
+                    <TextBlock Text="A instalação baixa a nova versão e reinicia o RemoteOps automaticamente."
+                               Foreground="{DynamicResource Brush.Text.Tertiary}"
+                               FontSize="11" Margin="0,8,0,0" TextWrapping="Wrap"/>
                 </StackPanel>
             </TabItem>
             <TabItem Header="Sobre">

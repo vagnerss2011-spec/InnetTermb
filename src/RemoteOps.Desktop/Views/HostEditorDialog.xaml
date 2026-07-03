@@ -3,8 +3,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:assets="clr-namespace:RemoteOps.Contracts.Assets;assembly=RemoteOps.Contracts"
         xmlns:conv="clr-namespace:RemoteOps.Desktop.Converters"
-        Title="{Binding Title}" Height="480" Width="520"
-        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Title="{Binding Title}" Height="500" Width="720" MinWidth="640" MinHeight="460"
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResizeWithGrips"
         Background="{DynamicResource Brush.Bg.App}"
         Foreground="{DynamicResource Brush.Text.Primary}"
         FontFamily="{DynamicResource Font.Family.Base}"
@@ -62,9 +62,9 @@
                 <ComboBoxItem Content="mikrotik"/>
             </ComboBox>
 
-            <TextBox Grid.Row="1" Grid.Column="1"
+            <TextBox Grid.Row="1" Grid.Column="1" MinWidth="140"
                      Text="{Binding NewEndpointAddress, UpdateSourceTrigger=PropertyChanged}"
-                     ToolTip="Endereço (IPv4, IPv6 ou FQDN)"
+                     ToolTip="Endereço: IPv4 (10.0.0.1), IPv6 (2001:db8::1, com ou sem colchetes) ou FQDN (sn.mynetname.net)"
                      Margin="0,0,8,0" VerticalAlignment="Center"/>
 
             <TextBox Grid.Row="1" Grid.Column="2"
