@@ -16,6 +16,7 @@ public sealed class SettingsViewModel : BaseViewModel
     private string? _winBoxExePath;
     private string? _winBoxSha256;
     private string _updateStatus = string.Empty;
+    private UpdateCheckResult? _lastCheck;
 
     public SettingsViewModel(
         ISettingsStore store,
@@ -37,7 +38,13 @@ public sealed class SettingsViewModel : BaseViewModel
         CheckForUpdatesCommand = new RelayCommand(
             () => _ = CheckForUpdatesAsync(),
             () => _updateService != null);
+        ApplyUpdateCommand = new RelayCommand(
+            () => _ = ApplyUpdateAsync(),
+            () => _updateService != null && UpdateAvailable);
     }
+
+    /// <summary>True após um check que encontrou versão nova (habilita "Baixar e instalar").</summary>
+    public bool UpdateAvailable => _lastCheck?.UpdateAvailable == true;
 
     public bool RdpEnabled { get => _rdpEnabled; set => Set(ref _rdpEnabled, value); }
     public bool NdeskEnabled { get => _ndeskEnabled; set => Set(ref _ndeskEnabled, value); }
@@ -70,6 +77,7 @@ public sealed class SettingsViewModel : BaseViewModel
 
     public RelayCommand SaveCommand { get; }
     public RelayCommand CheckForUpdatesCommand { get; }
+    public RelayCommand ApplyUpdateCommand { get; }
 
     /// <summary>Disparado após persistir; a janela fecha e avisa "requer reinício" se necessário.</summary>
     public event EventHandler? Saved;
@@ -99,7 +107,8 @@ public sealed class SettingsViewModel : BaseViewModel
         Saved?.Invoke(this, EventArgs.Empty);
     }
 
-    private async Task CheckForUpdatesAsync()
+    /// <summary>Verifica o feed e habilita "Baixar e instalar" quando há versão nova.</summary>
+    public async Task CheckForUpdatesAsync()
     {
         if (_updateService is null)
         {
@@ -110,13 +119,42 @@ public sealed class SettingsViewModel : BaseViewModel
         try
         {
             UpdateCheckResult result = await _updateService.CheckForUpdatesAsync();
+            _lastCheck = result;
             UpdateStatus = result.UpdateAvailable
-                ? $"Atualização disponível: {result.AvailableVersion}."
+                ? $"Atualização disponível: {result.AvailableVersion}. Clique em \"Baixar e instalar\"."
                 : "Você está na versão mais recente.";
         }
         catch (Exception)
         {
+            _lastCheck = null;
             UpdateStatus = "Não foi possível verificar atualizações agora.";
+        }
+
+        RaisePropertyChanged(nameof(UpdateAvailable));
+        ApplyUpdateCommand.RaiseCanExecuteChanged();
+    }
+
+    /// <summary>
+    /// Baixa e aplica a atualização verificada. Em sucesso o Velopack REINICIA o app
+    /// sozinho — este método só "retorna" em falha. Antes desta mudança não existia
+    /// nenhum caminho na GUI que chamasse ApplyUpdateAsync (o operador via
+    /// "atualização disponível" e tinha que baixar o Setup.exe na mão).
+    /// </summary>
+    public async Task ApplyUpdateAsync()
+    {
+        if (_updateService is null || _lastCheck is not { UpdateAvailable: true })
+        {
+            return;
+        }
+
+        UpdateStatus = "Baixando atualização… o RemoteOps reinicia sozinho ao concluir.";
+        try
+        {
+            await _updateService.ApplyUpdateAsync(_lastCheck);
+        }
+        catch (Exception)
+        {
+            UpdateStatus = "Não foi possível baixar/aplicar a atualização agora. Verifique a conexão e tente novamente.";
         }
     }
 }
