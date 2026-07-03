@@ -21,8 +21,15 @@ internal sealed class FakeSshConnectionFactory : ISshConnectionFactory
 
     public List<FakeSshConnection> Created { get; } = [];
 
-    public ISshConnection Create(string host, int port, string username, string password)
+    public SshConnectionOptions? LastOptions { get; private set; }
+
+    /// <summary>Cópia da chave no momento do Create — o provider zera o buffer original após o connect.</summary>
+    public byte[]? LastPrivateKeySnapshot { get; private set; }
+
+    public ISshConnection Create(SshConnectionOptions options)
     {
+        LastOptions = options;
+        LastPrivateKeySnapshot = options.PrivateKeyUtf8?.ToArray();
         var conn = new FakeSshConnection(SimulatedFingerprint, ForceValidatorResult);
         Created.Add(conn);
         return conn;
