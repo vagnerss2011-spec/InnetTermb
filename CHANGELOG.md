@@ -68,6 +68,29 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.1.1] - 2026-07-02
+
+### Corrigido
+
+- **Conectar deixava de falhar em silêncio (#47):** `SessionLauncher.LaunchAsync` tinha todo
+  caminho de falha mudo (host sem endpoint do protocolo → return vazio; endpoint sem credencial
+  ou provider ausente → "aba morta" sem conexão; `WinBoxValidationException` morria numa Task
+  descartada em `HostsViewModel`). Agora devolve `LaunchResult` com mensagem acionável em pt-BR
+  e `HostsViewModel.ConnectAsync` observa o resultado — `LaunchFailed` → `MessageBox` no
+  `MainWindow`. Aba morta eliminada.
+- **WinBox: configurar o executável exigia reiniciar o app:** o `WinBoxToolManifest` era
+  singleton materializado no startup; salvar caminho/hash em Configurações → Ferramentas
+  externas não tinha efeito até reiniciar (e o fail-closed do manifesto stale era engolido).
+  Novo `FreshManifestWinBoxRunner` (decorator de `IWinBoxRunner`) reconstrói o manifesto
+  (Settings → env → default) a cada launch.
+- **Editor de host confuso na edição:** o seletor de protocolo ficava preso em "ssh" sem
+  seleção visível (parecia "checkboxes soltas"); agora sincroniza protocolo/porta com o
+  endpoint salvo e a linha "adicionar endpoint" ganhou rótulos Protocolo/Endereço/Porta/
+  Credencial.
+- **Aba de terminal em "Conectando…" eterno:** `ConnectAsync` era fire-and-forget na View;
+  falhas de conexão (host inacessível, autenticação) e falha de navegação do WebView2 agora
+  aparecem como mensagem na própria aba (com retry ao reabrir).
+
 ## [1.1.0] - 2026-07-02
 
 ### Adicionado
