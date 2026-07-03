@@ -46,17 +46,87 @@ public sealed class KeychainViewModel : BaseViewModel
     {
         string credId = Guid.NewGuid().ToString("n");
         SecretEnvelope env = await _vault.StoreAsync(
-            new VaultStoreRequest { WorkspaceId = _workspaceId, CredentialId = credId, Type = "password", ActorUserId = Actor },
+            new VaultStoreRequest { WorkspaceId = _workspaceId, CredentialId = credId, Type = CredentialTypes.Password, ActorUserId = Actor },
             password);
         Array.Clear(password);
         await _store.AddCredentialRefAsync(new CredentialRef
         {
             Id = credId,
             Name = name.Trim(),
-            Type = "password",
+            Type = CredentialTypes.Password,
             Metadata = new CredentialMetadata { Username = username.Trim() },
             SecretEnvelopeId = env.EnvelopeId,
         });
+        await LoadAsync();
+    }
+
+    /// <summary>Cria credencial de chave privada: envelope da chave + (opcional) envelope da passphrase.</summary>
+    public async Task CreateKeyAsync(string name, string username, char[] privateKey, char[]? passphrase)
+    {
+        string credId = Guid.NewGuid().ToString("n");
+        SecretEnvelope keyEnv = await _vault.StoreAsync(
+            new VaultStoreRequest { WorkspaceId = _workspaceId, CredentialId = credId, Type = CredentialTypes.PrivateKey, ActorUserId = Actor },
+            privateKey);
+        Array.Clear(privateKey);
+
+        string? passphraseEnvelopeId = null;
+        if (passphrase is { Length: > 0 })
+        {
+            SecretEnvelope ppEnv = await _vault.StoreAsync(
+                new VaultStoreRequest { WorkspaceId = _workspaceId, CredentialId = credId + "-pp", Type = CredentialTypes.PrivateKeyPassphrase, ActorUserId = Actor },
+                passphrase);
+            passphraseEnvelopeId = ppEnv.EnvelopeId;
+        }
+        if (passphrase is not null)
+        {
+            Array.Clear(passphrase);
+        }
+
+        await _store.AddCredentialRefAsync(new CredentialRef
+        {
+            Id = credId,
+            Name = name.Trim(),
+            Type = CredentialTypes.PrivateKey,
+            Metadata = new CredentialMetadata { Username = username.Trim(), HasPrivateKey = true, PassphraseEnvelopeId = passphraseEnvelopeId },
+            SecretEnvelopeId = keyEnv.EnvelopeId,
+        });
+        await LoadAsync();
+    }
+
+    /// <summary>Substitui a chave privada (rotaciona o envelope da chave).</summary>
+    public async Task ReplaceKeyAsync(CredentialRef cred, char[] newKey)
+    {
+        if (cred.SecretEnvelopeId is { } envId)
+        {
+            await _vault.RotateAsync(envId, newKey, new VaultAccessContext { ActorUserId = Actor });
+        }
+        Array.Clear(newKey);
+    }
+
+    /// <summary>Troca a passphrase da chave: rotaciona o envelope se já existir, senão cria um novo.</summary>
+    public async Task ChangePassphraseAsync(CredentialRef cred, char[] newPassphrase)
+    {
+        if (cred.Metadata?.PassphraseEnvelopeId is { } ppId)
+        {
+            await _vault.RotateAsync(ppId, newPassphrase, new VaultAccessContext { ActorUserId = Actor });
+        }
+        else
+        {
+            SecretEnvelope ppEnv = await _vault.StoreAsync(
+                new VaultStoreRequest { WorkspaceId = _workspaceId, CredentialId = cred.Id + "-pp", Type = CredentialTypes.PrivateKeyPassphrase, ActorUserId = Actor },
+                newPassphrase);
+            await _store.UpdateCredentialRefAsync(new CredentialRef
+            {
+                Id = cred.Id,
+                Name = cred.Name,
+                Type = cred.Type,
+                Scope = cred.Scope,
+                Metadata = new CredentialMetadata { Username = cred.Metadata?.Username, HasPrivateKey = true, PassphraseEnvelopeId = ppEnv.EnvelopeId },
+                SecretEnvelopeId = cred.SecretEnvelopeId,
+                Version = cred.Version,
+            });
+        }
+        Array.Clear(newPassphrase);
         await LoadAsync();
     }
 
@@ -77,7 +147,8 @@ public sealed class KeychainViewModel : BaseViewModel
 
     public async Task ChangePasswordAsync(CredentialRef cred, char[] newPassword)
     {
-        if (cred.SecretEnvelopeId is { } envId)
+        // Só credencial de senha rotaciona por aqui — chave usa ReplaceKey/ChangePassphrase.
+        if (cred.Type == CredentialTypes.Password && cred.SecretEnvelopeId is { } envId)
             await _vault.RotateAsync(envId, newPassword, new VaultAccessContext { ActorUserId = Actor });
         Array.Clear(newPassword);
     }
@@ -86,6 +157,8 @@ public sealed class KeychainViewModel : BaseViewModel
     {
         if (cred.SecretEnvelopeId is { } envId)
             await _vault.RevokeAsync(envId, new VaultAccessContext { ActorUserId = Actor });
+        if (cred.Metadata?.PassphraseEnvelopeId is { } ppId)
+            await _vault.RevokeAsync(ppId, new VaultAccessContext { ActorUserId = Actor });
         await _store.DeleteCredentialRefAsync(cred.Id);
         await LoadAsync();
     }

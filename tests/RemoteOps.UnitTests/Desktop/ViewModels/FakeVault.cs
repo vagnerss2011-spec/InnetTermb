@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using RemoteOps.Security.Vault;
@@ -8,17 +9,30 @@ namespace RemoteOps.UnitTests.Desktop.ViewModels;
 /// <summary>Fake mínimo de IVault para testes de fiação (não faz criptografia real).</summary>
 public sealed class FakeVault : IVault
 {
+    public List<string> StoredCredentialIds { get; } = [];
+    public List<string> RotatedEnvelopeIds { get; } = [];
+    public List<string?> RevokedEnvelopeIds { get; } = [];
+
     public Task<SecretEnvelope> StoreAsync(VaultStoreRequest r, ReadOnlyMemory<char> secret, CancellationToken ct = default)
-        => Task.FromResult(Env("env-" + r.CredentialId, r.CredentialId, r.WorkspaceId));
+    {
+        StoredCredentialIds.Add(r.CredentialId);
+        return Task.FromResult(Env("env-" + r.CredentialId, r.CredentialId, r.WorkspaceId));
+    }
 
     public Task<VaultSecret> RetrieveAsync(string envelopeId, VaultAccessContext c, CancellationToken ct = default)
         => throw new NotImplementedException();
 
     public Task<SecretEnvelope> RotateAsync(string envelopeId, ReadOnlyMemory<char> s, VaultAccessContext c, CancellationToken ct = default)
-        => Task.FromResult(Env(envelopeId, "c", "ws-local"));
+    {
+        RotatedEnvelopeIds.Add(envelopeId);
+        return Task.FromResult(Env(envelopeId, "c", "ws-local"));
+    }
 
     public Task RevokeAsync(string envelopeId, VaultAccessContext c, CancellationToken ct = default)
-        => Task.CompletedTask;
+    {
+        RevokedEnvelopeIds.Add(envelopeId);
+        return Task.CompletedTask;
+    }
 
     private static SecretEnvelope Env(string id, string cid, string ws) => new()
     {
