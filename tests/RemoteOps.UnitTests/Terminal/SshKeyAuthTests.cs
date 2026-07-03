@@ -10,7 +10,7 @@ namespace RemoteOps.UnitTests.Terminal;
 
 public sealed class SshKeyAuthTests
 {
-    private const string KeyPem = "-----BEGIN OPENSSH PRIVATE KEY-----\nKEYBODY\n-----END OPENSSH PRIVATE KEY-----";
+    private const string KeyPem = "-----BEGIN OPENSSH PRIVATE KEY-----\nKEYBODY\n-----END OPENSSH PRIVATE KEY-----"; // pragma: allowlist secret (fixture sintético)
 
     private static SshSessionProvider BuildProvider(
         FakeSshConnectionFactory factory,

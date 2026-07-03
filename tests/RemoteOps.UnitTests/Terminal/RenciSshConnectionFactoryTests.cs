@@ -15,7 +15,7 @@ public sealed class RenciSshConnectionFactoryTests
             Host = "h",
             Port = 22,
             Username = "u",
-            PrivateKeyUtf8 = Encoding.UTF8.GetBytes("-----BEGIN OPENSSH PRIVATE KEY-----\nnotarealkey\n-----END OPENSSH PRIVATE KEY-----"),
+            PrivateKeyUtf8 = Encoding.UTF8.GetBytes("-----BEGIN OPENSSH PRIVATE KEY-----\nnotarealkey\n-----END OPENSSH PRIVATE KEY-----"), // pragma: allowlist secret (fixture sintético)
         };
         var ex = Assert.ThrowsAny<System.Exception>(() => factory.Create(opts));
         Assert.Contains("chave", ex.Message, System.StringComparison.OrdinalIgnoreCase);
