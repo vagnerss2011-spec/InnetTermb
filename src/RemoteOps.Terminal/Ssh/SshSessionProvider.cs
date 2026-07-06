@@ -21,7 +21,7 @@ public sealed class SshSessionProvider : ITerminalSessionProvider
     private readonly IHostKeyConfirmation _hostKeyConfirmation;
     private readonly ITerminalAuditSink _auditSink;
     private readonly ISshConnectionFactory _factory;
-    private readonly HostKeyStore _hostKeyStore = new();
+    private readonly HostKeyStore _hostKeyStore;
     private readonly ConcurrentDictionary<string, SshSessionState> _sessions = new();
 
     public string Protocol => RemoteProtocol.Ssh;
@@ -47,7 +47,8 @@ public sealed class SshSessionProvider : ITerminalSessionProvider
         ITerminalSecurityContext securityContext,
         IHostKeyConfirmation hostKeyConfirmation,
         ITerminalAuditSink auditSink,
-        ISshConnectionFactory? factory)
+        ISshConnectionFactory? factory,
+        HostKeyStore? hostKeyStore = null)
     {
         _endpointResolver = endpointResolver;
         _credentialRefResolver = credentialRefResolver;
@@ -56,6 +57,7 @@ public sealed class SshSessionProvider : ITerminalSessionProvider
         _hostKeyConfirmation = hostKeyConfirmation;
         _auditSink = auditSink;
         _factory = factory ?? new RenciSshConnectionFactory();
+        _hostKeyStore = hostKeyStore ?? new HostKeyStore();
     }
 
     public async Task<SessionHandle> OpenAsync(SessionRequest request, CancellationToken ct)

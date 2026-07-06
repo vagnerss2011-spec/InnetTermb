@@ -26,7 +26,7 @@ public sealed class SshConnectionFailureTests
             Metadata = new CredentialMetadata { Username = "root" },
         });
         return new SshSessionProvider(eps, crs, vault, new FakeTerminalSecurityContext(),
-            new FakeHostKeyConfirmation(true), new InMemoryTerminalAuditSink(), factory);
+            new FakeHostKeyConfirmation(true), new InMemoryTerminalAuditSink(), factory, new HostKeyStore(path: null));
     }
 
     private static SessionRequest Request() => new()
