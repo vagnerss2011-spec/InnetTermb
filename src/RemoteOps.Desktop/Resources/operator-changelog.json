@@ -1,6 +1,14 @@
 {
   "entries": [
     {
+      "version": "1.2.2",
+      "date": "2026-07-06",
+      "highlights": [
+        "Corrigido: criar e editar host voltou a funcionar. O botão \"Novo host\" (e \"Editar\") abria com \"Erro inesperado\" e não mostrava o formulário — agora abre normalmente.",
+        "Esse erro afetava todas as versões desde a 1.1.2; atualize para conseguir cadastrar os equipamentos."
+      ]
+    },
+    {
       "version": "1.2.1",
       "date": "2026-07-03",
       "highlights": [
