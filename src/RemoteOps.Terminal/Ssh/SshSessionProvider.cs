@@ -192,9 +192,10 @@ public sealed class SshSessionProvider : ITerminalSessionProvider
             {
                 if (!rejectionReason.HasValue || capturedFp is null)
                 {
-                    // Falha de rede/protocolo não relacionada a host key — propaga.
-                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(firstConnectEx).Throw();
-                    throw new System.Diagnostics.UnreachableException(); // fluxo de análise
+                    // Falha de rede/protocolo/auth não relacionada a host key — mensagem pt-BR
+                    // acionável (senha errada, timeout, negociação) em vez de exceção crua.
+                    throw new InvalidOperationException(
+                        SshConnectionError.Describe(firstConnectEx, options.Host, options.Port), firstConnectEx);
                 }
 
                 // Host key não confiada — tratamento assíncrono fora do callback (FIX 1).
@@ -249,10 +250,19 @@ public sealed class SshSessionProvider : ITerminalSessionProvider
                     OccurredAt = DateTimeOffset.UtcNow,
                 }, ct);
 
-                // Reconecta com key agora confiada no store.
+                // Reconecta com key agora confiada no store. Aqui é onde a AUTENTICAÇÃO
+                // acontece (host novo) — erro de senha vira mensagem pt-BR acionável.
                 connection = _factory.Create(options);
                 connection.HostKeyValidator = fp => _hostKeyStore.IsKnown(host, fp);
-                await Task.Run(() => connection.Connect(), ct);
+                try
+                {
+                    await Task.Run(() => connection.Connect(), ct);
+                }
+                catch (Exception ex) when (!ct.IsCancellationRequested)
+                {
+                    throw new InvalidOperationException(
+                        SshConnectionError.Describe(ex, options.Host, options.Port), ex);
+                }
             }
 
             // connection é não-nulo aqui: ou primeira conexão OK, ou TOFU reassigned.
