@@ -29,7 +29,7 @@ public sealed class SshSessionProviderTests
         var secCtx = new FakeTerminalSecurityContext();
 
         var provider = new SshSessionProvider(
-            endpoints, creds, vault, secCtx, confirmation, audit, factory);
+            endpoints, creds, vault, secCtx, confirmation, audit, factory, new HostKeyStore(path: null));
 
         return (provider, factory, audit, confirmation, endpoints, creds, vault);
     }

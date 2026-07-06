@@ -1,6 +1,16 @@
 {
   "entries": [
     {
+      "version": "1.2.1",
+      "date": "2026-07-03",
+      "highlights": [
+        "Terminal em branco agora vira erro claro: se o componente do terminal não carregar, o app avisa em vez de mostrar tela preta.",
+        "Erro de conexão em português: senha incorreta, tempo esgotado ou incompatibilidade de algoritmo aparecem com mensagem acionável.",
+        "Falta o WebView2 na máquina? O app avisa e diz onde instalar (necessário pro terminal).",
+        "A confirmação de host key SSH passa a ser lembrada entre reinícios (não pergunta toda vez)."
+      ]
+    },
+    {
       "version": "1.2.0",
       "date": "2026-07-03",
       "highlights": [

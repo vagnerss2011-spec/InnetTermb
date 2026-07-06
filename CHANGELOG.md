@@ -68,6 +68,26 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.2.1] - 2026-07-03
+
+### Corrigido
+
+- **Terminal em branco sem erro ("parece só frontend"):** se o bundle do xterm não carregava
+  (CSP, cópia truncada no publish, erro de script), o `terminal-init.js` quebrava e a aba ficava
+  preta enquanto o SSH conectava por trás — sem eco e sem mensagem. Agora o init roda em IIFE com
+  guarda (`typeof Terminal/FitAddon`), mostra o erro no container e avisa o C# (`init_error`); e
+  `OnNavigationCompleted` confirma via `ExecuteScriptAsync` que o xterm executou antes de conectar.
+- **Erro de conexão SSH agora em pt-BR acionável:** `SshConnectionError` mapeia
+  `SshAuthenticationException`/`SshOperationTimeoutException`/`SshConnectionException` para
+  mensagens claras (senha incorreta, timeout, negociação/algoritmo). `ConnectWithTofuAsync` passa a
+  envolver os **dois** connects (o 2º, onde a autenticação acontece em host novo, não tinha
+  tratamento). O segredo nunca aparece na mensagem.
+- **WebView2 Runtime ausente na máquina do operador:** vira mensagem acionável (orienta instalar o
+  Runtime da Microsoft) em vez de erro genérico — o terminal não abre sem ele.
+- **Host key SSH lembrada entre reinícios:** `HostKeyStore` persiste em
+  `%AppData%\RemoteOps\known_hosts.json`; o TOFU só pergunta na primeira vez de verdade e a
+  detecção de host key alterada funciona entre sessões.
+
 ## [1.2.0] - 2026-07-03
 
 ### Adicionado

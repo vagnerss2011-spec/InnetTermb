@@ -18,7 +18,7 @@ public sealed class SshKeyAuthTests
         InMemoryCredentialRefResolver crs,
         FakeVault vault)
         => new(eps, crs, vault, new FakeTerminalSecurityContext(), new FakeHostKeyConfirmation(true),
-               new InMemoryTerminalAuditSink(), factory);
+               new InMemoryTerminalAuditSink(), factory, new HostKeyStore(path: null));
 
     private static SessionRequest Request() => new()
     {

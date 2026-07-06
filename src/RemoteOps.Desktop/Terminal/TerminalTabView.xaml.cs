@@ -80,10 +80,37 @@ public partial class TerminalTabView : UserControl
 
             _webView.Source = new Uri("https://terminal.local/index.html");
         }
+        catch (Exception ex) when (IsWebView2RuntimeMissing(ex))
+        {
+            _loadingText.Text =
+                "Componente WebView2 não encontrado nesta máquina. Instale o \"WebView2 Runtime\" da Microsoft " +
+                "(developer.microsoft.com/microsoft-edge/webview2) e reabra a aba. Sem ele o terminal não abre.";
+        }
         catch (Exception ex)
         {
             _loadingText.Text = $"Erro ao inicializar terminal: {ex.Message}";
         }
+    }
+
+    // O WebView2 ausente lança COMException com HRESULT de "arquivo não encontrado"/"classe
+    // não registrada" (0x80070002 / 0x80040154), ou uma WebView2RuntimeNotFoundException.
+    private static bool IsWebView2RuntimeMissing(Exception ex)
+    {
+        for (Exception? e = ex; e is not null; e = e.InnerException)
+        {
+            if (e is Microsoft.Web.WebView2.Core.WebView2RuntimeNotFoundException)
+            {
+                return true;
+            }
+
+            if (e is System.Runtime.InteropServices.COMException com
+                && ((uint)com.HResult == 0x80070002 || (uint)com.HResult == 0x80040154))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // ── Security hardening (ADR-011) ─────────────────────────────────────────
@@ -120,7 +147,7 @@ public partial class TerminalTabView : UserControl
         e.Handled = true;
     }
 
-    private void OnNavigationCompleted(
+    private async void OnNavigationCompleted(
         object? sender,
         CoreWebView2NavigationCompletedEventArgs e)
     {
@@ -128,6 +155,30 @@ public partial class TerminalTabView : UserControl
         {
             // Antes: return silencioso deixava "Conectando…" pra sempre.
             _loadingText.Text = $"Erro ao carregar o terminal (WebView2: {e.WebErrorStatus}).";
+            return;
+        }
+
+        // Confirma que o bundle do xterm EXECUTOU antes de conectar. Sem isto, um bundle
+        // não carregado (CSP/cópia truncada) deixava o SSH conectar por trás de uma tela
+        // preta, sem eco e sem erro — o clássico "parece só frontend".
+        string probe;
+        try
+        {
+            probe = await _webView.CoreWebView2.ExecuteScriptAsync("typeof window.Terminal");
+        }
+        catch (Exception ex)
+        {
+            _loadingText.Text = $"Erro ao verificar o terminal: {ex.Message}";
+            return;
+        }
+
+        if (probe != "\"function\"")
+        {
+            _loadingText.Text =
+                "Falha ao carregar o terminal (biblioteca xterm não encontrada). " +
+                "Reinstale o RemoteOps pelo instalador (Setup.exe).";
+            _loadingText.Visibility = Visibility.Visible;
+            _webView.Visibility = Visibility.Collapsed;
             return;
         }
 
@@ -199,6 +250,17 @@ public partial class TerminalTabView : UserControl
 
             switch (type)
             {
+                case "init_error":
+                    {
+                        // O JS não conseguiu criar o xterm (bundle incompleto/erro de script).
+                        _webViewReady = false;
+                        _loadingText.Text = root.TryGetProperty("message", out var m)
+                            ? m.GetString() ?? "Falha ao iniciar o terminal."
+                            : "Falha ao iniciar o terminal.";
+                        _loadingText.Visibility = Visibility.Visible;
+                        _webView.Visibility = Visibility.Collapsed;
+                        break;
+                    }
                 case "input":
                     {
                         string? b64 = root.GetProperty("data").GetString();

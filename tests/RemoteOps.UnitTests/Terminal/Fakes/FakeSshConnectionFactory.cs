@@ -19,6 +19,9 @@ internal sealed class FakeSshConnectionFactory : ISshConnectionFactory
     /// </summary>
     public bool? ForceValidatorResult { get; set; }
 
+    /// <summary>Se setada, cada conexão fake lança esta exceção no Connect() (simula auth/timeout reais).</summary>
+    public Exception? SimulatedConnectException { get; set; }
+
     public List<FakeSshConnection> Created { get; } = [];
 
     public SshConnectionOptions? LastOptions { get; private set; }
@@ -30,7 +33,7 @@ internal sealed class FakeSshConnectionFactory : ISshConnectionFactory
     {
         LastOptions = options;
         LastPrivateKeySnapshot = options.PrivateKeyUtf8?.ToArray();
-        var conn = new FakeSshConnection(SimulatedFingerprint, ForceValidatorResult);
+        var conn = new FakeSshConnection(SimulatedFingerprint, ForceValidatorResult, SimulatedConnectException);
         Created.Add(conn);
         return conn;
     }
@@ -40,6 +43,7 @@ internal sealed class FakeSshConnection : ISshConnection
 {
     private readonly string _fingerprint;
     private readonly bool? _forceResult;
+    private readonly Exception? _simulatedException;
     private FakeSshShell? _shell;
 
     public Func<string, bool>? HostKeyValidator { get; set; }
@@ -47,10 +51,11 @@ internal sealed class FakeSshConnection : ISshConnection
     public bool ConnectCalled { get; private set; }
     public bool DisposeCalled { get; private set; }
 
-    public FakeSshConnection(string fingerprint, bool? forceResult = null)
+    public FakeSshConnection(string fingerprint, bool? forceResult = null, Exception? simulatedException = null)
     {
         _fingerprint = fingerprint;
         _forceResult = forceResult;
+        _simulatedException = simulatedException;
     }
 
     public void Connect()
@@ -60,6 +65,8 @@ internal sealed class FakeSshConnection : ISshConnection
 
         bool trust = _forceResult ?? HostKeyValidator(_fingerprint);
         if (!trust) throw new Exception("Host key não confiada (simulado).");
+
+        if (_simulatedException is not null) throw _simulatedException;
     }
 
     public ISshShell OpenShell(string termType, int cols, int rows)
