@@ -1,3 +1,9 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { width: 100%; height: 100%; overflow: hidden; background: #1e1e1e; }
-#terminal-container { width: 100%; height: 100%; padding: 4px; }
+
+/* Compensação de brilho: em algumas máquinas (GPU dedicada/driver) o WebView2 renderiza o
+   conteúdo do terminal MUITO ESCURO (texto quase preto), enquanto o resto do app (WPF) e apps
+   nativos ficam normais — e não é HDR/GPU/perfil de cor (todos descartados em campo). Como o
+   sintoma é um rebaixamento uniforme do brilho, empurramos o brilho/contraste de volta aqui, na
+   própria página, o que corrige a legibilidade independente da causa exata. O valor é ajustável. */
+#terminal-container { width: 100%; height: 100%; padding: 4px; filter: brightness(2) contrast(1.12); }
