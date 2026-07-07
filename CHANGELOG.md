@@ -68,6 +68,18 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.2.9] - 2026-07-07
+
+### Corrigido
+
+- **Terminal continuava "muito escuro" mesmo após v1.2.8:** verificado em campo que NÃO é HDR (o
+  toggle Win+Alt+B não muda nada), nem GPU (`--disable-gpu`) nem perfil de cor (`--force-color-profile
+  =srgb`) — em algumas máquinas o WebView2 rebaixa o brilho SÓ do terminal (~30% do esperado), por um
+  quirk de gama/composição específico do driver/GPU que não isolamos. Como o sintoma é um
+  rebaixamento uniforme de brilho, passamos a **compensar direto na página**: `terminal.css` aplica
+  `filter: brightness(2) contrast(1.12)` em `#terminal-container`, restaurando a legibilidade
+  independente da causa. Valor ajustável (pode ser afinado por feedback de campo).
+
 ## [1.2.8] - 2026-07-07
 
 ### Corrigido
