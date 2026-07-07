@@ -77,10 +77,28 @@ public partial class TerminalTabView : UserControl
 
     // ── WebView2 init ────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Pasta de dados do WebView2, FORA do diretório de instalação versionado (<c>current\</c>).
+    /// CRÍTICO para o auto-update: por padrão o WebView2 grava ao lado do exe (dentro de
+    /// <c>current\</c>) e os processos <c>msedgewebview2.exe</c> travam esses arquivos; o Velopack
+    /// então não consegue trocar <c>current\</c> na atualização — o apply falha, reinicia a versão
+    /// antiga e o update entra em LOOP (baixa, "instala", volta na versão antiga). Apontando para
+    /// <c>%LocalAppData%\RemoteOps\WebView2</c> o <c>current\</c> fica livre e a atualização aplica.
+    /// </summary>
+    public static string WebViewUserDataFolder() => System.IO.Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "RemoteOps", "WebView2");
+
     private async Task InitWebViewAsync()
     {
         try
         {
+            // Precisa vir ANTES de EnsureCoreWebView2Async (ver WebViewUserDataFolder).
+            _webView.CreationProperties = new Microsoft.Web.WebView2.Wpf.CoreWebView2CreationProperties
+            {
+                UserDataFolder = WebViewUserDataFolder(),
+            };
+
             await _webView.EnsureCoreWebView2Async();
 
             // Guard: tab may have been closed while WebView2 was initializing

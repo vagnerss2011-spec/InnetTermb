@@ -1,6 +1,14 @@
 {
   "entries": [
     {
+      "version": "1.2.6",
+      "date": "2026-07-06",
+      "highlights": [
+        "Corrigido o loop de atualização: a atualização baixava, tentava instalar e voltava pra versão antiga sem parar. O componente do terminal (WebView2) travava a troca de arquivos; agora ele guarda os dados fora da pasta do programa e a atualização instala de vez.",
+        "Esta versão precisa ser instalada uma vez pelo instalador (Setup.exe) para sair do loop; depois dela as próximas chegam sozinhas."
+      ]
+    },
+    {
       "version": "1.2.5",
       "date": "2026-07-06",
       "highlights": [
