@@ -1,6 +1,14 @@
 {
   "entries": [
     {
+      "version": "1.2.5",
+      "date": "2026-07-06",
+      "highlights": [
+        "Terminal SSH abre pronto pra usar: ao conectar, o cursor já fica no terminal (dá pra digitar na hora, sem clicar dentro) e a tela desenha o conteúdo sozinha — não fica mais \"escura e travada\".",
+        "Trocar de aba volta o foco pro terminal automaticamente."
+      ]
+    },
+    {
       "version": "1.2.4",
       "date": "2026-07-06",
       "highlights": [

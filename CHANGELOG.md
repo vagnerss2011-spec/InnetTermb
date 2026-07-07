@@ -68,6 +68,21 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.2.5] - 2026-07-06
+
+### Corrigido
+
+- **Terminal SSH abria "escuro e travado" (não dava pra digitar):** ao abrir a aba de sessão, o
+  xterm.js conectava de verdade (PTY, auth e I/O OK — visto ao vivo num MikroTik CCR1009), mas
+  (a) **nunca recebia o foco do teclado** → o operador tinha que clicar dentro pra digitar, e
+  (b) o `fitAddon.fit()` inicial corria contra o layout da aba → o terminal ficava sem pintar até
+  uma interação forçar o redesenho. Agora o terminal **foca e reajusta automaticamente** quando a
+  aba fica ativa: `terminal-init.js` foca após o layout (duplo `requestAnimationFrame`), expõe
+  `window.__roActivate` (fit + focus) e refoca no clique/foco da janela; `TerminalTabView` chama
+  `__roActivate` no `IsVisibleChanged` (troca de aba) e logo após a conexão iniciar, focando também
+  o `WebView2` (WPF). Conectar por duplo-clique no host já funcionava — agora o terminal abre pronto
+  pra digitar, sem o clique extra que parecia "reconectar".
+
 ## [1.2.4] - 2026-07-06
 
 ### Adicionado

@@ -20,6 +20,32 @@ public partial class TerminalTabView : UserControl
         InitializeComponent();
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
+        // Ao trocar para esta aba (fica visível), devolve o foco do teclado e reajusta o
+        // tamanho do terminal — antes o operador precisava clicar dentro pra digitar.
+        IsVisibleChanged += OnIsVisibleChanged;
+    }
+
+    private void OnIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (e.NewValue is true)
+        {
+            ActivateTerminal();
+        }
+    }
+
+    /// <summary>
+    /// Foca o WebView2 (WPF) e manda o xterm reajustar+focar (JS). Chamado quando a aba fica
+    /// ativa e logo após a conexão iniciar, para o terminal já abrir pronto pra digitar.
+    /// </summary>
+    private void ActivateTerminal()
+    {
+        if (!_webViewReady || _webView.CoreWebView2 is null)
+        {
+            return;
+        }
+
+        _webView.Focus();
+        _ = _webView.CoreWebView2.ExecuteScriptAsync("window.__roActivate && window.__roActivate()");
     }
 
     // ── Lifecycle ────────────────────────────────────────────────────────────
@@ -197,6 +223,9 @@ public partial class TerminalTabView : UserControl
                 _ = ConnectSafeAsync();
             }
         }
+
+        // Terminal pronto e visível → já foca o teclado e reajusta, sem exigir clique.
+        ActivateTerminal();
     }
 
     /// <summary>
