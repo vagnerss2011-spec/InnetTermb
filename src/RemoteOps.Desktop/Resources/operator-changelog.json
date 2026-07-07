@@ -1,6 +1,14 @@
 {
   "entries": [
     {
+      "version": "1.2.3",
+      "date": "2026-07-06",
+      "highlights": [
+        "Atualizações automáticas voltam a funcionar: o app passa a buscar novas versões num feed público, então \"Verificar agora\" e o aviso ao abrir encontram as atualizações sozinhos.",
+        "A partir desta versão você não precisa mais baixar e instalar na mão a cada release — o próprio app avisa e instala."
+      ]
+    },
+    {
       "version": "1.2.2",
       "date": "2026-07-06",
       "highlights": [

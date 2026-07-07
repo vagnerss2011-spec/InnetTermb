@@ -17,6 +17,6 @@ public sealed class UpdateFeedConfigTests
         => Assert.Equal("https://github.com/acme/x", UpdateFeedConfig.ResolveRepoUrl("  https://github.com/acme/x  "));
 
     [Fact]
-    public void DefaultRepoUrl_PointsAtThisRepo()
-        => Assert.Equal("https://github.com/vagnerss2011-spec/InnetTermb", UpdateFeedConfig.DefaultRepoUrl);
+    public void DefaultRepoUrl_PointsAtPublicReleasesRepo()
+        => Assert.Equal("https://github.com/vagnerss2011-spec/InnetTermb-releases", UpdateFeedConfig.DefaultRepoUrl);
 }
