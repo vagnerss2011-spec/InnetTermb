@@ -42,10 +42,40 @@
         fitAddon = new window.FitAddon();
         term.loadAddon(fitAddon);
         term.open(container);
-        fitAddon.fit();
     } catch (err) {
         showError('Erro ao iniciar o terminal: ' + (err && err.message ? err.message : err));
         return;
+    }
+
+    // fit() lança se o container ainda não tem tamanho (aba sendo montada) — engolir e
+    // deixar o ResizeObserver/activate reajustar depois evita o terminal "em branco".
+    function fitSafe() {
+        try { fitAddon.fit(); } catch (_) { /* container sem tamanho ainda */ }
+    }
+
+    // Reajusta o tamanho E devolve o foco do teclado ao terminal. Chamado no init (após o
+    // layout), quando a janela recebe foco, e pelo C# (window.__roActivate) toda vez que a
+    // aba do terminal fica ativa — antes o operador tinha que clicar dentro pra digitar e o
+    // conteúdo às vezes só aparecia depois de uma interação (fit prematuro).
+    function activate() {
+        fitSafe();
+        try { term.focus(); } catch (_) { /* terminal fechado */ }
+    }
+
+    // Ajusta/foca DEPOIS do layout (dois rAF garantem que o container já tem tamanho real).
+    requestAnimationFrame(function () { requestAnimationFrame(activate); });
+
+    // C# chama isto quando a aba do terminal fica ativa/visível (troca de aba).
+    window.__roActivate = activate;
+
+    // Voltar o foco para a janela deve reajustar + focar o terminal.
+    window.addEventListener('focus', activate);
+
+    // Clique dentro do terminal foca o teclado (comportamento esperado do xterm).
+    if (container) {
+        container.addEventListener('mousedown', function () {
+            try { term.focus(); } catch (_) { /* terminal fechado */ }
+        });
     }
 
     // ── Input: xterm → C# ────────────────────────────────────────────────
@@ -78,7 +108,7 @@
     });
 
     // ── Window resize → FitAddon → onResize → C# ─────────────────────────
-    var resizeObserver = new ResizeObserver(function () { fitAddon.fit(); });
+    var resizeObserver = new ResizeObserver(function () { fitSafe(); });
     resizeObserver.observe(container);
 
     // Sinaliza ao C# que o terminal está pronto (xterm criado com sucesso).
