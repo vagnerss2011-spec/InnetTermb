@@ -29,6 +29,8 @@ public sealed class SessionLauncher
     private readonly ITerminalSessionProvider? _telnet;
     private readonly IRdpSessionProvider? _rdp;
     private readonly IRdpCredentialResolver? _rdpCred;
+    private readonly ICredentialRefResolver? _credentials;
+    private readonly IExternalTerminalLauncher? _externalTerminal;
 
     public SessionLauncher(
         TabsViewModel tabs,
@@ -37,7 +39,9 @@ public sealed class SessionLauncher
         ITerminalSessionProvider? ssh,
         ITerminalSessionProvider? telnet,
         IRdpSessionProvider? rdp,
-        IRdpCredentialResolver? rdpCred)
+        IRdpCredentialResolver? rdpCred,
+        ICredentialRefResolver? credentials = null,
+        IExternalTerminalLauncher? externalTerminal = null)
     {
         _tabs = tabs;
         _winBox = winBox;
@@ -46,6 +50,8 @@ public sealed class SessionLauncher
         _telnet = telnet;
         _rdp = rdp;
         _rdpCred = rdpCred;
+        _credentials = credentials;
+        _externalTerminal = externalTerminal;
     }
 
     public string PrimaryProtocol(Asset asset)
@@ -69,7 +75,7 @@ public sealed class SessionLauncher
         }
         return protocol switch
         {
-            RemoteProtocol.Ssh => _ssh != null,
+            RemoteProtocol.Ssh => _externalTerminal != null || _ssh != null,
             RemoteProtocol.Telnet => _telnet != null,
             RemoteProtocol.Rdp => (_flags?.IsEnabled(FeatureFlagNames.RdpEnabled) ?? false) && _rdp != null && _rdpCred != null,
             RemoteProtocol.MikroTik => _winBox != null,
@@ -115,6 +121,14 @@ public sealed class SessionLauncher
             var rdpReq = new SessionRequest { SessionId = Guid.NewGuid().ToString("n"), Protocol = protocol, EndpointId = ep.Id, CredentialRefId = ep.CredentialRefId };
             _tabs.OpenRdpTab(new RdpTabViewModel(rdpReq.SessionId, $"{asset.Name} ({protocol.ToUpperInvariant()})", protocol, _rdp, _rdpCred, rdpReq));
             return LaunchResult.Ok();
+        }
+
+        // SSH abre num terminal REAL do Windows (por fora do app), quando o launcher externo
+        // está disponível. Substitui o terminal WebView2, que em algumas GPUs renderizava
+        // escuro/travado. O terminal nativo integrado (sem WebView2) vem numa etapa seguinte.
+        if (protocol == RemoteProtocol.Ssh && _externalTerminal != null)
+        {
+            return await LaunchExternalSshAsync(asset, ep);
         }
 
         var provider = protocol == RemoteProtocol.Ssh ? _ssh : protocol == RemoteProtocol.Telnet ? _telnet : null;
@@ -168,6 +182,55 @@ public sealed class SessionLauncher
         catch (Exception ex)
         {
             return LaunchResult.Fail($"Falha ao abrir o WinBox: {ex.Message}");
+        }
+    }
+
+    private async Task<LaunchResult> LaunchExternalSshAsync(Asset asset, Endpoint ep)
+    {
+        if (ep.CredentialRefId is null)
+        {
+            return LaunchResult.Fail(
+                "O endpoint SSH não tem credencial. Crie uma no Keychain (login e senha) e selecione-a no editor do host.");
+        }
+
+        var (host, _) = ResolveAddress(ep);
+        if (string.IsNullOrWhiteSpace(host))
+        {
+            return LaunchResult.Fail(
+                $"O host \"{asset.Name}\" não tem endereço válido. Edite o host e informe um IP ou domínio.");
+        }
+
+        // O usuário vem dos metadados da credencial (não é segredo — não abre o cofre).
+        string? username = null;
+        if (_credentials != null)
+        {
+            try
+            {
+                var cred = await _credentials.ResolveAsync(ep.CredentialRefId).ConfigureAwait(false);
+                username = cred.Metadata?.Username;
+            }
+            catch
+            {
+                // Sem usuário resolvido: o ssh usa o padrão / pergunta. Não é motivo pra falhar.
+            }
+        }
+
+        int port = ep.Port > 0 ? ep.Port : 22;
+        try
+        {
+            await _externalTerminal!.LaunchSshAsync(new SshLaunchTarget(host, port, username)).ConfigureAwait(false);
+            return LaunchResult.Ok();
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            // ssh.exe ausente (OpenSSH Client não instalado).
+            return LaunchResult.Fail(
+                "O cliente OpenSSH (ssh.exe) não foi encontrado no Windows. Ative em Configurações → Sistema → " +
+                "Componentes opcionais → adicionar \"Cliente OpenSSH\" e tente de novo.");
+        }
+        catch (Exception ex)
+        {
+            return LaunchResult.Fail($"Falha ao abrir o terminal SSH externo: {ex.Message}");
         }
     }
 

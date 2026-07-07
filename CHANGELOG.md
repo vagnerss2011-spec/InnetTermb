@@ -68,6 +68,22 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.2.11] - 2026-07-07
+
+### Adicionado
+
+- **Terminal SSH externo (fim da novela do terminal escuro):** após v1.2.5→v1.2.10 (foco,
+  keep-alive, `--disable-gpu`, `--force-color-profile`, filtro CSS de brilho e
+  `--disable-direct-composition`) NENHUM ajuste do WebView2 resolveu, em campo, o terminal
+  **escuro + sem teclado + sem maximizar** (Win11 + NVIDIA). Decisão: SSH passa a abrir numa
+  **janela de terminal REAL do Windows** (`ssh.exe` do OpenSSH via `UseShellExecute`), por fora
+  do app — exatamente o padrão que o WinBox já usa. Por ser janela nativa do SO, resolve os três
+  sintomas de uma vez (cor, teclado, maximizar). Novo `IExternalTerminalLauncher` +
+  `WindowsExternalTerminalLauncher`; `SessionLauncher` roteia SSH pro launcher externo (resolve
+  host/porta/usuário da credencial; a senha é digitada no prompt do ssh — cofre segue guardando,
+  auto-preenchimento via SSH_ASKPASS numa etapa seguinte). Telnet segue no caminho atual por ora.
+  O **terminal nativo integrado** (WPF, sem WebView2) segue em construção em paralelo.
+
 ## [1.2.10] - 2026-07-07
 
 ### Corrigido

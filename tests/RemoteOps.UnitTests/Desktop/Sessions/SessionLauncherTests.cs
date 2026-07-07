@@ -49,6 +49,34 @@ public sealed class SessionLauncherTests
             => throw new WinBoxValidationException("manifesto sem sha256 valido");
     }
 
+    private sealed class FakeExternalTerminalLauncher : IExternalTerminalLauncher
+    {
+        public SshLaunchTarget? Last { get; private set; }
+        public System.Exception? ThrowOnLaunch { get; init; }
+
+        public Task LaunchSshAsync(SshLaunchTarget target, CancellationToken ct = default)
+        {
+            if (ThrowOnLaunch != null)
+            {
+                throw ThrowOnLaunch;
+            }
+            Last = target;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakeCredentialResolver : ICredentialRefResolver
+    {
+        public Task<CredentialRef> ResolveAsync(string credentialRefId, CancellationToken ct = default)
+            => Task.FromResult(new CredentialRef
+            {
+                Id = credentialRefId,
+                Name = "cred",
+                Type = "password",
+                Metadata = new CredentialMetadata { Username = "admin" },
+            });
+    }
+
     private static Asset AssetWith(params string[] protocols) => AssetWithCred(credentialRefId: "c1", protocols);
 
     private static Asset AssetWithCred(string? credentialRefId, params string[] protocols)
@@ -160,5 +188,45 @@ public sealed class SessionLauncherTests
         var l = new SessionLauncher(new TabsViewModel(), null, null, null, null, null, null);
         // sem flag rdp.enabled e sem provider → não pode
         Assert.False(l.CanLaunch(AssetWith("rdp"), "rdp"));
+    }
+
+    [Fact]
+    public async Task LaunchAsync_Ssh_WithExternalLauncher_OpensExternalTerminal_NoWebViewTab()
+    {
+        var tabs = new TabsViewModel();
+        var ext = new FakeExternalTerminalLauncher();
+        var l = new SessionLauncher(tabs, null, null, new FakeTerminalProvider(), null, null, null,
+            new FakeCredentialResolver(), ext);
+
+        LaunchResult result = await l.LaunchAsync(AssetWith("ssh"), "ssh");
+
+        Assert.True(result.Success);
+        Assert.False(tabs.HasTabs); // externo NÃO abre aba WebView2
+        Assert.NotNull(ext.Last);
+        Assert.Equal("10.0.0.1", ext.Last!.Host);
+        Assert.Equal(22, ext.Last.Port);
+        Assert.Equal("admin", ext.Last.Username);
+    }
+
+    [Fact]
+    public async Task LaunchAsync_Ssh_External_SshExeMissing_FailsWithGuidance()
+    {
+        var ext = new FakeExternalTerminalLauncher { ThrowOnLaunch = new System.ComponentModel.Win32Exception(2) };
+        var l = new SessionLauncher(new TabsViewModel(), null, null, new FakeTerminalProvider(), null, null, null,
+            new FakeCredentialResolver(), ext);
+
+        LaunchResult result = await l.LaunchAsync(AssetWith("ssh"), "ssh");
+
+        Assert.False(result.Success);
+        Assert.Contains("OpenSSH", result.Error);
+    }
+
+    [Fact]
+    public async Task CanLaunch_Ssh_TrueWhenOnlyExternalLauncherPresent()
+    {
+        var l = new SessionLauncher(new TabsViewModel(), null, null, null, null, null, null,
+            new FakeCredentialResolver(), new FakeExternalTerminalLauncher());
+        Assert.True(l.CanLaunch(AssetWith("ssh"), "ssh"));
+        await Task.CompletedTask;
     }
 }

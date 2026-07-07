@@ -134,6 +134,10 @@ internal static class AppCompositionRoot
             ReadDeviceId()));
         services.AddSingleton<Reporting.IBugReportComposer, Reporting.MailtoBugReportComposer>();
 
+        // SSH abre num terminal REAL do Windows (ssh.exe), por fora do app — substitui o
+        // terminal WebView2 que renderizava escuro/travado em Win11 + NVIDIA (MPO).
+        services.AddSingleton<Sessions.IExternalTerminalLauncher, Sessions.WindowsExternalTerminalLauncher>();
+
         services.AddSingleton<Sessions.SessionLauncher>(sp => new Sessions.SessionLauncher(
             sp.GetRequiredService<ViewModels.TabsViewModel>(),
             sp.GetService<IWinBoxRunner>(),
@@ -141,7 +145,9 @@ internal static class AppCompositionRoot
             sp.GetKeyedService<ITerminalSessionProvider>(RemoteProtocol.Ssh),
             sp.GetKeyedService<ITerminalSessionProvider>(RemoteProtocol.Telnet),
             sp.GetKeyedService<IRdpSessionProvider>(RemoteProtocol.Rdp),
-            sp.GetService<IRdpCredentialResolver>()));
+            sp.GetService<IRdpCredentialResolver>(),
+            sp.GetService<ICredentialRefResolver>(),
+            sp.GetRequiredService<Sessions.IExternalTerminalLauncher>()));
 
         services.AddSingleton<ViewModels.HostsViewModel>(sp => new ViewModels.HostsViewModel(
             sp.GetRequiredService<ILocalStore>(),
