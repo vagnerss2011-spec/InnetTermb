@@ -68,6 +68,26 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.2.3] - 2026-07-06
+
+### Corrigido
+
+- **Auto-update nunca funcionava (feed apontava para repo privado):** o app lia o feed do Velopack
+  em `github.com/vagnerss2011-spec/InnetTermb`, que é **privado** — sem `REMOTEOPS_UPDATE_FEED_TOKEN`,
+  o GitHub devolvia **404** e `CheckForUpdatesAsync` falhava ("Não foi possível verificar
+  atualizações agora"), então o check de startup e o botão "Verificar agora" nunca achavam nada.
+  Cada versão precisava ser instalada na mão. Corrigido apontando `UpdateFeedConfig.DefaultRepoUrl`
+  para o repo **público** `InnetTermb-releases` (só instaladores + feed; o código-fonte continua
+  privado), que o `GithubSource` lê anonimamente.
+
+### Alterado
+
+- **`release.yml` publica no feed público quando `secrets.RELEASES_REPO_TOKEN` existe** (PAT
+  fine-grained com escrita em `InnetTermb-releases`); sem o secret, publica no repo privado como
+  antes (não quebra o release) e o feed público é preenchido por `tools/mirror-release.sh`.
+- **Novo `tools/mirror-release.sh`:** espelha os artefatos de feed de uma release do repo privado
+  para o público (usado até o `RELEASES_REPO_TOKEN` ser configurado no CI).
+
 ## [1.2.2] - 2026-07-06
 
 ### Corrigido

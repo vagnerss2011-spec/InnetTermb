@@ -35,7 +35,12 @@ env:
   RUNTIME_ID: win-x64
   PUBLISH_DIR: publish/win-x64
   RELEASE_DIR: Releases
-  REPO_URL: https://github.com/vagnerss2011-spec/InnetTermb
+  # Feed de auto-update: os clientes leem o repo PÚBLICO anonimamente (o código-fonte fica no repo
+  # privado). Publicar direto no público exige um token com escrita nele (secrets.RELEASES_REPO_TOKEN,
+  # um PAT fine-grained). Sem esse secret, cai no repo privado (comportamento antigo) para não quebrar
+  # o release — o feed público é então preenchido pelo espelhamento manual (tools/mirror-release.sh).
+  PUBLIC_REPO_URL: https://github.com/vagnerss2011-spec/InnetTermb-releases
+  PRIVATE_REPO_URL: https://github.com/vagnerss2011-spec/InnetTermb
 
 jobs:
   build-and-release:
@@ -132,12 +137,22 @@ jobs:
       - name: vpk upload github (publica o Release + feed de auto-update)
         shell: pwsh
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN_DEFAULT: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN_RELEASES: ${{ secrets.RELEASES_REPO_TOKEN }}
         run: |
+          # Prefere o repo PÚBLICO de releases quando há token de escrita para ele; senão publica no
+          # privado (o GITHUB_TOKEN só tem escrita no próprio repo) e o feed público é espelhado à mão.
+          if ($env:GH_TOKEN_RELEASES) {
+            $repoUrl = "${{ env.PUBLIC_REPO_URL }}"; $token = $env:GH_TOKEN_RELEASES
+            Write-Host "Publicando no feed PÚBLICO ($repoUrl) — auto-update anônimo."
+          } else {
+            $repoUrl = "${{ env.PRIVATE_REPO_URL }}"; $token = $env:GH_TOKEN_DEFAULT
+            Write-Host "RELEASES_REPO_TOKEN ausente — publicando no repo PRIVADO ($repoUrl). Espelhe o feed público com tools/mirror-release.sh."
+          }
           $vpkArgs = @(
             "upload", "github",
-            "--repoUrl", "${{ env.REPO_URL }}",
-            "--token", "$env:GH_TOKEN",
+            "--repoUrl", "$repoUrl",
+            "--token", "$token",
             "--tag", "${{ github.ref_name }}",
             "--releaseName", "RemoteOps Desktop ${{ env.VERSION }}",
             "--outputDir", "${{ env.RELEASE_DIR }}",
