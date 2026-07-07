@@ -68,6 +68,16 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.2.12] - 2026-07-07
+
+### Alterado
+
+- **SSH externo para de "pedir pra registrar" a cada host novo:** `WindowsExternalTerminalLauncher`
+  passa `-o StrictHostKeyChecking=accept-new` ao `ssh.exe`. Aceita a chave de host na PRIMEIRA
+  conexão sem o prompt `yes/no` e grava em `known_hosts`; hosts já conhecidos nem perguntam; uma
+  chave TROCADA continua bloqueada (proteção MITM). Validado em campo: `~/.ssh/known_hosts` do
+  usuário já persistia (95 hosts) — o prompt era o `yes/no` por host novo, agora suprimido.
+
 ## [1.2.11] - 2026-07-07
 
 ### Adicionado

@@ -20,14 +20,19 @@ public sealed class WindowsExternalTerminalLauncher : IExternalTerminalLauncher
     public WindowsExternalTerminalLauncher(Func<ProcessStartInfo, Process?>? start = null)
         => _start = start ?? (psi => Process.Start(psi));
 
-    /// <summary>Monta os argumentos do ssh.exe: <c>-p PORT [user@]host</c>.</summary>
+    /// <summary>
+    /// Monta os argumentos do ssh.exe: <c>-o StrictHostKeyChecking=accept-new -p PORT [user@]host</c>.
+    /// <c>accept-new</c> aceita a chave de host na PRIMEIRA conexão sem o prompt "yes/no" (deixa de
+    /// "pedir pra registrar" a cada host novo), mas ainda BLOQUEIA uma chave TROCADA (proteção MITM) —
+    /// o ssh continua gravando em known_hosts, então hosts já conhecidos nem perguntam.
+    /// </summary>
     public static string BuildSshArguments(SshLaunchTarget target)
     {
         ArgumentNullException.ThrowIfNull(target);
         string destination = string.IsNullOrWhiteSpace(target.Username)
             ? target.Host
             : $"{target.Username}@{target.Host}";
-        return $"-p {target.Port} {destination}";
+        return $"-o StrictHostKeyChecking=accept-new -p {target.Port} {destination}";
     }
 
     public Task LaunchSshAsync(SshLaunchTarget target, CancellationToken ct = default)

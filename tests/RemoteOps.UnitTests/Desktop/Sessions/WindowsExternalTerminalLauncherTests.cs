@@ -7,17 +7,17 @@ namespace RemoteOps.UnitTests.Desktop.Sessions;
 public sealed class WindowsExternalTerminalLauncherTests
 {
     [Fact]
-    public void BuildSshArguments_WithUsername_UsesUserAtHostAndPort()
+    public void BuildSshArguments_WithUsername_UsesUserAtHostAndPort_WithAcceptNew()
     {
         var args = WindowsExternalTerminalLauncher.BuildSshArguments(new SshLaunchTarget("10.0.0.1", 2222, "admin"));
-        Assert.Equal("-p 2222 admin@10.0.0.1", args);
+        Assert.Equal("-o StrictHostKeyChecking=accept-new -p 2222 admin@10.0.0.1", args);
     }
 
     [Fact]
-    public void BuildSshArguments_WithoutUsername_UsesHostOnly()
+    public void BuildSshArguments_WithoutUsername_UsesHostOnly_WithAcceptNew()
     {
         var args = WindowsExternalTerminalLauncher.BuildSshArguments(new SshLaunchTarget("host.example", 22, null));
-        Assert.Equal("-p 22 host.example", args);
+        Assert.Equal("-o StrictHostKeyChecking=accept-new -p 22 host.example", args);
     }
 
     [Fact]
@@ -31,6 +31,6 @@ public sealed class WindowsExternalTerminalLauncherTests
         Assert.NotNull(captured);
         Assert.Equal("ssh.exe", captured!.FileName);
         Assert.True(captured.UseShellExecute);
-        Assert.Equal("-p 22 admin@10.0.0.1", captured.Arguments);
+        Assert.Equal("-o StrictHostKeyChecking=accept-new -p 22 admin@10.0.0.1", captured.Arguments);
     }
 }

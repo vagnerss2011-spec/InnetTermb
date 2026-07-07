@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.2.12",
+      "date": "2026-07-07",
+      "highlights": [
+        "Terminal SSH não fica mais perguntando pra registrar o host toda vez: agora o RemoteOps aceita automaticamente a chave de um host novo na primeira conexão (e continua bloqueando se a chave de um host conhecido mudar, por segurança)."
+      ]
+    },
+    {
       "version": "1.2.11",
       "date": "2026-07-07",
       "highlights": [
