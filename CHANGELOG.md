@@ -68,6 +68,21 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.2.7] - 2026-07-07
+
+### Corrigido
+
+- **Terminal ficava preto / "fechava" ao trocar de aba:** o `TabControl` padrão do WPF usa um único
+  `ContentPresenter` (`SelectedContent`) e **destrói e recria** o conteúdo da aba selecionada a cada
+  troca. Como a aba de sessão hospeda estado vivo e pesado (`TerminalTabView` com WebView2 + xterm.js
+  e a sessão SSH), ir para "Hosts" e voltar recriava a View **vazia** — o xterm perdia todo o
+  histórico (só mostrava o que chegasse depois) e a sessão parecia ter fechado. As correções de foco
+  da v1.2.5 não resolviam porque poliam uma View que estava sendo jogada fora.
+  Correção: novo `TabControlEx` (keep-alive) mantém um `ContentPresenter` por aba **vivo** no visual
+  tree (criado sob demanda, só alterna `Visibility`); o terminal, o WebView2 e a sessão sobrevivem à
+  troca de aba. `TabControlExTests` prova que trocar de aba e voltar reutiliza o MESMO presenter (não
+  recria). Fechar a aba (botão ×, item removido da coleção) continua descarregando a View normalmente.
+
 ## [1.2.6] - 2026-07-06
 
 ### Corrigido

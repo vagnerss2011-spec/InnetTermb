@@ -82,7 +82,35 @@
          CompositeCollection não é aceito pelo WPF ("Binding só pode ser definido em uma
          DependencyProperty"), daí o merge ser feito em código. O ContentTemplate resolve
          implicitamente pelos DataTemplate sem x:Key acima (por DataType). -->
-    <TabControl x:Name="TabsHost"
-                Background="{DynamicResource Brush.Bg.App}"
-                ItemTemplateSelector="{StaticResource TabHeaderSelector}"/>
+    <local:TabControlEx x:Name="TabsHost"
+                        Background="{DynamicResource Brush.Bg.Canvas}"
+                        BorderBrush="{DynamicResource Brush.Border.Subtle}"
+                        ItemTemplateSelector="{StaticResource TabHeaderSelector}">
+        <!-- Template keep-alive: em vez do ContentPresenter único (SelectedContent) que recria o
+             conteúdo a cada troca de aba, o TabControlEx mantém um ContentPresenter por aba vivo
+             dentro de PART_ItemsHolder e só alterna Visibility — o terminal (WebView2/xterm + sessão
+             SSH) não é destruído ao ir pra "Hosts" e voltar. Estrutura da moldura idêntica ao tema
+             (Themes/Controls/TabControl.xaml); só troca o host de conteúdo. -->
+        <local:TabControlEx.Template>
+            <ControlTemplate TargetType="{x:Type local:TabControlEx}">
+                <Grid KeyboardNavigation.TabNavigation="Local" SnapsToDevicePixels="True">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <TabPanel x:Name="HeaderPanel"
+                              Grid.Row="0"
+                              IsItemsHost="True"
+                              KeyboardNavigation.TabIndex="1"
+                              Panel.ZIndex="1"/>
+                    <Border Grid.Row="1"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="0,1,0,0">
+                        <Grid x:Name="PART_ItemsHolder"/>
+                    </Border>
+                </Grid>
+            </ControlTemplate>
+        </local:TabControlEx.Template>
+    </local:TabControlEx>
 </Window>
