@@ -1,4 +1,5 @@
 using System.Windows;
+using RemoteOps.Contracts.Assets;
 using RemoteOps.Desktop.Infrastructure;
 using RemoteOps.Desktop.ViewModels;
 using RemoteOps.Desktop.Views;
@@ -24,6 +25,48 @@ public sealed class HostEditorDialogRenderTests
     {
         var store = new InMemoryLocalStore();
         var vm = new HostEditorViewModel(store, "ws-local", existing: null, groupId: null);
+
+        Exception? captured = StaThreadRunner.Run(() =>
+        {
+            var dialog = new HostEditorDialog(vm)
+            {
+                ShowInTaskbar = false,
+                WindowStyle = WindowStyle.None,
+                ShowActivated = false,
+            };
+            try
+            {
+                dialog.Show();
+                dialog.UpdateLayout();
+            }
+            finally
+            {
+                dialog.Close();
+            }
+        });
+
+        Assert.True(captured is null, captured?.ToString());
+    }
+
+    [Fact]
+    public void Constructs_ForExistingHostWithEndpoint_WithoutThrowing()
+    {
+        // Caminho "Editar": com um endpoint salvo, o layout realiza o ListBox de endpoints e a
+        // MultiBinding do EndpointAddressConverter — superfície de runtime que o caso "Novo host"
+        // (lista vazia) não exercita.
+        var store = new InMemoryLocalStore();
+        var asset = new Asset
+        {
+            Id = "a1",
+            WorkspaceId = "ws-local",
+            GroupId = "g1",
+            Name = "r1",
+            Endpoints =
+            {
+                new Endpoint { Id = "e1", AssetId = "a1", Protocol = "ssh", Port = 22, Ipv4 = "10.0.0.1" },
+            },
+        };
+        var vm = new HostEditorViewModel(store, "ws-local", existing: asset, groupId: "g1");
 
         Exception? captured = StaThreadRunner.Run(() =>
         {
