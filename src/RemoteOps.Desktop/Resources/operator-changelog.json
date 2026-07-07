@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.2.4",
+      "date": "2026-07-06",
+      "highlights": [
+        "Abrir o RemoteOps duas vezes não abre mais uma segunda janela: agora o app traz a janela já aberta para frente, evitando erros de banco quando o ícone é clicado mais de uma vez."
+      ]
+    },
+    {
       "version": "1.2.3",
       "date": "2026-07-06",
       "highlights": [

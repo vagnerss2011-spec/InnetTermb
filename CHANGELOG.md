@@ -68,6 +68,17 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.2.4] - 2026-07-06
+
+### Adicionado
+
+- **Instância única (`SingleInstanceGuard`):** abrir o RemoteOps uma 2ª vez agora traz a janela já
+  aberta para frente em vez de subir outra cópia. A 2ª instância sinaliza a 1ª (named
+  `Mutex` + `EventWaitHandle` em escopo `Local\`) e encerra **antes** de abrir o vault/SqlCipher —
+  eliminando a disputa do banco local (`sync-local.db`, `Pooling=False`) que gerava erros confusos
+  quando o ícone era clicado mais de uma vez. Lógica sem UI e testável (nomes de mutex/evento
+  injetáveis); a ativação da janela roda via `Dispatcher` na 1ª instância.
+
 ## [1.2.3] - 2026-07-06
 
 ### Corrigido

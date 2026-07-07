@@ -23,6 +23,7 @@ public partial class App : Application
     private ServiceProvider? _serviceProvider;
     private WorkspaceViewModel? _workspaceViewModel;
     private SyncSession? _syncSession;
+    private SingleInstanceGuard? _singleInstance;
 
     public App()
     {
@@ -55,6 +56,19 @@ public partial class App : Application
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // Instância única: se já há uma cópia rodando, acorda a janela dela e encerra ESTA ANTES
+        // de abrir o vault/SqlCipher — duas instâncias disputando o mesmo banco local
+        // (sync-local.db, Pooling=False) dava erros confusos quando o ícone era clicado 2x.
+        _singleInstance = new SingleInstanceGuard();
+        if (!_singleInstance.IsFirstInstance)
+        {
+            _singleInstance.SignalExistingInstance();
+            _singleInstance.Dispose();
+            _singleInstance = null;
+            Shutdown();
+            return;
+        }
 
         // async void: sem este try/catch, falha de vault/DB derruba o processo sem
         // nenhum feedback ao operador (crash silencioso no despachante do WPF).
@@ -93,7 +107,11 @@ public partial class App : Application
 
             _workspaceViewModel = _serviceProvider.GetRequiredService<WorkspaceViewModel>();
             var window = new MainWindow(_workspaceViewModel, store);
+            MainWindow = window;
             window.Show();
+
+            // A partir daqui, uma 2ª instância que tentar abrir vai só trazer esta janela pra frente.
+            _singleInstance.ListenForActivation(() => Dispatcher.Invoke(BringMainWindowToFront));
 
             // Cloud sync (ADR-013) atrás da feature flag cloud.sync.enabled (default OFF).
             // OFF (ou config incompleta) → app idêntico ao atual: offline-first, sem rede.
@@ -206,7 +224,29 @@ public partial class App : Application
         }
 
         _serviceProvider?.Dispose();
+        _singleInstance?.Dispose();
         base.OnExit(e);
+    }
+
+    // Traz a janela principal para frente quando uma 2ª instância tentou abrir (roda na UI thread).
+    private void BringMainWindowToFront()
+    {
+        if (MainWindow is not { } w)
+        {
+            return;
+        }
+
+        if (w.WindowState == WindowState.Minimized)
+        {
+            w.WindowState = WindowState.Normal;
+        }
+
+        w.Show();
+        w.Activate();
+        // Truque padrão para forçar o foco mesmo quando outra janela está ativa.
+        w.Topmost = true;
+        w.Topmost = false;
+        w.Focus();
     }
 
     private static async Task StartSyncAsync(SyncSession session)
