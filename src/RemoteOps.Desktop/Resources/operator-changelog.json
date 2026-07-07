@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.2.11",
+      "date": "2026-07-07",
+      "highlights": [
+        "Terminal SSH agora abre numa janela de terminal de verdade do Windows (por fora do app), igual o WinBox já faz. Resolve de vez o terminal escuro, o teclado que não respondia e o não maximizar — porque é uma janela nativa do Windows. Você digita a senha no terminal (o login continua guardado no cofre; o preenchimento automático vem em seguida)."
+      ]
+    },
+    {
       "version": "1.2.10",
       "date": "2026-07-07",
       "highlights": [
