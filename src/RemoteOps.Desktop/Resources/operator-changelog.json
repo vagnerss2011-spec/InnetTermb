@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.2.8",
+      "date": "2026-07-07",
+      "highlights": [
+        "Terminal com brilho normal: em telas com HDR/placa de vídeo dedicada, o terminal aparecia com um \"filtro escuro\" (quase sem contraste). Agora ele desenha com o brilho e as cores certas, legível como um terminal comum."
+      ]
+    },
+    {
       "version": "1.2.7",
       "date": "2026-07-07",
       "highlights": [
