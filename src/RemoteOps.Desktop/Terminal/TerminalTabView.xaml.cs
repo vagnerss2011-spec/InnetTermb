@@ -94,18 +94,22 @@ public partial class TerminalTabView : UserControl
         try
         {
             // Precisa vir ANTES de EnsureCoreWebView2Async (ver WebViewUserDataFolder).
-            // Bug de campo: SÓ o terminal (WebView2) renderizava MUITO ESCURO — "filtro escuro" por
-            // cima, texto quase preto — enquanto o resto do app (WPF nativo) e apps como o Termius
-            // ficam normais. Causa: a composição por GPU do WebView2 mapeando as cores SDR errado
-            // na tela (HDR / wide-gamut, comum em setup com GPU dedicada), o que também atrapalhava
-            // a interação. Renderizar por SOFTWARE (--disable-gpu) num terminal de texto é
-            // perfeitamente adequado e pinta as cores como definidas no tema; --force-color-profile
-            // =srgb reforça o mapeamento correto. Precisa vir ANTES de EnsureCoreWebView2Async, e só
-            // vale quando o processo do WebView2 é criado do zero (ele reaproveita por UserDataFolder).
+            // Bug de campo (Win11 + GPU NVIDIA): SÓ o terminal (WebView2) renderizava MUITO ESCURO,
+            // texto quase preto, enquanto o resto do app (WPF nativo) ficava normal. CAUSA-RAIZ:
+            // Multi-Plane Overlay (MPO). O driver promove a swapchain DirectComposition do WebView2 a
+            // um plano de overlay de hardware, escurecido no scanout DEPOIS da composição do DWM — por
+            // isso NADA no conteúdo (tema, --disable-gpu, --force-color-profile, filtro CSS de brilho)
+            // mudava: tudo age ANTES da camada ser escurecida, e uma captura CopyFromScreen (lê o quadro
+            // do DWM) aparecia CLARA enquanto a tela mostrava ESCURO — assinatura clássica de MPO.
+            // --disable-direct-composition tira o Chromium do caminho DComp/overlay e força o blit
+            // composto pelo DWM, eliminando o plano separado. É distinto de --disable-gpu (que NÃO
+            // remove o present via DComp). Se render ficar em branco, o fallback é
+            // --disable-gpu-compositing. Precisa vir ANTES de EnsureCoreWebView2Async e só aplica com o
+            // processo do WebView2 criado do zero (ele reaproveita por UserDataFolder).
             _webView.CreationProperties = new Microsoft.Web.WebView2.Wpf.CoreWebView2CreationProperties
             {
                 UserDataFolder = WebViewUserDataFolder(),
-                AdditionalBrowserArguments = "--disable-gpu --force-color-profile=srgb",
+                AdditionalBrowserArguments = "--disable-direct-composition",
             };
 
             await _webView.EnsureCoreWebView2Async();

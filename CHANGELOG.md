@@ -68,6 +68,24 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.2.10] - 2026-07-07
+
+### Corrigido
+
+- **Terminal "muito escuro" — CAUSA-RAIZ encontrada (Multi-Plane Overlay):** duas análises
+  independentes convergiram: em Win11 + GPU NVIDIA, o driver promove a swapchain
+  DirectComposition do WebView2 a um **plano de overlay de hardware (MPO)**, escurecido no
+  scanout **depois** da composição do DWM. Isso explica todo o histórico: nenhum ajuste de
+  conteúdo (tema, `--disable-gpu`, `--force-color-profile=srgb`, filtro CSS de brilho) mudava
+  nada — todos agem *antes* da camada ser escurecida — e uma captura `CopyFromScreen` (lê o
+  quadro do DWM) aparecia **clara** enquanto a tela mostrava **escuro** (assinatura clássica de
+  MPO). Correção: `TerminalTabView` passa `--disable-direct-composition` ao WebView2, tirando o
+  Chromium do caminho DComp/overlay e forçando o blit composto pelo DWM (distinto de
+  `--disable-gpu`, que não remove o present via DComp). Remove o `filter: brightness` da v1.2.9
+  (não era mais necessário — atacava o sintoma, não a causa). Fallback documentado:
+  `--disable-gpu-compositing` se o render ficar em branco. Correção definitiva (terminal nativo
+  sem WebView2) está em andamento em paralelo.
+
 ## [1.2.9] - 2026-07-07
 
 ### Corrigido
