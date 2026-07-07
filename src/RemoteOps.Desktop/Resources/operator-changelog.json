@@ -1,6 +1,14 @@
 {
   "entries": [
     {
+      "version": "1.2.7",
+      "date": "2026-07-07",
+      "highlights": [
+        "Terminal não fica mais preto ao trocar de aba: agora o RemoteOps mantém a sessão viva ao alternar entre \"Hosts\" e o terminal — a tela e o histórico continuam lá, e o cursor volta pronto pra digitar.",
+        "Ir para \"Hosts\" e voltar não perde mais a sessão do terminal (só o botão × fecha)."
+      ]
+    },
+    {
       "version": "1.2.6",
       "date": "2026-07-06",
       "highlights": [
