@@ -68,6 +68,22 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.2.6] - 2026-07-06
+
+### Corrigido
+
+- **Loop de auto-update (baixava, "instalava", voltava pra versão antiga, sem parar):** o WebView2
+  do terminal gravava seus dados na pasta padrão (ao lado do exe, **dentro de `current\`**) e os
+  processos `msedgewebview2.exe` mantinham esses arquivos **travados**. O Velopack não conseguia
+  trocar `current\` ao aplicar a atualização → o apply falhava, o app reiniciava na versão antiga,
+  rechecava o feed e baixava de novo — loop infinito (confirmado ao vivo: `RemoteOpsDesktop-1.2.5-full.nupkg`
+  baixado em `packages\`, 12 processos `msedgewebview2.exe`, pasta `current\RemoteOps.Desktop.exe.WebView2`
+  de 31 MB). Correção: `TerminalTabView` define `CoreWebView2CreationProperties.UserDataFolder` para
+  `%LocalAppData%\RemoteOps\WebView2` (**fora** de `current\`) antes de `EnsureCoreWebView2Async` — o
+  `current\` fica livre e a atualização aplica. Guarda de regressão em `WebViewUserDataFolderTests`.
+  **Nota de recuperação:** máquinas presas no loop precisam instalar a v1.2.6 uma vez pelo Setup.exe
+  (com o app fechado) para quebrar o ciclo; a partir dela o auto-update aplica normalmente.
+
 ## [1.2.5] - 2026-07-06
 
 ### Corrigido
