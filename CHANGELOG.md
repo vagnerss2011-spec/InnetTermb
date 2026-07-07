@@ -68,6 +68,20 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.2.8] - 2026-07-07
+
+### Corrigido
+
+- **Terminal renderizava "muito escuro / filtro escuro" (só o WebView2; o resto do app e apps
+  nativos como o Termius normais):** a composição por GPU do WebView2 mapeava as cores SDR errado
+  na tela (HDR / wide-gamut, comum em setup com GPU dedicada) — o fundo #1e1e1e virava preto e o
+  texto #d4d4d4 saía quase preto (~20% do brilho), e a interação ficava prejudicada. Correção:
+  `TerminalTabView` passa `--disable-gpu --force-color-profile=srgb` em `AdditionalBrowserArguments`
+  (renderização por software é adequada para um terminal de texto e pinta as cores como no tema) e
+  define `DefaultBackgroundColor` opaco. Só `--force-color-profile=srgb` não bastava porque os args
+  só valem em processo novo do WebView2 (ele reaproveita por UserDataFolder); no auto-update o
+  processo reinicia limpo, então passam a valer.
+
 ## [1.2.7] - 2026-07-07
 
 ### Corrigido

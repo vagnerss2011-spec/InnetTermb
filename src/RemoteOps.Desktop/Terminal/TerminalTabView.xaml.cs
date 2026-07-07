@@ -94,15 +94,28 @@ public partial class TerminalTabView : UserControl
         try
         {
             // Precisa vir ANTES de EnsureCoreWebView2Async (ver WebViewUserDataFolder).
+            // Bug de campo: SÓ o terminal (WebView2) renderizava MUITO ESCURO — "filtro escuro" por
+            // cima, texto quase preto — enquanto o resto do app (WPF nativo) e apps como o Termius
+            // ficam normais. Causa: a composição por GPU do WebView2 mapeando as cores SDR errado
+            // na tela (HDR / wide-gamut, comum em setup com GPU dedicada), o que também atrapalhava
+            // a interação. Renderizar por SOFTWARE (--disable-gpu) num terminal de texto é
+            // perfeitamente adequado e pinta as cores como definidas no tema; --force-color-profile
+            // =srgb reforça o mapeamento correto. Precisa vir ANTES de EnsureCoreWebView2Async, e só
+            // vale quando o processo do WebView2 é criado do zero (ele reaproveita por UserDataFolder).
             _webView.CreationProperties = new Microsoft.Web.WebView2.Wpf.CoreWebView2CreationProperties
             {
                 UserDataFolder = WebViewUserDataFolder(),
+                AdditionalBrowserArguments = "--disable-gpu --force-color-profile=srgb",
             };
 
             await _webView.EnsureCoreWebView2Async();
 
             // Guard: tab may have been closed while WebView2 was initializing
             if (!IsLoaded) return;
+
+            // Fundo opaco igual ao tema do terminal — evita qualquer blend translúcido com o
+            // fundo escuro do WPF atrás (outra fonte possível do "filtro escuro").
+            _webView.DefaultBackgroundColor = System.Drawing.Color.FromArgb(0xFF, 0x1E, 0x1E, 0x1E);
 
             ApplySecuritySettings(_webView.CoreWebView2.Settings);
 
