@@ -68,6 +68,23 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.2.2] - 2026-07-06
+
+### Corrigido
+
+- **Editor de host não abria ("Erro inesperado") — impossível criar/editar host:** o `HostEditorDialog`
+  declarava `ResizeMode="CanResizeWithGrips"`, valor **inexistente** do enum `ResizeMode` (o correto é
+  `CanResizeWithGrip`, singular). Como valor de enum em XAML é string convertida em runtime, o build
+  (mesmo com `TreatWarningsAsErrors`) passava e o `EnumConverter` lançava `FormatException` →
+  `XamlParseException` dentro de `InitializeComponent()` só na hora de abrir o diálogo.
+  `App.OnDispatcherUnhandledException` capturava como "Erro inesperado" e o formulário nunca aparecia,
+  então **nenhum host podia ser cadastrado nem editado** — regressão desde a v1.1.2 (quando o editor
+  virou redimensionável), presente em v1.1.2, v1.2.0 e v1.2.1. Corrigido para `CanResizeWithGrip`.
+- **Guarda de regressão:** novo `HostEditorDialogRenderTests` renderiza o `HostEditorDialog` de verdade
+  (thread STA + tema real, mesmo padrão do `NDeskTabViewRenderTests`) e falha se o diálogo voltar a
+  lançar no parse/layout — cobrindo a classe de bug (enum/recurso/binding só validado em runtime) que o
+  build não pega.
+
 ## [1.2.1] - 2026-07-03
 
 ### Corrigido
