@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Threading.Tasks;
 using RemoteOps.Contracts.Assets;
+using RemoteOps.Desktop.Credentials;
 using RemoteOps.Desktop.Domain;
 using RemoteOps.Desktop.Infrastructure;
 
@@ -10,19 +12,31 @@ namespace RemoteOps.Desktop.ViewModels;
 public sealed class HostEditorViewModel : BaseViewModel
 {
     private readonly ILocalStore _store;
+    private readonly IInlineCredentialService? _inlineCreds;
     private readonly string _workspaceId;
     private readonly Asset? _existing;
     private readonly string? _groupId;
+
+    // Rascunhos de senha inline (usuário + char[]) por endpoint AINDA não salvo. Materializados no
+    // cofre só no Salvar; zerados no cancelar. Só existem para endpoints adicionados nesta sessão.
+    private readonly Dictionary<string, InlineDraft> _inlineDrafts = [];
+
     private string _name = string.Empty;
     private string _newEndpointProtocol = "ssh";
     private string _newEndpointAddress = string.Empty;
     private int _newEndpointPort = 22;
     private string? _newEndpointCredentialId;
     private string _newEndpointSshProfile = "auto";
+    private bool _useInlineCredential;
+    private string _newEndpointInlineUsername = string.Empty;
 
-    public HostEditorViewModel(ILocalStore store, string workspaceId, Asset? existing, string? groupId)
+    // inlineCreds é o ÚLTIMO parâmetro e opcional de propósito: mantém compatível a assinatura
+    // (store, workspaceId, existing, groupId) usada nos testes de Keychain/endereço/perfil. É
+    // obrigatório na prática (o MainWindow injeta) só quando a senha inline é usada.
+    public HostEditorViewModel(ILocalStore store, string workspaceId, Asset? existing, string? groupId, IInlineCredentialService? inlineCreds = null)
     {
         _store = store;
+        _inlineCreds = inlineCreds;
         _workspaceId = workspaceId;
         _existing = existing;
         _groupId = existing?.GroupId ?? groupId;
@@ -39,8 +53,8 @@ public sealed class HostEditorViewModel : BaseViewModel
                 _newEndpointPort = DefaultPortFor(_newEndpointProtocol);
             }
         }
-        AddEndpointCommand = new RelayCommand(AddEndpoint, () => !string.IsNullOrWhiteSpace(NewEndpointAddress));
-        RemoveEndpointCommand = new RelayCommand(obj => { if (obj is Endpoint ep) Endpoints.Remove(ep); });
+        AddEndpointCommand = new RelayCommand(AddEndpoint, () => CanAddEndpoint);
+        RemoveEndpointCommand = new RelayCommand(obj => { if (obj is Endpoint ep) RemoveEndpoint(ep); });
         SaveCommand = new RelayCommand(() => _ = SaveAsync(), () => !string.IsNullOrWhiteSpace(Name));
     }
 
@@ -48,7 +62,7 @@ public sealed class HostEditorViewModel : BaseViewModel
     public string Title => IsEdit ? "Editar host" : "Novo host";
     public ObservableCollection<Endpoint> Endpoints { get; } = [];
 
-    /// <summary>Credenciais disponíveis (metadados) para anexar ao endpoint em edição.</summary>
+    /// <summary>Credenciais do Keychain (metadados) disponíveis para anexar ao endpoint em edição.</summary>
     public ObservableCollection<CredentialRef> AvailableCredentials { get; } = [];
 
     public string Name { get => _name; set { Set(ref _name, value); SaveCommand.RaiseCanExecuteChanged(); } }
@@ -62,12 +76,47 @@ public sealed class HostEditorViewModel : BaseViewModel
         "mikrotik" => 8291,
         _ => NewEndpointPort,
     };
-    public string NewEndpointAddress { get => _newEndpointAddress; set { Set(ref _newEndpointAddress, value); AddEndpointCommand.RaiseCanExecuteChanged(); } }
+    public string NewEndpointAddress
+    {
+        get => _newEndpointAddress;
+        set { Set(ref _newEndpointAddress, value); AddEndpointCommand.RaiseCanExecuteChanged(); RaisePropertyChanged(nameof(CanAddEndpoint)); }
+    }
     public int NewEndpointPort { get => _newEndpointPort; set => Set(ref _newEndpointPort, value); }
     public string? NewEndpointCredentialId { get => _newEndpointCredentialId; set => Set(ref _newEndpointCredentialId, value); }
 
     /// <summary>Perfil de segurança SSH do endpoint: "auto" | "strict".</summary>
     public string NewEndpointSshProfile { get => _newEndpointSshProfile; set => Set(ref _newEndpointSshProfile, value); }
+
+    /// <summary>
+    /// Modo de credencial do endpoint em edição: false = escolher do Keychain (compartilhada),
+    /// true = "senha só deste dispositivo" (usuário+senha inline, cifrada e presa ao device).
+    /// </summary>
+    public bool UseInlineCredential
+    {
+        get => _useInlineCredential;
+        set
+        {
+            if (_useInlineCredential == value)
+            {
+                return;
+            }
+            _useInlineCredential = value;
+            RaisePropertyChanged();
+            RaisePropertyChanged(nameof(UseKeychainCredential));
+        }
+    }
+
+    /// <summary>Inverso de <see cref="UseInlineCredential"/> (pros dois RadioButtons e a visibilidade).</summary>
+    public bool UseKeychainCredential
+    {
+        get => !_useInlineCredential;
+        set => UseInlineCredential = !value;
+    }
+
+    /// <summary>Usuário da credencial inline (a senha vem do PasswordBox, nunca por binding).</summary>
+    public string NewEndpointInlineUsername { get => _newEndpointInlineUsername; set => Set(ref _newEndpointInlineUsername, value); }
+
+    public bool CanAddEndpoint => !string.IsNullOrWhiteSpace(NewEndpointAddress);
 
     public RelayCommand AddEndpointCommand { get; }
     public RelayCommand RemoveEndpointCommand { get; }
@@ -75,9 +124,42 @@ public sealed class HostEditorViewModel : BaseViewModel
 
     public event EventHandler? Saved;
 
-    private void AddEndpoint()
+    /// <summary>Adiciona um endpoint com credencial do Keychain (ou nenhuma).</summary>
+    public void AddEndpoint()
     {
-        if (string.IsNullOrWhiteSpace(NewEndpointAddress)) return;
+        Endpoint? ep = BuildEndpointFromForm(_newEndpointCredentialId);
+        if (ep is null)
+        {
+            return;
+        }
+        Endpoints.Add(ep);
+        ResetEndpointForm();
+    }
+
+    /// <summary>
+    /// Adiciona um endpoint com senha INLINE (só deste device). A senha (char[]) fica num rascunho
+    /// e é cifrada no cofre apenas no Salvar; aqui não toca no store. Zera <paramref name="password"/>
+    /// se o endereço estiver vazio (nada a adicionar).
+    /// </summary>
+    public void AddInlineEndpoint(char[] password)
+    {
+        Endpoint? ep = BuildEndpointFromForm(credentialRefId: null);
+        if (ep is null)
+        {
+            Array.Clear(password);
+            return;
+        }
+        Endpoints.Add(ep);
+        _inlineDrafts[ep.Id] = new InlineDraft(NewEndpointInlineUsername.Trim(), password);
+        ResetEndpointForm();
+    }
+
+    private Endpoint? BuildEndpointFromForm(string? credentialRefId)
+    {
+        if (string.IsNullOrWhiteSpace(NewEndpointAddress))
+        {
+            return null;
+        }
 
         // Normaliza a entrada: espaços e colchetes de IPv6 ("[2001:db8::1]" → "2001:db8::1").
         // IPAddress.TryParse ACEITA a forma com colchetes, então sem o strip o IPv6 era
@@ -91,7 +173,7 @@ public sealed class HostEditorViewModel : BaseViewModel
         bool isIp = System.Net.IPAddress.TryParse(address, out var ip);
         bool v6 = isIp && ip!.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6;
         bool v4 = isIp && ip!.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork;
-        Endpoints.Add(new Endpoint
+        return new Endpoint
         {
             Id = Guid.NewGuid().ToString("n"),
             AssetId = _existing?.Id ?? string.Empty,
@@ -100,17 +182,32 @@ public sealed class HostEditorViewModel : BaseViewModel
             Ipv4 = v4 ? address : null,
             Ipv6 = v6 ? address : null,
             Fqdn = isIp ? null : address,
-            CredentialRefId = _newEndpointCredentialId,
+            CredentialRefId = credentialRefId,
             Profile = (NewEndpointProtocol == "ssh" && _newEndpointSshProfile == "strict")
                 ? new EndpointProfile { SshAlgorithmProfile = "strict" }
                 : null,
-        });
+        };
+    }
+
+    private void ResetEndpointForm()
+    {
         NewEndpointAddress = string.Empty;
         NewEndpointCredentialId = null;
         NewEndpointSshProfile = "auto";
+        NewEndpointInlineUsername = string.Empty;
     }
 
-    /// <summary>Carrega as credenciais do workspace para o seletor (sem segredo).</summary>
+    private void RemoveEndpoint(Endpoint ep)
+    {
+        Endpoints.Remove(ep);
+        // Se era um rascunho inline ainda não salvo, zera a senha e descarta.
+        if (_inlineDrafts.Remove(ep.Id, out InlineDraft? draft))
+        {
+            Array.Clear(draft.Password);
+        }
+    }
+
+    /// <summary>Carrega as credenciais do Keychain (sem segredo). Inline não aparece (têm escopo).</summary>
     public async Task LoadCredentialsAsync()
     {
         AvailableCredentials.Clear();
@@ -126,20 +223,7 @@ public sealed class HostEditorViewModel : BaseViewModel
             var asset = await _store.AddAssetAsync(new AddAssetRequest { WorkspaceId = _workspaceId, GroupId = _groupId, Name = Name.Trim() });
             foreach (var ep in Endpoints)
             {
-                var toAdd = new Endpoint
-                {
-                    Id = ep.Id,
-                    AssetId = asset.Id,
-                    Protocol = ep.Protocol,
-                    Port = ep.Port,
-                    Ipv4 = ep.Ipv4,
-                    Ipv6 = ep.Ipv6,
-                    Fqdn = ep.Fqdn,
-                    PreferIpv6 = ep.PreferIpv6,
-                    CredentialRefId = ep.CredentialRefId,
-                    Profile = ep.Profile,
-                };
-                await _store.AddEndpointAsync(toAdd);
+                await AddEndpointWithCredentialAsync(ep, asset.Id);
             }
         }
         else
@@ -149,33 +233,72 @@ public sealed class HostEditorViewModel : BaseViewModel
             var existingEndpointIds = new System.Collections.Generic.HashSet<string>(System.Linq.Enumerable.Select(_existing.Endpoints, e => e.Id));
             var currentEndpointIds = new System.Collections.Generic.HashSet<string>(System.Linq.Enumerable.Select(Endpoints, e => e.Id));
 
-            foreach (var removedId in existingEndpointIds)
+            foreach (var removed in _existing.Endpoints)
             {
-                if (!currentEndpointIds.Contains(removedId))
-                    await _store.DeleteEndpointAsync(removedId);
+                if (!currentEndpointIds.Contains(removed.Id))
+                {
+                    // Remove a credencial INLINE do endpoint (se houver) pra não deixar segredo órfão
+                    // no cofre; credencial do Keychain (compartilhada) NÃO é apagada.
+                    if (_inlineCreds is not null)
+                    {
+                        await _inlineCreds.DeleteForEndpointAsync(removed);
+                    }
+                    await _store.DeleteEndpointAsync(removed.Id);
+                }
             }
 
             foreach (var ep in Endpoints)
             {
                 if (!existingEndpointIds.Contains(ep.Id))
                 {
-                    var toAdd = new Endpoint
-                    {
-                        Id = ep.Id,
-                        AssetId = _existing.Id,
-                        Protocol = ep.Protocol,
-                        Port = ep.Port,
-                        Ipv4 = ep.Ipv4,
-                        Ipv6 = ep.Ipv6,
-                        Fqdn = ep.Fqdn,
-                        PreferIpv6 = ep.PreferIpv6,
-                        CredentialRefId = ep.CredentialRefId,
-                        Profile = ep.Profile,
-                    };
-                    await _store.AddEndpointAsync(toAdd);
+                    await AddEndpointWithCredentialAsync(ep, _existing.Id);
                 }
             }
         }
         Saved?.Invoke(this, EventArgs.Empty);
     }
+
+    // Persiste um endpoint no store, materializando a senha inline no cofre (se houver rascunho).
+    private async Task AddEndpointWithCredentialAsync(Endpoint ep, string assetId)
+    {
+        string? credentialRefId = ep.CredentialRefId;
+        if (_inlineDrafts.Remove(ep.Id, out InlineDraft? draft))
+        {
+            // Cria a credencial cifrada presa a este endpoint (escondida do Keychain). Zera a senha.
+            if (_inlineCreds is not null)
+            {
+                credentialRefId = await _inlineCreds.CreateForEndpointAsync(_workspaceId, ep.Id, draft.Username, draft.Password);
+            }
+            else
+            {
+                Array.Clear(draft.Password); // sem serviço de credencial inline: descarta a senha
+            }
+        }
+
+        await _store.AddEndpointAsync(new Endpoint
+        {
+            Id = ep.Id,
+            AssetId = assetId,
+            Protocol = ep.Protocol,
+            Port = ep.Port,
+            Ipv4 = ep.Ipv4,
+            Ipv6 = ep.Ipv6,
+            Fqdn = ep.Fqdn,
+            PreferIpv6 = ep.PreferIpv6,
+            CredentialRefId = credentialRefId,
+            Profile = ep.Profile,
+        });
+    }
+
+    /// <summary>Zera qualquer senha inline em rascunho — chamado ao CANCELAR o editor.</summary>
+    public void ClearInlineDrafts()
+    {
+        foreach (InlineDraft draft in _inlineDrafts.Values)
+        {
+            Array.Clear(draft.Password);
+        }
+        _inlineDrafts.Clear();
+    }
+
+    private sealed record InlineDraft(string Username, char[] Password);
 }

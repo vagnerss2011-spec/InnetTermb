@@ -68,6 +68,11 @@ internal static class AppCompositionRoot
         services.AddSingleton<IVault>(sp => sp.GetRequiredService<CredentialVault>());
         services.AddSingleton<ICredentialVault>(sp => sp.GetRequiredService<CredentialVault>());
 
+        // Credenciais "inline" (senha só deste device, cifrada no cofre, escondida do Keychain).
+        services.AddSingleton<Credentials.IInlineCredentialService>(sp => new Credentials.InlineCredentialService(
+            sp.GetRequiredService<ILocalStore>(),
+            sp.GetRequiredService<IVault>()));
+
         // Adaptadores Desktop→Terminal (ADR-011)
         services.AddSingleton<ITerminalSecurityContext, AppTerminalSecurityContext>();
         services.AddSingleton<IEndpointResolver, LocalStoreEndpointResolver>();
@@ -153,7 +158,8 @@ internal static class AppCompositionRoot
         services.AddSingleton<ViewModels.HostsViewModel>(sp => new ViewModels.HostsViewModel(
             sp.GetRequiredService<ILocalStore>(),
             sp.GetRequiredService<Sessions.SessionLauncher>(),
-            DefaultWorkspaceId));
+            DefaultWorkspaceId,
+            sp.GetRequiredService<Credentials.IInlineCredentialService>()));
         services.AddSingleton<ViewModels.KeychainViewModel>(sp => new ViewModels.KeychainViewModel(
             sp.GetRequiredService<ILocalStore>(),
             sp.GetRequiredService<RemoteOps.Security.Vault.IVault>(),
