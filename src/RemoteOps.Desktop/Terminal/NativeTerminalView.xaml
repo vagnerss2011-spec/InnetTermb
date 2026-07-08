@@ -3,11 +3,21 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vt="clr-namespace:RemoteOps.Desktop.Terminal.Vt"
              Background="#1E1E1E"
-             Focusable="True"
-             IsTabStop="True">
+             Focusable="False"
+             IsTabStop="False">
     <!-- Terminal NATIVO (WPF puro), sem WebView2: compõe na árvore visual do app, então
          renderiza com brilho normal e é imune ao problema de MPO. -->
     <Grid>
         <vt:TerminalScreenControl x:Name="Surface"/>
+        <!-- Captura de teclado: um TextBox invisível é o "sink" de foco. No WPF um TextBox pega e
+             segura o foco de teclado de forma confiável (um FrameworkElement/UserControl cru NÃO
+             pegava dentro do TabControlEx — o terminal só EXIBIA). Fica 4x4 e transparente no canto;
+             o teclado vai pra ele (interceptamos via Preview* e mandamos pro host, sem digitar nele),
+             e o mouse continua indo pro Surface (seleção/cópia). -->
+        <TextBox x:Name="KeyboardSink"
+                 Width="4" Height="4" Opacity="0"
+                 IsReadOnly="True" IsTabStop="False"
+                 BorderThickness="0" Background="Transparent"
+                 HorizontalAlignment="Left" VerticalAlignment="Top"/>
     </Grid>
 </UserControl>
