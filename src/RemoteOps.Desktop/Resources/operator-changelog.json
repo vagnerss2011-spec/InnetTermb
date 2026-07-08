@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.2.15",
+      "date": "2026-07-08",
+      "highlights": [
+        "Copiar e colar no terminal, do jeito tradicional: SELECIONE com o botão esquerdo do mouse e já COPIA; clique com o botão DIREITO pra COLAR. Também funciona por atalho: Ctrl+Shift+C (copiar), Ctrl+Shift+V ou Shift+Insert (colar). Ótimo pra colar configuração e copiar a saída."
+      ]
+    },
+    {
       "version": "1.2.14",
       "date": "2026-07-07",
       "highlights": [
