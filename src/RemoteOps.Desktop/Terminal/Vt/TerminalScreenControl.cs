@@ -9,6 +9,7 @@ using System.Windows.Media;
 // UseWindowsForms está ligado no projeto → System.Drawing entra por ImplicitUsings e conflita.
 // Este controle é 100% WPF; fixa os tipos ambíguos na versão do WPF.
 using Brush = System.Windows.Media.Brush;
+using Clipboard = System.Windows.Clipboard;
 using Color = System.Windows.Media.Color;
 using FontFamily = System.Windows.Media.FontFamily;
 using Point = System.Windows.Point;
@@ -34,6 +35,13 @@ public sealed class TerminalScreenControl : FrameworkElement
     private double _cellWidth;
     private double _cellHeight;
 
+    // seleção com o mouse (estilo PuTTY: seleciona esquerdo → copia; direito → cola)
+    private bool _selecting;
+    private bool _hasSelection;
+    private (int Row, int Col) _selStart;
+    private (int Row, int Col) _selEnd;
+    private readonly Brush _selectionBrush;
+
     public TerminalScreenControl()
     {
         // Consolas existe em todo Windows e é monoespaçada.
@@ -47,6 +55,7 @@ public sealed class TerminalScreenControl : FrameworkElement
         DefaultForeground = Frozen(Color.FromRgb(0xD4, 0xD4, 0xD4));
         DefaultBackground = Frozen(Color.FromRgb(0x1E, 0x1E, 0x1E));
         _cursorBrush = Frozen(Color.FromArgb(0x88, 0xD4, 0xD4, 0xD4));
+        _selectionBrush = Frozen(Color.FromArgb(0x66, 0x33, 0x99, 0xFF));
 
         Focusable = true;
         FocusVisualStyle = null;
@@ -124,6 +133,7 @@ public sealed class TerminalScreenControl : FrameworkElement
             }
         }
 
+        DrawSelection(dc, screen);
         DrawCursor(dc, screen);
     }
 
@@ -189,15 +199,18 @@ public sealed class TerminalScreenControl : FrameworkElement
 
     // ── entrada de teclado (tratada direto no controle FOCADO — mais confiável que rotear
     //    eventos pelo pai; evita o caso "digita e nada acontece") ────────────────────────────
-    protected override void OnMouseDown(MouseButtonEventArgs e)
-    {
-        Focus(); // clicar no terminal dá foco de teclado
-        base.OnMouseDown(e);
-    }
-
     protected override void OnKeyDown(KeyEventArgs e)
     {
-        byte[]? bytes = TerminalInputMapper.MapKey(e.Key, Keyboard.Modifiers);
+        ModifierKeys mods = Keyboard.Modifiers;
+        bool ctrl = (mods & ModifierKeys.Control) != 0;
+        bool shift = (mods & ModifierKeys.Shift) != 0;
+
+        // copiar/colar por atalho — Ctrl+C SOZINHO segue sendo 0x03 (interromper) pro host
+        if (ctrl && shift && e.Key == Key.C) { CopySelection(); e.Handled = true; return; }
+        if (ctrl && shift && e.Key == Key.V) { Paste(); e.Handled = true; return; }
+        if (shift && e.Key == Key.Insert) { Paste(); e.Handled = true; return; }
+
+        byte[]? bytes = TerminalInputMapper.MapKey(e.Key, mods);
         if (bytes is not null)
         {
             InputBytes?.Invoke(this, bytes);
@@ -214,6 +227,124 @@ public sealed class TerminalScreenControl : FrameworkElement
             e.Handled = true;
         }
         base.OnTextInput(e);
+    }
+
+    // ── seleção com o mouse: ESQUERDO seleciona e copia ao soltar; DIREITO cola (estilo PuTTY) ──
+    protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
+    {
+        Focus();
+        _selStart = CellAt(e.GetPosition(this));
+        _selEnd = _selStart;
+        _selecting = true;
+        _hasSelection = false;
+        CaptureMouse();
+        InvalidateVisual();
+        base.OnMouseLeftButtonDown(e);
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        if (_selecting)
+        {
+            _selEnd = CellAt(e.GetPosition(this));
+            _hasSelection = _selEnd != _selStart;
+            InvalidateVisual();
+        }
+        base.OnMouseMove(e);
+    }
+
+    protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
+    {
+        if (_selecting)
+        {
+            _selecting = false;
+            ReleaseMouseCapture();
+            if (_hasSelection)
+            {
+                CopySelection(); // copia ao soltar (estilo PuTTY)
+            }
+            else
+            {
+                InvalidateVisual(); // clique simples limpa a seleção anterior
+            }
+        }
+        base.OnMouseLeftButtonUp(e);
+    }
+
+    protected override void OnMouseRightButtonUp(MouseButtonEventArgs e)
+    {
+        Focus();
+        Paste();
+        e.Handled = true;
+        base.OnMouseRightButtonUp(e);
+    }
+
+    private (int Row, int Col) CellAt(Point p)
+    {
+        var screen = Screen;
+        int cols = screen?.Columns ?? 1;
+        int rows = screen?.Rows ?? 1;
+        int col = Math.Clamp((int)(p.X / _cellWidth), 0, Math.Max(0, cols - 1));
+        int row = Math.Clamp((int)(p.Y / _cellHeight), 0, Math.Max(0, rows - 1));
+        return (row, col);
+    }
+
+    private void CopySelection()
+    {
+        var screen = Screen;
+        if (screen is null || !_hasSelection)
+        {
+            return;
+        }
+        string text = TerminalSelection.ExtractText(screen, _selStart.Row, _selStart.Col, _selEnd.Row, _selEnd.Col);
+        if (!string.IsNullOrEmpty(text))
+        {
+            try { Clipboard.SetText(text); } catch { /* clipboard ocupado por outro app */ }
+        }
+        InvalidateVisual();
+    }
+
+    private void Paste()
+    {
+        string text;
+        try { text = Clipboard.GetText(); } catch { return; }
+        text = TerminalSelection.NormalizePaste(text);
+        if (text.Length > 0)
+        {
+            InputBytes?.Invoke(this, Encoding.UTF8.GetBytes(text));
+        }
+    }
+
+    /// <summary>Limpa a seleção (a View chama quando chega saída nova, pra não deixar highlight velho).</summary>
+    public void ClearSelection()
+    {
+        if (!_selecting && _hasSelection)
+        {
+            _hasSelection = false;
+            InvalidateVisual();
+        }
+    }
+
+    private void DrawSelection(DrawingContext dc, TerminalScreen screen)
+    {
+        if (!_hasSelection)
+        {
+            return;
+        }
+        int sr = _selStart.Row, sc = _selStart.Col, er = _selEnd.Row, ec = _selEnd.Col;
+        if (sr > er || (sr == er && sc > ec))
+        {
+            (sr, er) = (er, sr);
+            (sc, ec) = (ec, sc);
+        }
+        for (int row = sr; row <= er && row < screen.Rows; row++)
+        {
+            int from = row == sr ? sc : 0;
+            int to = row == er ? ec : screen.Columns - 1;
+            double x = from * _cellWidth;
+            double w = (to - from + 1) * _cellWidth;
+            dc.DrawRectangle(_selectionBrush, null, new Rect(x, row * _cellHeight, w, _cellHeight));
+        }
     }
 
     private static bool SameStyle(TerminalCell a, TerminalCell b) =>

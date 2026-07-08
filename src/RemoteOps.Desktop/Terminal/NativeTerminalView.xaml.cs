@@ -85,6 +85,7 @@ public partial class NativeTerminalView : UserControl
         Dispatcher.BeginInvoke(new Action(() =>
         {
             _parser?.Feed(data.Span);
+            Surface.ClearSelection(); // saída nova → não deixa highlight velho em posição errada
             Surface.Redraw();
         }));
     }

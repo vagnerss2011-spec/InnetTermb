@@ -68,6 +68,18 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.2.15] - 2026-07-08
+
+### Adicionado
+
+- **Copiar/colar no terminal nativo (2 modos):** (1) estilo PuTTY — SELECIONA com o botão esquerdo
+  (arrastar) → copia ao soltar; botão DIREITO → cola. (2) atalhos — `Ctrl+Shift+C` copia,
+  `Ctrl+Shift+V`/`Shift+Insert` colam (`Ctrl+C` sozinho continua sendo 0x03/interromper pro host).
+  `TerminalScreenControl` trata seleção via mouse (highlight semi-transparente), copia via
+  `Clipboard`, e cola convertendo quebras de linha para CR (colar config executa linha a linha).
+  Lógica pura em `TerminalSelection` (ExtractText apara espaços à direita e une linhas com `\n`;
+  NormalizePaste `\r\n`/`\n`→`\r`) com testes. Seleção limpa ao chegar saída nova.
+
 ## [1.2.14] - 2026-07-07
 
 ### Corrigido
