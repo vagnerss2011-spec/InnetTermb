@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.2.22",
+      "date": "2026-07-08",
+      "highlights": [
+        "Senha só do dispositivo: não precisa mais criar uma credencial no Chaveiro pra cada equipamento. No cadastro do host agora dá pra escolher 'Senha só deste dispositivo' e digitar usuário+senha ali mesmo — fica cifrada (como as do Chaveiro) e presa àquele device, sem aparecer na lista. O Chaveiro continua pra quando vários equipamentos usam o mesmo login. Ao apagar o device, a senha some junto."
+      ]
+    },
+    {
       "version": "1.2.21",
       "date": "2026-07-08",
       "highlights": [

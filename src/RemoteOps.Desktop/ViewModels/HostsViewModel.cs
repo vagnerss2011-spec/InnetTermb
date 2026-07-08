@@ -2,6 +2,7 @@ using System;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
+using RemoteOps.Desktop.Credentials;
 using RemoteOps.Desktop.Infrastructure;
 using RemoteOps.Desktop.Sessions;
 
@@ -11,15 +12,17 @@ public sealed class HostsViewModel : BaseViewModel
 {
     private readonly ILocalStore _store;
     private readonly SessionLauncher _launcher;
+    private readonly IInlineCredentialService? _inlineCreds;
     private readonly string _workspaceId;
     private GroupCardViewModel? _currentGroup;
     private AssetViewModel? _selectedHost;
     private string _searchText = string.Empty;
 
-    public HostsViewModel(ILocalStore store, SessionLauncher launcher, string workspaceId)
+    public HostsViewModel(ILocalStore store, SessionLauncher launcher, string workspaceId, IInlineCredentialService? inlineCreds = null)
     {
         _store = store;
         _launcher = launcher;
+        _inlineCreds = inlineCreds;
         _workspaceId = workspaceId;
 
         OpenGroupCommand = new RelayCommand(obj => { if (obj is GroupCardViewModel g) _ = OpenGroupAsync(g); });
@@ -144,6 +147,15 @@ public sealed class HostsViewModel : BaseViewModel
     private async Task DeleteHostAsync()
     {
         if (SelectedHost is null) return;
+        // Apaga as credenciais INLINE dos endpoints do device (revoga o segredo no cofre) pra não
+        // deixar envelope órfão; credenciais do Keychain (compartilhadas) NÃO são tocadas.
+        if (_inlineCreds is not null)
+        {
+            foreach (var ep in SelectedHost.Asset.Endpoints)
+            {
+                await _inlineCreds.DeleteForEndpointAsync(ep);
+            }
+        }
         await _store.DeleteAssetAsync(SelectedHost.Id);
         Hosts.Remove(SelectedHost);
         SelectedHost = null;

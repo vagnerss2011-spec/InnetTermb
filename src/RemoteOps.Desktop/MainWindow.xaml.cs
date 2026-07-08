@@ -3,6 +3,7 @@ using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using RemoteOps.Desktop.Credentials;
 using RemoteOps.Desktop.Infrastructure;
 using RemoteOps.Desktop.ViewModels;
 using RemoteOps.Desktop.Views;
@@ -17,6 +18,7 @@ namespace RemoteOps.Desktop;
 public partial class MainWindow : Window
 {
     private readonly ILocalStore _store;
+    private readonly IInlineCredentialService _inlineCreds;
 
     // TabsHost.ItemsSource: item 0 é o próprio WorkspaceViewModel (aba fixa "Hosts"), os
     // demais espelham Tabs.Tabs (uma entrada por sessão). Montado em código porque WPF não
@@ -25,11 +27,12 @@ public partial class MainWindow : Window
     // runtime, não em tempo de compilação XAML).
     private readonly ObservableCollection<object> _tabItems = [];
 
-    public MainWindow(WorkspaceViewModel viewModel, ILocalStore store)
+    public MainWindow(WorkspaceViewModel viewModel, ILocalStore store, IInlineCredentialService inlineCreds)
     {
         InitializeComponent();
         DataContext = viewModel;
         _store = store;
+        _inlineCreds = inlineCreds;
 
         _tabItems.Add(viewModel);
         foreach (var tab in viewModel.Tabs.Tabs)
@@ -155,7 +158,7 @@ public partial class MainWindow : Window
 
     private void OpenHostEditor(Contracts.Assets.Asset? existing, string? groupId)
     {
-        var editorVm = new HostEditorViewModel(_store, WorkspaceViewModel.WorkspaceId, existing, groupId);
+        var editorVm = new HostEditorViewModel(_store, WorkspaceViewModel.WorkspaceId, existing, groupId, _inlineCreds);
         var dialog = new HostEditorDialog(editorVm) { Owner = this };
         if (dialog.ShowDialog() == true)
         {

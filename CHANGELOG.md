@@ -68,6 +68,21 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.2.22] - 2026-07-08
+
+### Adicionado
+
+- **Senha só do dispositivo (credencial inline no cadastro do host).** Antes, todo device exigia uma
+  credencial nomeada do Keychain. Agora o editor de host tem um seletor de credencial: *"Do Keychain
+  (compartilhada)"* — para vários devices com o mesmo login — ou *"Senha só deste dispositivo"* —
+  usuário+senha digitados ali mesmo, para equipamentos com login único, sem poluir o Keychain. A
+  senha inline é guardada no **mesmo cofre** das demais (envelope encryption / DPAPI — nunca em texto
+  puro), porém com `Scope="endpoint:<id>"`, o que a **esconde do Keychain e do dropdown** (os stores
+  já filtram `scope IS NULL OR scope = workspace`); o provider resolve por id, então conecta normal.
+  Ciclo de vida preso ao endpoint: apagar o device (ou remover o endpoint) **revoga e apaga** a
+  credencial inline (sem envelope órfão). A senha entra por `PasswordBox` (`char[]`, zerada após
+  guardar), nunca por binding. Novo `InlineCredentialService` centraliza a parte sensível. +7 testes.
+
 ## [1.2.21] - 2026-07-08
 
 ### Adicionado

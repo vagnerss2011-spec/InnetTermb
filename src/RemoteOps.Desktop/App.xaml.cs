@@ -106,7 +106,9 @@ public partial class App : Application
             }
 
             _workspaceViewModel = _serviceProvider.GetRequiredService<WorkspaceViewModel>();
-            var window = new MainWindow(_workspaceViewModel, store);
+            var window = new MainWindow(
+                _workspaceViewModel, store,
+                _serviceProvider.GetRequiredService<Credentials.IInlineCredentialService>());
             MainWindow = window;
             window.Show();
 

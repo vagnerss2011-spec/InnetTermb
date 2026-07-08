@@ -11,6 +11,7 @@
         FontSize="{DynamicResource Font.Size.Body}">
     <Window.Resources>
         <conv:EndpointAddressConverter x:Key="EndpointAddressConverter"/>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
     </Window.Resources>
     <DockPanel Margin="16">
 
@@ -28,74 +29,109 @@
             <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"/>
         </StackPanel>
 
-        <!-- Linha "adicionar endpoint" (com rótulos — o seletor de protocolo sem
-             rótulo/seleção era interpretado como "checkboxes soltas" na edição) -->
-        <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-            </Grid.RowDefinitions>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="100"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="60"/>
-                <ColumnDefinition Width="150"/>
-                <ColumnDefinition Width="110"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
+        <!-- Área "adicionar endpoint": linha 1 (protocolo/endereço/porta/SSH), linha 2 (credencial:
+             Keychain compartilhada OU senha só deste dispositivo), botão adicionar. -->
+        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="100"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="60"/>
+                    <ColumnDefinition Width="110"/>
+                </Grid.ColumnDefinitions>
 
-            <TextBlock Grid.Row="0" Grid.Column="0" Text="Protocolo" FontSize="11"
-                       Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="0,0,8,2"/>
-            <TextBlock Grid.Row="0" Grid.Column="1" Text="Endereço" FontSize="11"
-                       Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="0,0,8,2"/>
-            <TextBlock Grid.Row="0" Grid.Column="2" Text="Porta" FontSize="11"
-                       Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="0,0,8,2"/>
-            <TextBlock Grid.Row="0" Grid.Column="3" Text="Credencial (opcional)" FontSize="11"
-                       Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="0,0,8,2"/>
-            <TextBlock Grid.Row="0" Grid.Column="4" Text="Segurança SSH" FontSize="11"
-                       Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="0,0,8,2"/>
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Protocolo" FontSize="11"
+                           Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="0,0,8,2"/>
+                <TextBlock Grid.Row="0" Grid.Column="1" Text="Endereço" FontSize="11"
+                           Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="0,0,8,2"/>
+                <TextBlock Grid.Row="0" Grid.Column="2" Text="Porta" FontSize="11"
+                           Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="0,0,8,2"/>
+                <TextBlock Grid.Row="0" Grid.Column="3" Text="Segurança SSH" FontSize="11"
+                           Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="0,0,8,2"/>
 
-            <ComboBox Grid.Row="1" Grid.Column="0"
-                      SelectedValuePath="Content"
-                      SelectedValue="{Binding NewEndpointProtocol, Mode=TwoWay}"
-                      Margin="0,0,8,0" VerticalAlignment="Center">
-                <ComboBoxItem Content="ssh"/>
-                <ComboBoxItem Content="telnet"/>
-                <ComboBoxItem Content="rdp"/>
-                <ComboBoxItem Content="mikrotik"/>
-            </ComboBox>
+                <ComboBox Grid.Row="1" Grid.Column="0"
+                          SelectedValuePath="Content"
+                          SelectedValue="{Binding NewEndpointProtocol, Mode=TwoWay}"
+                          Margin="0,0,8,0" VerticalAlignment="Center">
+                    <ComboBoxItem Content="ssh"/>
+                    <ComboBoxItem Content="telnet"/>
+                    <ComboBoxItem Content="rdp"/>
+                    <ComboBoxItem Content="mikrotik"/>
+                </ComboBox>
 
-            <TextBox Grid.Row="1" Grid.Column="1" MinWidth="140"
-                     Text="{Binding NewEndpointAddress, UpdateSourceTrigger=PropertyChanged}"
-                     ToolTip="Endereço: IPv4 (10.0.0.1), IPv6 (2001:db8::1, com ou sem colchetes) ou FQDN (sn.mynetname.net)"
-                     Margin="0,0,8,0" VerticalAlignment="Center"/>
+                <TextBox Grid.Row="1" Grid.Column="1" MinWidth="140"
+                         Text="{Binding NewEndpointAddress, UpdateSourceTrigger=PropertyChanged}"
+                         ToolTip="Endereço: IPv4 (10.0.0.1), IPv6 (2001:db8::1, com ou sem colchetes) ou FQDN (sn.mynetname.net)"
+                         Margin="0,0,8,0" VerticalAlignment="Center"/>
 
-            <TextBox Grid.Row="1" Grid.Column="2"
-                     Text="{Binding NewEndpointPort, UpdateSourceTrigger=PropertyChanged}"
-                     ToolTip="Porta"
-                     Margin="0,0,8,0" VerticalAlignment="Center"/>
+                <TextBox Grid.Row="1" Grid.Column="2"
+                         Text="{Binding NewEndpointPort, UpdateSourceTrigger=PropertyChanged}"
+                         ToolTip="Porta"
+                         Margin="0,0,8,0" VerticalAlignment="Center"/>
 
-            <ComboBox Grid.Row="1" Grid.Column="3"
+                <ComboBox Grid.Row="1" Grid.Column="3"
+                          SelectedValuePath="Content"
+                          SelectedValue="{Binding NewEndpointSshProfile, Mode=TwoWay}"
+                          ToolTip="Automático: conecta em qualquer equipamento (inclusive antigo). Estrito: exige algoritmos modernos (hardening; use em hosts novos)."
+                          VerticalAlignment="Center">
+                    <ComboBoxItem Content="auto"/>
+                    <ComboBoxItem Content="strict"/>
+                </ComboBox>
+            </Grid>
+
+            <!-- Modo de credencial -->
+            <TextBlock Text="Credencial" FontSize="11" Margin="0,10,0,2"
+                       Foreground="{DynamicResource Brush.Text.Tertiary}"/>
+            <StackPanel Orientation="Horizontal">
+                <RadioButton Content="Do Keychain (compartilhada)" GroupName="credMode"
+                             IsChecked="{Binding UseKeychainCredential, Mode=TwoWay}"
+                             VerticalAlignment="Center"
+                             ToolTip="Escolhe uma credencial nomeada do Keychain — use quando vários dispositivos têm o MESMO login."/>
+                <RadioButton Content="Senha só deste dispositivo" GroupName="credMode"
+                             IsChecked="{Binding UseInlineCredential, Mode=TwoWay}"
+                             VerticalAlignment="Center" Margin="18,0,0,0"
+                             ToolTip="Usuário e senha digitados aqui, cifrados e presos a este device — não vira item do Keychain."/>
+            </StackPanel>
+
+            <!-- Modo Keychain: dropdown das credenciais nomeadas -->
+            <ComboBox Margin="0,6,0,0" MaxWidth="360" HorizontalAlignment="Left"
+                      Visibility="{Binding UseKeychainCredential, Converter={StaticResource BoolToVis}}"
                       ItemsSource="{Binding AvailableCredentials}"
                       DisplayMemberPath="Name"
                       SelectedValuePath="Id"
                       SelectedValue="{Binding NewEndpointCredentialId, Mode=TwoWay}"
-                      ToolTip="Credencial (opcional) — crie na aba Keychain"
-                      Margin="0,0,8,0" VerticalAlignment="Center"/>
+                      ToolTip="Credencial do Keychain (crie na aba Chaveiro)"/>
 
-            <ComboBox Grid.Row="1" Grid.Column="4"
-                      SelectedValuePath="Content"
-                      SelectedValue="{Binding NewEndpointSshProfile, Mode=TwoWay}"
-                      ToolTip="Automático: conecta em qualquer equipamento (inclusive antigo). Estrito: exige algoritmos modernos (hardening; use em hosts novos)."
-                      Margin="0,0,8,0" VerticalAlignment="Center">
-                <ComboBoxItem Content="auto"/>
-                <ComboBoxItem Content="strict"/>
-            </ComboBox>
+            <!-- Modo inline: usuário + senha só deste dispositivo -->
+            <Grid Margin="0,6,0,0"
+                  Visibility="{Binding UseInlineCredential, Converter={StaticResource BoolToVis}}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Usuário" FontSize="11"
+                           Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="0,0,8,2"/>
+                <TextBlock Grid.Row="0" Grid.Column="1" Text="Senha" FontSize="11"
+                           Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="0,0,0,2"/>
+                <TextBox Grid.Row="1" Grid.Column="0"
+                         Text="{Binding NewEndpointInlineUsername, UpdateSourceTrigger=PropertyChanged}"
+                         Margin="0,0,8,0" VerticalAlignment="Center"/>
+                <PasswordBox Grid.Row="1" Grid.Column="1" x:Name="InlinePasswordField"
+                             VerticalAlignment="Center"/>
+            </Grid>
 
-            <Button Grid.Row="1" Grid.Column="5" Content="Adicionar endpoint"
-                    Command="{Binding AddEndpointCommand}"
-                    Padding="10,4" VerticalAlignment="Center"/>
-        </Grid>
+            <Button Content="Adicionar endpoint" Click="AddEndpoint_Click"
+                    IsEnabled="{Binding CanAddEndpoint}"
+                    HorizontalAlignment="Right" Padding="10,4" Margin="0,10,0,0"/>
+        </StackPanel>
 
         <!-- Lista de endpoints -->
         <TextBlock DockPanel.Dock="Top" Text="Endpoints" Style="{DynamicResource Text.BodyStrong}" Margin="0,0,0,4"/>

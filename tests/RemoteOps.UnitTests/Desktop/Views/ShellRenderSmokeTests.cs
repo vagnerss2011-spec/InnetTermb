@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using RemoteOps.Desktop;
+using RemoteOps.Desktop.Credentials;
 using RemoteOps.Desktop.Infrastructure;
 using RemoteOps.Desktop.Sessions;
 using RemoteOps.Desktop.ViewModels;
@@ -53,7 +54,7 @@ public sealed class ShellRenderSmokeTests
 
         Exception? captured = StaThreadRunner.Run(() =>
         {
-            var window = new MainWindow(vm, store)
+            var window = new MainWindow(vm, store, new InlineCredentialService(store, new FakeVault()))
             {
                 ShowInTaskbar = false,
                 WindowStyle = WindowStyle.None,
