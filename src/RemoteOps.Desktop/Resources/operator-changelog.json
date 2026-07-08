@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.2.16",
+      "date": "2026-07-08",
+      "highlights": [
+        "Terminal agora aceita teclado de verdade: corrigimos o foco — antes, dentro das abas, o terminal só EXIBIA e não pegava o que você digitava nem o copiar/colar. Agora clicou na aba do terminal, é só digitar, dar enter, selecionar pra copiar e clicar com o direito pra colar."
+      ]
+    },
+    {
       "version": "1.2.15",
       "date": "2026-07-08",
       "highlights": [

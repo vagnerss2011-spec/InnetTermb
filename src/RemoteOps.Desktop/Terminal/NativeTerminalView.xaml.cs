@@ -3,18 +3,21 @@ using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Threading;
 using RemoteOps.Desktop.Terminal.Vt;
 using Size = System.Windows.Size;
 
 namespace RemoteOps.Desktop.Terminal;
 
 /// <summary>
-/// View NATIVA da aba de terminal (SSH/Telnet), ligada ao <see cref="TerminalTabViewModel"/> —
-/// o MESMO ViewModel que a antiga aba WebView2 usava. Só troca o "desenhar": consome os bytes de
-/// saída via <see cref="TerminalTabViewModel.OutputReceived"/> → <see cref="AnsiParser"/> →
-/// <see cref="TerminalScreen"/> → <see cref="TerminalScreenControl"/> (WPF puro). Teclado vira
-/// bytes VT/UTF-8 e volta pelo <see cref="TerminalTabViewModel.SendInputAsync"/>. Sem WebView2,
-/// sem HWND, sem MPO — renderiza claro por construção.
+/// View NATIVA da aba de terminal (SSH/Telnet), ligada ao <see cref="TerminalTabViewModel"/>.
+/// Renderiza em WPF puro (<see cref="TerminalScreenControl"/>) — sem WebView2, imune ao MPO.
+///
+/// FOCO/TECLADO: dentro do TabControlEx keep-alive, dar foco a um FrameworkElement "cru" não pegava
+/// (o terminal só EXIBIA, não recebia tecla). Aqui o UserControl (um Control de verdade, focável)
+/// é o alvo de foco, e o teclado é tratado por <see cref="UIElement.PreviewKeyDown"/>/
+/// <see cref="UIElement.PreviewTextInput"/> — que disparam esteja o foco no UserControl ou num filho.
+/// O mouse (seleção/cópia/colagem) fica no controle de tela (é hit-test, não depende de foco).
 /// </summary>
 public partial class NativeTerminalView : UserControl
 {
@@ -28,8 +31,12 @@ public partial class NativeTerminalView : UserControl
         InitializeComponent();
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
+        IsVisibleChanged += OnIsVisibleChanged;
         Surface.GridSizeChanged += OnGridSizeChanged;
-        Surface.InputBytes += OnSurfaceInput;
+        Surface.InputBytes += OnSurfaceInput; // bytes de COLAGEM (mouse/atalho) → sessão
+        PreviewKeyDown += OnPreviewKeyDown;
+        PreviewTextInput += OnPreviewTextInput;
+        PreviewMouseDown += (_, _) => FocusTerminal();
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -62,9 +69,7 @@ public partial class NativeTerminalView : UserControl
             Surface.Redraw();
         }
 
-        // foca o terminal via Dispatcher (garante após o layout) — o teclado vai direto pro controle
-        _ = Dispatcher.BeginInvoke(new Action(() => Keyboard.Focus(Surface)),
-            System.Windows.Threading.DispatcherPriority.Input);
+        FocusTerminal();
 
         if (!_vm.IsConnected)
         {
@@ -76,6 +81,22 @@ public partial class NativeTerminalView : UserControl
             {
                 WriteLocal($"\r\n[Falha ao conectar: {ex.Message}]\r\n");
             }
+        }
+    }
+
+    // dá foco de teclado ao terminal — via Dispatcher pra rodar depois do layout/seleção de aba
+    private void FocusTerminal() =>
+        _ = Dispatcher.BeginInvoke(new Action(() =>
+        {
+            Focus();
+            Keyboard.Focus(this);
+        }), DispatcherPriority.Input);
+
+    private void OnIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (IsVisible)
+        {
+            FocusTerminal(); // ao voltar pra aba do terminal, recupera o foco
         }
     }
 
@@ -104,7 +125,42 @@ public partial class NativeTerminalView : UserControl
         }
     }
 
-    // bytes de teclado vindos do controle focado → manda pra sessão remota
+    // ── teclado (previews no UserControl focado) ──────────────────────────────
+    private void OnPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (_vm is null)
+        {
+            return;
+        }
+
+        ModifierKeys mods = Keyboard.Modifiers;
+        bool ctrl = (mods & ModifierKeys.Control) != 0;
+        bool shift = (mods & ModifierKeys.Shift) != 0;
+
+        // atalhos de copiar/colar — Ctrl+C SOZINHO continua sendo 0x03 (interromper) pro host
+        if (ctrl && shift && e.Key == Key.C) { Surface.CopySelection(); e.Handled = true; return; }
+        if (ctrl && shift && e.Key == Key.V) { Surface.Paste(); e.Handled = true; return; }
+        if (shift && e.Key == Key.Insert) { Surface.Paste(); e.Handled = true; return; }
+
+        byte[]? bytes = TerminalInputMapper.MapKey(e.Key, mods);
+        if (bytes is not null)
+        {
+            _ = _vm.SendInputAsync(bytes);
+            e.Handled = true;
+        }
+    }
+
+    private void OnPreviewTextInput(object sender, TextCompositionEventArgs e)
+    {
+        if (_vm is null || string.IsNullOrEmpty(e.Text))
+        {
+            return;
+        }
+        _ = _vm.SendInputAsync(Encoding.UTF8.GetBytes(e.Text));
+        e.Handled = true;
+    }
+
+    // bytes de COLAGEM emitidos pelo controle (botão direito / atalho) → sessão remota
     private void OnSurfaceInput(object? sender, byte[] bytes)
     {
         if (_vm is not null)

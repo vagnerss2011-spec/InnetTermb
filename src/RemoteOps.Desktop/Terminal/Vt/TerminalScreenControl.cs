@@ -197,42 +197,11 @@ public sealed class TerminalScreenControl : FrameworkElement
         dc.DrawRectangle(_cursorBrush, null, new Rect(cx, cy, _cellWidth, _cellHeight));
     }
 
-    // ── entrada de teclado (tratada direto no controle FOCADO — mais confiável que rotear
-    //    eventos pelo pai; evita o caso "digita e nada acontece") ────────────────────────────
-    protected override void OnKeyDown(KeyEventArgs e)
-    {
-        ModifierKeys mods = Keyboard.Modifiers;
-        bool ctrl = (mods & ModifierKeys.Control) != 0;
-        bool shift = (mods & ModifierKeys.Shift) != 0;
-
-        // copiar/colar por atalho — Ctrl+C SOZINHO segue sendo 0x03 (interromper) pro host
-        if (ctrl && shift && e.Key == Key.C) { CopySelection(); e.Handled = true; return; }
-        if (ctrl && shift && e.Key == Key.V) { Paste(); e.Handled = true; return; }
-        if (shift && e.Key == Key.Insert) { Paste(); e.Handled = true; return; }
-
-        byte[]? bytes = TerminalInputMapper.MapKey(e.Key, mods);
-        if (bytes is not null)
-        {
-            InputBytes?.Invoke(this, bytes);
-            e.Handled = true;
-        }
-        base.OnKeyDown(e);
-    }
-
-    protected override void OnTextInput(TextCompositionEventArgs e)
-    {
-        if (!string.IsNullOrEmpty(e.Text))
-        {
-            InputBytes?.Invoke(this, Encoding.UTF8.GetBytes(e.Text));
-            e.Handled = true;
-        }
-        base.OnTextInput(e);
-    }
-
-    // ── seleção com o mouse: ESQUERDO seleciona e copia ao soltar; DIREITO cola (estilo PuTTY) ──
+    // ── seleção com o mouse: ESQUERDO seleciona e copia ao soltar; DIREITO cola (estilo PuTTY).
+    //    O TECLADO é tratado no NativeTerminalView (Preview* no UserControl focado) — mais robusto
+    //    dentro do TabControlEx keep-alive. O mouse é hit-test (não depende de foco de teclado). ──
     protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
     {
-        Focus();
         _selStart = CellAt(e.GetPosition(this));
         _selEnd = _selStart;
         _selecting = true;
@@ -273,7 +242,6 @@ public sealed class TerminalScreenControl : FrameworkElement
 
     protected override void OnMouseRightButtonUp(MouseButtonEventArgs e)
     {
-        Focus();
         Paste();
         e.Handled = true;
         base.OnMouseRightButtonUp(e);
@@ -289,7 +257,7 @@ public sealed class TerminalScreenControl : FrameworkElement
         return (row, col);
     }
 
-    private void CopySelection()
+    public void CopySelection()
     {
         var screen = Screen;
         if (screen is null || !_hasSelection)
@@ -304,7 +272,7 @@ public sealed class TerminalScreenControl : FrameworkElement
         InvalidateVisual();
     }
 
-    private void Paste()
+    public void Paste()
     {
         string text;
         try { text = Clipboard.GetText(); } catch { return; }
