@@ -329,12 +329,25 @@ public sealed class SshSessionProvider : ITerminalSessionProvider
         }, ct);
     }
 
-    public async Task WriteAsync(SessionHandle handle, ReadOnlyMemory<byte> data, CancellationToken ct = default)
+    public Task WriteAsync(SessionHandle handle, ReadOnlyMemory<byte> data, CancellationToken ct = default)
     {
         if (!_sessions.TryGetValue(handle.SessionId, out var state))
             throw new InvalidOperationException($"Sessão '{handle.SessionId}' não encontrada.");
 
-        await state.Shell.DataStream.WriteAsync(data, ct);
+        // Enfileira (síncrono e ordenado) e retorna na hora. A thread de UI chama isto em sequência,
+        // então os bytes entram na fila na MESMA ordem em que foram digitados; uma tarefa dedicada em
+        // SshSessionState drena a fila e escreve na ShellStream de forma síncrona e serializada.
+        //
+        // Por que NÃO usar WriteAsync/FlushAsync direto na ShellStream: no SSH.NET 2024.2.0 a
+        // ShellStream não sobrescreve os métodos async, e o Stream base serializa ReadAsync/WriteAsync
+        // no MESMO semáforo (_asyncActiveSemaphore, 1 permit). Como o pump de leitura fica
+        // permanentemente parado em ReadAsync segurando esse semáforo (só retorna quando o equipamento
+        // manda bytes), um WriteAsync jamais o adquiria — travava pra sempre, sem completar nem lançar.
+        // Era o motivo REAL de "digitar não fazia nada". O caminho síncrono (Write/Flush) tem locks
+        // internos próprios, separados de leitura, e não disputa o semáforo async do pump. Ver
+        // SshSessionState.DrainWritesAsync.
+        state.EnqueueWrite(data.ToArray());
+        return Task.CompletedTask;
     }
 
     public async IAsyncEnumerable<ReadOnlyMemory<byte>> ReadAsync(
@@ -367,20 +380,67 @@ public sealed class SshSessionProvider : ITerminalSessionProvider
     }
 }
 
-internal sealed class SshSessionState(
-    ISshConnection connection,
-    ISshShell shell,
-    Channel<ReadOnlyMemory<byte>> outputChannel,
-    CancellationTokenSource readerCts) : IAsyncDisposable
+internal sealed class SshSessionState : IAsyncDisposable
 {
-    public ISshShell Shell { get; } = shell;
-    public Channel<ReadOnlyMemory<byte>> OutputChannel { get; } = outputChannel;
+    private readonly ISshConnection _connection;
+    private readonly CancellationTokenSource _readerCts;
+    private readonly Channel<byte[]> _writeChannel;
+    private readonly Task _writerTask;
+
+    public ISshShell Shell { get; }
+    public Channel<ReadOnlyMemory<byte>> OutputChannel { get; }
+
+    public SshSessionState(
+        ISshConnection connection,
+        ISshShell shell,
+        Channel<ReadOnlyMemory<byte>> outputChannel,
+        CancellationTokenSource readerCts)
+    {
+        _connection = connection;
+        Shell = shell;
+        OutputChannel = outputChannel;
+        _readerCts = readerCts;
+
+        // Fila de escrita ORDENADA (um único leitor). Garante FIFO: os bytes vão pra ShellStream na
+        // mesma ordem em que a UI os enfileirou, sem corrida entre teclas. A escrita real é síncrona
+        // (Write/Flush) — ver comentário em SshSessionProvider.WriteAsync sobre o deadlock do async.
+        _writeChannel = Channel.CreateUnbounded<byte[]>(new UnboundedChannelOptions
+        {
+            SingleReader = true,
+            SingleWriter = false,
+            AllowSynchronousContinuations = false,
+        });
+        _writerTask = Task.Run(() => DrainWritesAsync(_readerCts.Token));
+    }
+
+    /// <summary>Enfileira bytes pra envio ao equipamento. Síncrono e ordenado; não bloqueia a UI.</summary>
+    public void EnqueueWrite(byte[] bytes) => _writeChannel.Writer.TryWrite(bytes);
+
+    // Drena a fila numa ÚNICA tarefa: escreve de forma serializada e síncrona na ShellStream.
+    // Síncrono de propósito — o WriteAsync do Stream base disputa o mesmo semáforo do ReadAsync do
+    // pump e trava (ver SshSessionProvider.WriteAsync). O Write/Flush síncrono usa locks próprios.
+    private async Task DrainWritesAsync(CancellationToken ct)
+    {
+        try
+        {
+            await foreach (byte[] bytes in _writeChannel.Reader.ReadAllAsync(ct))
+            {
+                Stream stream = Shell.DataStream;
+                stream.Write(bytes, 0, bytes.Length);
+                stream.Flush();
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception) { /* sessão caindo/stream fechado: escrita restante é descartada */ }
+    }
 
     public async ValueTask DisposeAsync()
     {
-        await readerCts.CancelAsync();
-        readerCts.Dispose();
+        await _readerCts.CancelAsync();
+        _writeChannel.Writer.TryComplete();
+        try { await _writerTask; } catch { /* já cancelado/encerrado */ }
+        _readerCts.Dispose();
         Shell.Dispose();
-        connection.Dispose();
+        _connection.Dispose();
     }
 }

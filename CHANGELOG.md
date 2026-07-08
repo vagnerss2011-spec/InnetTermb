@@ -68,6 +68,23 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.2.19] - 2026-07-08
+
+### Corrigido
+
+- **Teclado no terminal (a causa RAIZ):** o foco já estava correto (v1.2.16–1.2.18) e as teclas eram
+  capturadas, mas NADA chegava ao equipamento — só dava pra visualizar. Diagnóstico decisivo com log
+  do caminho inteiro (tecla → handler → provider → `ShellStream` → eco): cada byte chegava ao
+  `SshSessionProvider.WriteAsync`, mas o `await ShellStream.WriteAsync/FlushAsync` **travava pra
+  sempre — nem completava nem lançava**. Motivo: a `ShellStream` do SSH.NET 2024.2.0 não sobrescreve
+  os métodos assíncronos, e o `Stream` base serializa `ReadAsync`/`WriteAsync` no MESMO semáforo
+  (`_asyncActiveSemaphore`, 1 permit); como o pump de leitura fica permanentemente parado em
+  `ReadAsync` segurando esse semáforo, o `WriteAsync` nunca o adquiria. Correção: escrita SÍNCRONA
+  (`Write`/`Flush`, que usa locks internos próprios, separados da leitura) drenada por uma **fila de
+  escrita ordenada por sessão** — garante FIFO das teclas (sem corrida entre threads) sem bloquear a
+  UI. Verificado ao vivo num Huawei NE8000: digitar, dar enter, saída paginada e sair do pager.
+  Regressão coberta por `WriteAsync_ManyKeystrokes_PreservesByteOrderFifo` (588 testes no total).
+
 ## [1.2.18] - 2026-07-08
 
 ### Corrigido

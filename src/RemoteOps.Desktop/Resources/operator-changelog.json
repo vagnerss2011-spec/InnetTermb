@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.2.19",
+      "date": "2026-07-08",
+      "highlights": [
+        "Digitar no terminal agora funciona DE VERDADE: as teclas chegam ao equipamento e o comando executa. Antes o foco já estava certo, mas havia uma trava interna no envio SSH que segurava tudo — dava só pra visualizar. Testado ao vivo num Huawei NE8000: digita, dá enter e a resposta do equipamento aparece na hora."
+      ]
+    },
+    {
       "version": "1.2.18",
       "date": "2026-07-08",
       "highlights": [

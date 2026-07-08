@@ -233,6 +233,48 @@ public sealed class SshSessionProviderTests
     }
 
     [Fact]
+    public async Task WriteAsync_ManyKeystrokes_PreservesByteOrderFifo()
+    {
+        // Regressão: cada tecla é um WriteAsync separado, disparado fire-and-forget pela UI (como o
+        // terminal real faz). Uma implementação que fizesse Task.Run por tecla poderia reordenar os
+        // bytes na ShellStream (corrida entre threads do pool). A fila de escrita ordenada deve
+        // garantir FIFO — os bytes chegam ao equipamento na EXATA ordem em que foram digitados.
+        var (provider, factory, _, _, eps, crs, vault) = Build(confirmKey: true);
+        await SetupFixturesAsync(eps, crs, vault);
+
+        var sessionId = "order-test";
+        await provider.OpenAsync(MakeRequest(sessionId), CancellationToken.None);
+
+        var handle = new SessionHandle
+        {
+            SessionId = sessionId,
+            Protocol = RemoteProtocol.Ssh,
+            EndpointId = EndpointId,
+            OpenedAt = DateTimeOffset.UtcNow,
+            IsOpen = true,
+        };
+
+        var expected = new byte[256];
+        var tasks = new List<Task>(expected.Length);
+        for (int i = 0; i < expected.Length; i++)
+        {
+            expected[i] = (byte)i;
+            tasks.Add(provider.WriteAsync(handle, new[] { (byte)i }, CancellationToken.None));
+        }
+        await Task.WhenAll(tasks);
+
+        // O dreno de escrita é assíncrono; espera todos os bytes serem escritos (timeout de guarda).
+        var shell = factory.Created.Last().Shell!;
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (shell.WrittenBytes.Length < expected.Length && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.Equal(expected, shell.WrittenBytes);
+    }
+
+    [Fact]
     public async Task AuditEvents_DoNotContainPassword()
     {
         var (provider, _, audit, _, eps, crs, vault) = Build(confirmKey: true);
