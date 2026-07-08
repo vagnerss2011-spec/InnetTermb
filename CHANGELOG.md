@@ -68,6 +68,20 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.2.20] - 2026-07-08
+
+### Corrigido
+
+- **Barra de ESPAÇO no terminal:** digitar funcionava (v1.2.19), mas o espaço não saía — o operador
+  tinha que completar comandos com Tab pra ganhar o espaço. Causa: quirk do WPF — com um `TextBox`
+  focado (o `KeyboardSink`), a barra de espaço do teclado FÍSICO não dispara
+  `PreviewTextInput`/`TextInput` (letras passam, espaço não; entrada sintética WM_CHAR passa, por
+  isso os testes automatizados não pegaram). Correção: `Key.Space` mapeado no
+  `TerminalInputMapper` (KeyDown) → 0x20; `Ctrl+Espaço` → NUL (0x00). De quebra, `Ctrl+letra`
+  agora EXCLUI AltGr (que o Windows reporta como Ctrl+Alt): em teclados ABNT2/internacionais,
+  AltGr+letra deixava de compor o caractere e virava byte de controle (ex.: AltGr+Q → 0x11/XON).
+  Reproduzido e verificado ao vivo (Huawei NE8000) via injeção de scancode real. +7 testes.
+
 ## [1.2.19] - 2026-07-08
 
 ### Corrigido
