@@ -68,6 +68,19 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.2.17] - 2026-07-08
+
+### Corrigido
+
+- **Teclado no terminal (a correção definitiva):** diagnóstico decisivo — digitar num `TextBox`
+  normal do app funciona (foco confiável), mas o `TerminalScreenControl`/`NativeTerminalView` NÃO
+  pegava foco de teclado dentro do `TabControlEx` (v1.2.13→1.2.16 não resolveram). Solução (padrão
+  clássico de emuladores de terminal): um **`TextBox` invisível** (`KeyboardSink`, 4×4, opacity 0,
+  read-only) é o sink de foco — TextBox pega/segura o foco de forma confiável no WPF. Os
+  `PreviewKeyDown`/`PreviewTextInput` do `NativeTerminalView` interceptam a entrada (o char nunca
+  entra no TextBox) e mandam pro host; o mouse continua no `Surface` (seleção/cópia). Foco reforçado
+  em Loaded/IsVisibleChanged/PreviewMouseDown. UserControl passou a `Focusable=False`/`IsTabStop=False`.
+
 ## [1.2.16] - 2026-07-08
 
 ### Corrigido

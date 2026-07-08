@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.2.17",
+      "date": "2026-07-08",
+      "highlights": [
+        "Teclado no terminal — agora VAI: descobrimos que o controle do terminal não segurava o foco do teclado (por isso digitar não pegava). Passamos a usar um campo invisível que segura o foco de forma confiável e repassa tudo pra sessão. Clicou no terminal, é só digitar/dar enter; seleção com o esquerdo copia e direito cola."
+      ]
+    },
+    {
       "version": "1.2.16",
       "date": "2026-07-08",
       "highlights": [
