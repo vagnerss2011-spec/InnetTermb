@@ -52,7 +52,7 @@
 
         <!-- Conteúdo das abas de sessão (por tipo de ViewModel) — mesmo conjunto do TabsView -->
         <DataTemplate DataType="{x:Type terminal:TerminalTabViewModel}">
-            <terminal:TerminalTabView/>
+            <terminal:NativeTerminalView/>
         </DataTemplate>
         <DataTemplate DataType="{x:Type rdp:RdpTabViewModel}">
             <rdp:RdpTabView/>

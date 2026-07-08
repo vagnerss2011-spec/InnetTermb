@@ -191,7 +191,7 @@ public sealed class SessionLauncherTests
     }
 
     [Fact]
-    public async Task LaunchAsync_Ssh_WithExternalLauncher_OpensExternalTerminal_NoWebViewTab()
+    public async Task LaunchAsync_Ssh_OpensInAppTab_NotExternal_EvenWithExternalLauncherPresent()
     {
         var tabs = new TabsViewModel();
         var ext = new FakeExternalTerminalLauncher();
@@ -201,7 +201,20 @@ public sealed class SessionLauncherTests
         LaunchResult result = await l.LaunchAsync(AssetWith("ssh"), "ssh");
 
         Assert.True(result.Success);
-        Assert.False(tabs.HasTabs); // externo NÃO abre aba WebView2
+        Assert.True(tabs.HasTabs);   // SSH agora abre a aba NATIVA integrada
+        Assert.Null(ext.Last);       // e NÃO dispara o terminal externo
+    }
+
+    [Fact]
+    public async Task LaunchExternalAsync_OpensExternalTerminal_WithResolvedTarget()
+    {
+        var ext = new FakeExternalTerminalLauncher();
+        var l = new SessionLauncher(new TabsViewModel(), null, null, new FakeTerminalProvider(), null, null, null,
+            new FakeCredentialResolver(), ext);
+
+        LaunchResult result = await l.LaunchExternalAsync(AssetWith("ssh"));
+
+        Assert.True(result.Success);
         Assert.NotNull(ext.Last);
         Assert.Equal("10.0.0.1", ext.Last!.Host);
         Assert.Equal(22, ext.Last.Port);
@@ -209,24 +222,27 @@ public sealed class SessionLauncherTests
     }
 
     [Fact]
-    public async Task LaunchAsync_Ssh_External_SshExeMissing_FailsWithGuidance()
+    public async Task LaunchExternalAsync_SshExeMissing_FailsWithGuidance()
     {
         var ext = new FakeExternalTerminalLauncher { ThrowOnLaunch = new System.ComponentModel.Win32Exception(2) };
         var l = new SessionLauncher(new TabsViewModel(), null, null, new FakeTerminalProvider(), null, null, null,
             new FakeCredentialResolver(), ext);
 
-        LaunchResult result = await l.LaunchAsync(AssetWith("ssh"), "ssh");
+        LaunchResult result = await l.LaunchExternalAsync(AssetWith("ssh"));
 
         Assert.False(result.Success);
         Assert.Contains("OpenSSH", result.Error);
     }
 
     [Fact]
-    public async Task CanLaunch_Ssh_TrueWhenOnlyExternalLauncherPresent()
+    public void CanLaunch_Ssh_RequiresInAppProvider()
     {
-        var l = new SessionLauncher(new TabsViewModel(), null, null, null, null, null, null,
+        // só o launcher externo, sem provider SSH → não pode (o padrão agora é integrado)
+        var noProvider = new SessionLauncher(new TabsViewModel(), null, null, null, null, null, null,
             new FakeCredentialResolver(), new FakeExternalTerminalLauncher());
-        Assert.True(l.CanLaunch(AssetWith("ssh"), "ssh"));
-        await Task.CompletedTask;
+        Assert.False(noProvider.CanLaunch(AssetWith("ssh"), "ssh"));
+
+        var withProvider = new SessionLauncher(new TabsViewModel(), null, null, new FakeTerminalProvider(), null, null, null);
+        Assert.True(withProvider.CanLaunch(AssetWith("ssh"), "ssh"));
     }
 }

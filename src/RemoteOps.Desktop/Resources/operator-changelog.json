@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.2.13",
+      "date": "2026-07-07",
+      "highlights": [
+        "Terminal SSH agora abre DENTRO do app novamente — mas com um motor de terminal próprio, desenhado nativamente (sem o WebView2 que ficava escuro). Aparece claro, aceita teclado normalmente e o login/host fica guardado no app (não pergunta mais o fingerprint toda hora). O MikroTik continua no WinBox."
+      ]
+    },
+    {
       "version": "1.2.12",
       "date": "2026-07-07",
       "highlights": [

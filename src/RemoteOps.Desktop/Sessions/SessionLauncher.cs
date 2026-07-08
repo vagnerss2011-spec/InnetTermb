@@ -75,7 +75,7 @@ public sealed class SessionLauncher
         }
         return protocol switch
         {
-            RemoteProtocol.Ssh => _externalTerminal != null || _ssh != null,
+            RemoteProtocol.Ssh => _ssh != null,
             RemoteProtocol.Telnet => _telnet != null,
             RemoteProtocol.Rdp => (_flags?.IsEnabled(FeatureFlagNames.RdpEnabled) ?? false) && _rdp != null && _rdpCred != null,
             RemoteProtocol.MikroTik => _winBox != null,
@@ -123,14 +123,9 @@ public sealed class SessionLauncher
             return LaunchResult.Ok();
         }
 
-        // SSH abre num terminal REAL do Windows (por fora do app), quando o launcher externo
-        // está disponível. Substitui o terminal WebView2, que em algumas GPUs renderizava
-        // escuro/travado. O terminal nativo integrado (sem WebView2) vem numa etapa seguinte.
-        if (protocol == RemoteProtocol.Ssh && _externalTerminal != null)
-        {
-            return await LaunchExternalSshAsync(asset, ep);
-        }
-
+        // SSH e Telnet abrem no terminal NATIVO integrado (NativeTerminalView, WPF puro), sem
+        // WebView2 — some o problema de MPO (escuro) e o de teclado. O launcher externo (ssh.exe)
+        // segue disponível via LaunchExternalAsync como alternativa "abrir externo".
         var provider = protocol == RemoteProtocol.Ssh ? _ssh : protocol == RemoteProtocol.Telnet ? _telnet : null;
         if (provider is null)
         {
@@ -183,6 +178,26 @@ public sealed class SessionLauncher
         {
             return LaunchResult.Fail($"Falha ao abrir o WinBox: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Abre a sessão SSH do host num terminal EXTERNO do Windows (ssh.exe), por fora do app —
+    /// alternativa ao terminal integrado (que é o padrão de <see cref="LaunchAsync"/>). Exposto
+    /// para uma futura ação "abrir em terminal externo".
+    /// </summary>
+    public Task<LaunchResult> LaunchExternalAsync(Asset asset)
+    {
+        var ep = asset.Endpoints.FirstOrDefault(e => e.Protocol == RemoteProtocol.Ssh);
+        if (ep is null)
+        {
+            return Task.FromResult(LaunchResult.Fail(
+                $"O host \"{asset.Name}\" não tem endpoint SSH."));
+        }
+        if (_externalTerminal is null)
+        {
+            return Task.FromResult(LaunchResult.Fail("O terminal externo não está disponível nesta instalação."));
+        }
+        return LaunchExternalSshAsync(asset, ep);
     }
 
     private async Task<LaunchResult> LaunchExternalSshAsync(Asset asset, Endpoint ep)

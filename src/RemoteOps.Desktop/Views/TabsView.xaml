@@ -9,7 +9,7 @@
     <UserControl.Resources>
         <!-- Implicit DataTemplate: WPF applies this automatically for TerminalTabViewModel -->
         <DataTemplate DataType="{x:Type terminal:TerminalTabViewModel}">
-            <terminal:TerminalTabView />
+            <terminal:NativeTerminalView />
         </DataTemplate>
         <!-- Implicit DataTemplate: WPF applies this automatically for RdpTabViewModel -->
         <DataTemplate DataType="{x:Type rdp:RdpTabViewModel}">
