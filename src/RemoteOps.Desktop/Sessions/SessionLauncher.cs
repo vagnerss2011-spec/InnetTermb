@@ -31,6 +31,7 @@ public sealed class SessionLauncher
     private readonly IRdpCredentialResolver? _rdpCred;
     private readonly ICredentialRefResolver? _credentials;
     private readonly IExternalTerminalLauncher? _externalTerminal;
+    private readonly ILocalStore? _store;
 
     public SessionLauncher(
         TabsViewModel tabs,
@@ -41,7 +42,8 @@ public sealed class SessionLauncher
         IRdpSessionProvider? rdp,
         IRdpCredentialResolver? rdpCred,
         ICredentialRefResolver? credentials = null,
-        IExternalTerminalLauncher? externalTerminal = null)
+        IExternalTerminalLauncher? externalTerminal = null,
+        ILocalStore? store = null)
     {
         _tabs = tabs;
         _winBox = winBox;
@@ -52,6 +54,7 @@ public sealed class SessionLauncher
         _rdpCred = rdpCred;
         _credentials = credentials;
         _externalTerminal = externalTerminal;
+        _store = store;
     }
 
     public string PrimaryProtocol(Asset asset)
@@ -139,8 +142,63 @@ public sealed class SessionLauncher
         }
 
         var req = new SessionRequest { SessionId = Guid.NewGuid().ToString("n"), Protocol = protocol, EndpointId = ep.Id, CredentialRefId = ep.CredentialRefId };
-        _tabs.OpenTerminalTab(new TerminalTabViewModel(req.SessionId, $"{asset.Name} ({protocol.ToUpperInvariant()})", protocol, provider, req));
+
+        // Modo do Backspace (DEL padrão vs Ctrl+H) salvo por host — ver EndpointProfile.BackspaceMode.
+        // Relê do store pra pegar o valor MAIS RECENTE: o seletor da aba persiste no banco, mas a
+        // lista de hosts em memória só recarrega ao (re)entrar no grupo — sem esta releitura, reabrir
+        // a aba logo após trocar o modo mostraria o valor antigo (source of truth = store).
+        string endpointId = ep.Id;
+        string? backspaceMode = ep.Profile?.BackspaceMode;
+        if (_store is not null)
+        {
+            try { backspaceMode = (await _store.GetEndpointAsync(endpointId))?.Profile?.BackspaceMode ?? backspaceMode; }
+            catch { /* store indisponível: usa o valor da lista em memória */ }
+        }
+        bool backspaceCtrlH = backspaceMode == TerminalBackspaceModes.ControlH;
+        Func<bool, Task>? persistBackspace = _store is null
+            ? null
+            : usesCtrlH => PersistBackspaceModeAsync(endpointId, usesCtrlH);
+
+        _tabs.OpenTerminalTab(new TerminalTabViewModel(
+            req.SessionId, $"{asset.Name} ({protocol.ToUpperInvariant()})", protocol, provider, req,
+            backspaceCtrlH, persistBackspace));
         return LaunchResult.Ok();
+    }
+
+    // Persiste o modo do Backspace no endpoint (fica lembrado para o equipamento). Best-effort:
+    // o VM já ignora falhas, mas mantemos o try aqui também pra não vazar exceção em fire-and-forget.
+    private async Task PersistBackspaceModeAsync(string endpointId, bool usesControlH)
+    {
+        if (_store is null)
+        {
+            return;
+        }
+        var ep = await _store.GetEndpointAsync(endpointId);
+        if (ep is null)
+        {
+            return;
+        }
+        EndpointProfile? p = ep.Profile;
+        var updated = new Endpoint
+        {
+            Id = ep.Id,
+            AssetId = ep.AssetId,
+            Protocol = ep.Protocol,
+            Fqdn = ep.Fqdn,
+            Ipv4 = ep.Ipv4,
+            Ipv6 = ep.Ipv6,
+            Port = ep.Port,
+            PreferIpv6 = ep.PreferIpv6,
+            CredentialRefId = ep.CredentialRefId,
+            Profile = new EndpointProfile
+            {
+                VendorProfile = p?.VendorProfile,
+                TerminalEncoding = p?.TerminalEncoding,
+                SshAlgorithmProfile = p?.SshAlgorithmProfile,
+                BackspaceMode = usesControlH ? TerminalBackspaceModes.ControlH : TerminalBackspaceModes.Del,
+            },
+        };
+        await _store.UpdateEndpointAsync(updated);
     }
 
     private async Task<LaunchResult> LaunchWinBoxAsync(Asset asset, Endpoint ep)

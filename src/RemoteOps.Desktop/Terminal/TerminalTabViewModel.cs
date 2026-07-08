@@ -12,22 +12,69 @@ public sealed class TerminalTabViewModel : ViewModels.SessionTabViewModel
 {
     private readonly ITerminalSessionProvider _provider;
     private readonly SessionRequest _baseRequest;
+    private readonly Func<bool, Task>? _persistBackspace;
 
     private CancellationTokenSource? _cts;
     private SessionHandle? _handle;
     // 0 = idle, 1 = connecting, 2 = connected
     private int _connectionState;
+    // 0 = Backspace envia DEL (0x7F, padrão); 1 = envia BS (0x08, Ctrl+H — p/ OLT Huawei etc.)
+    private int _backspaceModeIndex;
 
     public TerminalTabViewModel(
         string id,
         string title,
         string protocol,
         ITerminalSessionProvider provider,
-        SessionRequest baseRequest)
+        SessionRequest baseRequest,
+        bool backspaceUsesControlH = false,
+        Func<bool, Task>? persistBackspace = null)
         : base(id, title, protocol)
     {
         _provider = provider;
         _baseRequest = baseRequest;
+        _backspaceModeIndex = backspaceUsesControlH ? 1 : 0;
+        _persistBackspace = persistBackspace;
+    }
+
+    /// <summary>
+    /// Modo do Backspace, ligado ao seletor da aba: 0 = Padrão (DEL 0x7F), 1 = Ctrl+H (BS 0x08).
+    /// Mudar aplica NA HORA (a View lê <see cref="BackspaceUsesControlH"/> na próxima tecla) e
+    /// persiste no host via o callback recebido do launcher (fica lembrado para este equipamento).
+    /// </summary>
+    public int BackspaceModeIndex
+    {
+        get => _backspaceModeIndex;
+        set
+        {
+            if (_backspaceModeIndex == value)
+            {
+                return;
+            }
+            _backspaceModeIndex = value;
+            RaisePropertyChanged();
+            RaisePropertyChanged(nameof(BackspaceUsesControlH));
+            _ = PersistBackspaceSafeAsync(value == 1);
+        }
+    }
+
+    /// <summary>true = Backspace envia BS (0x08); false = DEL (0x7F). Lido pela View no KeyDown.</summary>
+    public bool BackspaceUsesControlH => _backspaceModeIndex == 1;
+
+    private async Task PersistBackspaceSafeAsync(bool usesControlH)
+    {
+        if (_persistBackspace is null)
+        {
+            return;
+        }
+        try
+        {
+            await _persistBackspace(usesControlH);
+        }
+        catch
+        {
+            // Persistir a preferência é best-effort: se falhar, o modo já vale nesta sessão.
+        }
     }
 
     public bool IsConnected => Volatile.Read(ref _connectionState) == 2;

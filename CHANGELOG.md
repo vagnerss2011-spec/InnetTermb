@@ -68,6 +68,19 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.2.21] - 2026-07-08
+
+### Adicionado
+
+- **Modo do Backspace por host (Padrão DEL ↔ Ctrl+H) — igual ao PuTTY.** Alguns equipamentos legados
+  (ex.: OLT Huawei) não apagam com o Backspace padrão porque só entendem BS (0x08 = Ctrl+H) em vez do
+  DEL (0x7F) do padrão VT/xterm. Agora a aba do terminal tem um seletor no topo ("Backspace: Padrão /
+  Ctrl+H") que troca **ao vivo** — a próxima tecla já usa o novo código, sem reconectar — e **persiste
+  por host** (fica lembrado para aquele equipamento). Implementação: `EndpointProfile.BackspaceMode`
+  (`"del"`/`"ctrl-h"`, round-trip JSON no store, sem migração de schema), parâmetro
+  `backspaceSendsControlH` no `TerminalInputMapper`, seletor ligado a `TerminalTabViewModel`
+  (persiste via novo `ILocalStore.UpdateEndpointAsync`). +9 testes.
+
 ## [1.2.20] - 2026-07-08
 
 ### Corrigido

@@ -232,4 +232,67 @@ public sealed class TerminalTabViewModelTests
         Assert.Equal("ssh", vm.Protocol);
         Assert.Equal("SSH", vm.ProtocolLabel);
     }
+
+    // ── Modo do Backspace (seletor da aba: Padrão DEL ↔ Ctrl+H) ─────────────────
+
+    private static TerminalTabViewModel BuildWithBackspace(bool initial, List<bool> persisted)
+    {
+        var provider = new FakeTerminalSessionProvider();
+        var request = new SessionRequest { SessionId = "s", Protocol = "ssh", EndpointId = "ep", CredentialRefId = "cr" };
+        return new TerminalTabViewModel(
+            "t", "x", "ssh", provider, request,
+            backspaceUsesControlH: initial,
+            persistBackspace: v => { persisted.Add(v); return Task.CompletedTask; });
+    }
+
+    [Fact]
+    public void Backspace_DefaultsToDel()
+    {
+        var (vm, _) = Build();
+        Assert.Equal(0, vm.BackspaceModeIndex);
+        Assert.False(vm.BackspaceUsesControlH);
+    }
+
+    [Fact]
+    public void Backspace_InitializedFromCtor_AsControlH()
+    {
+        var vm = BuildWithBackspace(initial: true, []);
+        Assert.Equal(1, vm.BackspaceModeIndex);
+        Assert.True(vm.BackspaceUsesControlH);
+    }
+
+    [Fact]
+    public void Backspace_SetToControlH_UpdatesFlagAndPersists()
+    {
+        var persisted = new List<bool>();
+        var vm = BuildWithBackspace(initial: false, persisted);
+
+        vm.BackspaceModeIndex = 1;
+
+        Assert.True(vm.BackspaceUsesControlH);
+        Assert.Equal([true], persisted);
+    }
+
+    [Fact]
+    public void Backspace_SetBackToDel_PersistsFalse()
+    {
+        var persisted = new List<bool>();
+        var vm = BuildWithBackspace(initial: true, persisted);
+
+        vm.BackspaceModeIndex = 0;
+
+        Assert.False(vm.BackspaceUsesControlH);
+        Assert.Equal([false], persisted);
+    }
+
+    [Fact]
+    public void Backspace_SetSameValue_DoesNotPersist()
+    {
+        var persisted = new List<bool>();
+        var vm = BuildWithBackspace(initial: false, persisted);
+
+        vm.BackspaceModeIndex = 0; // já é 0 → não dispara persistência
+
+        Assert.Empty(persisted);
+    }
 }

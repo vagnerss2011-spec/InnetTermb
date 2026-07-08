@@ -10,7 +10,12 @@ namespace RemoteOps.Desktop.Terminal.Vt;
 /// </summary>
 public static class TerminalInputMapper
 {
-    public static byte[]? MapKey(Key key, ModifierKeys modifiers)
+    /// <param name="backspaceSendsControlH">
+    /// Quando true, a tecla Backspace envia BS (0x08, = Ctrl+H) em vez de DEL (0x7F). Necessário
+    /// para equipamentos legados (ex.: OLT Huawei) que não entendem o DEL padrão. Ver a opção
+    /// "Backspace key" do PuTTY e <see cref="RemoteOps.Contracts.Assets.TerminalBackspaceModes"/>.
+    /// </param>
+    public static byte[]? MapKey(Key key, ModifierKeys modifiers, bool backspaceSendsControlH = false)
     {
         bool alt = (modifiers & ModifierKeys.Alt) != 0;
         // AltGr chega ao WPF como Ctrl+Alt: NÃO tratar como Ctrl+tecla, senão AltGr+letra em
@@ -44,7 +49,9 @@ public static class TerminalInputMapper
             // qualquer TextInput do espaço, então não há envio duplicado.
             Key.Space => new byte[] { 0x20 },
             Key.Enter => new byte[] { 0x0D },
-            Key.Back => new byte[] { 0x7F }, // DEL — o que a maioria dos hosts espera do Backspace
+            // Backspace: DEL (0x7F) é o padrão VT/xterm; alguns equipamentos legados (OLT Huawei)
+            // só entendem BS (0x08 = Ctrl+H). Escolhível por host (ver EndpointProfile.BackspaceMode).
+            Key.Back => backspaceSendsControlH ? new byte[] { 0x08 } : new byte[] { 0x7F },
             Key.Tab => new byte[] { 0x09 },
             Key.Escape => new byte[] { 0x1B },
             Key.Up => Csi('A'),

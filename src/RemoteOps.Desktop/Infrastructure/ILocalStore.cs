@@ -25,6 +25,10 @@ public interface ILocalStore
     // Endpoints
     Task<Endpoint?> GetEndpointAsync(string endpointId, CancellationToken ct = default);
     Task<Endpoint> AddEndpointAsync(Endpoint endpoint, CancellationToken ct = default);
+
+    /// <summary>Atualiza um endpoint existente (mesmo Id) — ex.: o perfil (Backspace, SSH).</summary>
+    Task<Endpoint> UpdateEndpointAsync(Endpoint endpoint, CancellationToken ct = default);
+
     Task DeleteEndpointAsync(string id, CancellationToken ct = default);
 
     // Referências de credencial (metadados — sem segredo)

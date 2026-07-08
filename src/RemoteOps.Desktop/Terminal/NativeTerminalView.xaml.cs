@@ -151,7 +151,9 @@ public partial class NativeTerminalView : UserControl
         if (ctrl && shift && e.Key == Key.V) { Surface.Paste(); e.Handled = true; return; }
         if (shift && e.Key == Key.Insert) { Surface.Paste(); e.Handled = true; return; }
 
-        byte[]? bytes = TerminalInputMapper.MapKey(e.Key, mods);
+        // BackspaceUsesControlH vem do seletor da aba (por host): true → Backspace envia BS (0x08),
+        // false → DEL (0x7F). Necessário para OLT Huawei e afins. Ver EndpointProfile.BackspaceMode.
+        byte[]? bytes = TerminalInputMapper.MapKey(e.Key, mods, _vm.BackspaceUsesControlH);
         if (bytes is not null)
         {
             _ = _vm.SendInputAsync(bytes);
