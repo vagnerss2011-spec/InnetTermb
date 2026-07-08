@@ -68,6 +68,23 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.2.13] - 2026-07-07
+
+### Adicionado
+
+- **Terminal SSH NATIVO integrado (motor próprio, sem WebView2):** o SSH volta a abrir DENTRO do
+  app, mas renderizado em WPF puro — `DrawingContext`/`FormattedText` numa `TerminalScreenControl`,
+  sem HWND/swapchain/WebView2, então **imune ao MPO** (compõe na mesma árvore visual do app, que já
+  desenha claro). Motor VT/ANSI **escrito do zero** (decisão do usuário: sem dependência externa):
+  `TerminalScreen` (grade+cursor+caneta) + `AnsiParser` (texto/CR/LF/wrap/scroll, cursor, apagar
+  linha/tela, SGR 16/256/RGB, bold/underline/inverse, UTF-8 incremental) — **18 testes**;
+  `TerminalInputMapper` (teclado→bytes VT: Enter, Backspace=DEL, setas, F-keys, Ctrl+letra) —
+  **9 testes**. `NativeTerminalView` liga tudo ao `TerminalTabViewModel` existente (reusa
+  SSH.NET + cofre + TOFU/host-keys persistidos em `known_hosts.json` — não pergunta o fingerprint
+  toda vez). `SessionLauncher` roteia SSH/Telnet para a aba nativa; o launcher externo (`ssh.exe`)
+  segue disponível via `LaunchExternalAsync` como alternativa "abrir externo". DataTemplate de
+  `TerminalTabViewModel` repontado de `TerminalTabView` (WebView2) para `NativeTerminalView`.
+
 ## [1.2.12] - 2026-07-07
 
 ### Alterado
