@@ -51,4 +51,29 @@ public sealed class TerminalInputMapperTests
     [Fact]
     public void PlainLetter_ReturnsNull_SoTextInputHandlesIt()
         => Assert.Null(TerminalInputMapper.MapKey(Key.A, ModifierKeys.None));
+
+    // ESPAÇO precisa ser mapeado no KeyDown: com o KeyboardSink (TextBox) focado, o WPF NÃO
+    // dispara PreviewTextInput pra barra de espaço no teclado físico — sem este mapa o espaço
+    // some ("display clock" → "displayclock"). Regressão do bug de campo da v1.2.19.
+    [Fact]
+    public void Space_SendsSpaceByte()
+        => Assert.Equal(new byte[] { 0x20 }, TerminalInputMapper.MapKey(Key.Space, ModifierKeys.None));
+
+    [Fact]
+    public void ShiftSpace_AlsoSendsSpaceByte()
+        => Assert.Equal(new byte[] { 0x20 }, TerminalInputMapper.MapKey(Key.Space, ModifierKeys.Shift));
+
+    [Fact]
+    public void CtrlSpace_SendsNul()
+        => Assert.Equal(new byte[] { 0x00 }, TerminalInputMapper.MapKey(Key.Space, ModifierKeys.Control));
+
+    // AltGr chega como Ctrl+Alt: NÃO pode virar byte de controle (AltGr+Q em ABNT2 viraria
+    // 0x11/XON e engoliria o caractere composto). Tem que devolver null → TextInput entrega o char.
+    [Theory]
+    [InlineData(Key.Q)]
+    [InlineData(Key.W)]
+    [InlineData(Key.E)]
+    [InlineData(Key.OemOpenBrackets)]
+    public void AltGr_Combos_ReturnNull_SoComposedCharArrivesViaTextInput(Key key)
+        => Assert.Null(TerminalInputMapper.MapKey(key, ModifierKeys.Control | ModifierKeys.Alt));
 }
