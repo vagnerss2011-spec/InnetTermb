@@ -6,19 +6,38 @@
              Focusable="False"
              IsTabStop="False">
     <!-- Terminal NATIVO (WPF puro), sem WebView2: renderiza claro e é imune ao MPO. -->
-    <Grid>
-        <vt:TerminalScreenControl x:Name="Surface"/>
-        <!-- KeyboardSink: TextBox TRANSPARENTE cobrindo o terminal inteiro. Clicar nele dá foco de
-             teclado AUTOMATICAMENTE (comportamento nativo do TextBox — igual ao campo de busca, que
-             comprovadamente recebe teclado; um FrameworkElement cru NÃO pegava foco). O teclado é
-             interceptado nos Preview* e mandado pro host (nada é digitado no TextBox); o mouse é
-             repassado ao Surface pra seleção/cópia. Transparente (brushes) mas hit-testável. -->
-        <TextBox x:Name="KeyboardSink"
-                 Background="Transparent" Foreground="Transparent"
-                 CaretBrush="Transparent" SelectionBrush="Transparent"
-                 BorderThickness="0" IsTabStop="False"
-                 ContextMenu="{x:Null}"
-                 AcceptsReturn="True" AcceptsTab="True"
-                 VerticalContentAlignment="Top"/>
-    </Grid>
+    <DockPanel>
+        <!-- Barra fina: seletor de Backspace por sessão (Padrão DEL ↔ Ctrl+H p/ OLT Huawei etc.).
+             Troca AO VIVO (a View lê BackspaceUsesControlH na próxima tecla) e persiste no host.
+             Cores fixas escuras casam com o terminal (que é sempre escuro, independe do tema). -->
+        <Border DockPanel.Dock="Top" Background="#252526"
+                BorderBrush="#333333" BorderThickness="0,0,0,1" Padding="6,3">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <TextBlock Text="Backspace:" Foreground="#B0B0B0" FontSize="11"
+                           VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <ComboBox x:Name="BackspaceSelector" Width="140" FontSize="11"
+                          SelectedIndex="{Binding BackspaceModeIndex, Mode=TwoWay}"
+                          ToolTip="Padrão (DEL 0x7F): a maioria dos equipamentos. Ctrl+H (BS 0x08): OLT Huawei e outros legados que não apagam com o backspace normal.">
+                    <ComboBoxItem Content="Padrão (DEL)"/>
+                    <ComboBoxItem Content="Ctrl+H (BS)"/>
+                </ComboBox>
+            </StackPanel>
+        </Border>
+
+        <Grid>
+            <vt:TerminalScreenControl x:Name="Surface"/>
+            <!-- KeyboardSink: TextBox TRANSPARENTE cobrindo o terminal inteiro. Clicar nele dá foco de
+                 teclado AUTOMATICAMENTE (comportamento nativo do TextBox — igual ao campo de busca, que
+                 comprovadamente recebe teclado; um FrameworkElement cru NÃO pegava foco). O teclado é
+                 interceptado nos Preview* e mandado pro host (nada é digitado no TextBox); o mouse é
+                 repassado ao Surface pra seleção/cópia. Transparente (brushes) mas hit-testável. -->
+            <TextBox x:Name="KeyboardSink"
+                     Background="Transparent" Foreground="Transparent"
+                     CaretBrush="Transparent" SelectionBrush="Transparent"
+                     BorderThickness="0" IsTabStop="False"
+                     ContextMenu="{x:Null}"
+                     AcceptsReturn="True" AcceptsTab="True"
+                     VerticalContentAlignment="Top"/>
+        </Grid>
+    </DockPanel>
 </UserControl>

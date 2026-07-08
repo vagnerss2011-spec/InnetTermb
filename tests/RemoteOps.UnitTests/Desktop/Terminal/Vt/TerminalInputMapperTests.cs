@@ -11,8 +11,17 @@ public sealed class TerminalInputMapperTests
         => Assert.Equal(new byte[] { 0x0D }, TerminalInputMapper.MapKey(Key.Enter, ModifierKeys.None));
 
     [Fact]
-    public void Backspace_SendsDel()
+    public void Backspace_SendsDel_ByDefault()
         => Assert.Equal(new byte[] { 0x7F }, TerminalInputMapper.MapKey(Key.Back, ModifierKeys.None));
+
+    // Modo "Ctrl+H": para OLT Huawei e afins que não entendem o DEL padrão. Ver PuTTY "Backspace key".
+    [Fact]
+    public void Backspace_SendsBs_WhenControlHModeEnabled()
+        => Assert.Equal(new byte[] { 0x08 }, TerminalInputMapper.MapKey(Key.Back, ModifierKeys.None, backspaceSendsControlH: true));
+
+    [Fact]
+    public void Backspace_SendsDel_WhenControlHModeDisabledExplicitly()
+        => Assert.Equal(new byte[] { 0x7F }, TerminalInputMapper.MapKey(Key.Back, ModifierKeys.None, backspaceSendsControlH: false));
 
     [Fact]
     public void Escape_SendsEsc()

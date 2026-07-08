@@ -147,7 +147,8 @@ internal static class AppCompositionRoot
             sp.GetKeyedService<IRdpSessionProvider>(RemoteProtocol.Rdp),
             sp.GetService<IRdpCredentialResolver>(),
             sp.GetService<ICredentialRefResolver>(),
-            sp.GetRequiredService<Sessions.IExternalTerminalLauncher>()));
+            sp.GetRequiredService<Sessions.IExternalTerminalLauncher>(),
+            sp.GetRequiredService<ILocalStore>()));
 
         services.AddSingleton<ViewModels.HostsViewModel>(sp => new ViewModels.HostsViewModel(
             sp.GetRequiredService<ILocalStore>(),

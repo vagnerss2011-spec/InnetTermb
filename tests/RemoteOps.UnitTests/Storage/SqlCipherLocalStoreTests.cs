@@ -216,6 +216,34 @@ public sealed class SqlCipherLocalStoreTests
     }
 
     [Fact]
+    public async Task UpdateEndpoint_PersistsBackspaceMode_RoundTrip()
+    {
+        using var ctx = await StoreTestContext.CreateAsync();
+
+        Asset asset = await ctx.Store.AddAssetAsync(
+            new AddAssetRequest { WorkspaceId = ctx.WorkspaceId, Name = "olt-01" });
+
+        string epId = Guid.NewGuid().ToString("n");
+        var ep = new Endpoint { Id = epId, AssetId = asset.Id, Protocol = "ssh", Port = 22 };
+        await ctx.Store.AddEndpointAsync(ep);
+
+        // Troca o modo do Backspace para Ctrl+H (BS) e persiste.
+        var updated = new Endpoint
+        {
+            Id = epId,
+            AssetId = asset.Id,
+            Protocol = "ssh",
+            Port = 22,
+            Profile = new EndpointProfile { BackspaceMode = TerminalBackspaceModes.ControlH },
+        };
+        await ctx.Store.UpdateEndpointAsync(updated);
+
+        Endpoint? fetched = await ctx.Store.GetEndpointAsync(epId);
+        Assert.NotNull(fetched);
+        Assert.Equal(TerminalBackspaceModes.ControlH, fetched!.Profile?.BackspaceMode);
+    }
+
+    [Fact]
     public async Task DeleteEndpoint_RemovesIt()
     {
         using var ctx = await StoreTestContext.CreateAsync();

@@ -422,6 +422,42 @@ public sealed class SqlCipherLocalStore : ILocalStore
         return endpoint;
     }
 
+    public async Task<Endpoint> UpdateEndpointAsync(Endpoint endpoint, CancellationToken ct = default)
+    {
+        using SqliteConnection conn = await _ctx.OpenConnectionAsync(ct);
+        await EnsureSchemaAsync(conn, ct);
+
+        using SqliteCommand cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE endpoints SET
+                protocol = $proto, fqdn = $fqdn, ipv4 = $ipv4, ipv6 = $ipv6, port = $port,
+                prefer_ipv6 = $pref, credential_ref_id = $crid, profile_json = $profile
+            WHERE id = $id
+            """;
+        cmd.Parameters.AddWithValue("$id", endpoint.Id);
+        cmd.Parameters.AddWithValue("$proto", endpoint.Protocol);
+        cmd.Parameters.AddWithValue("$fqdn", (object?)endpoint.Fqdn ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$ipv4", (object?)endpoint.Ipv4 ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$ipv6", (object?)endpoint.Ipv6 ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$port", endpoint.Port);
+        cmd.Parameters.AddWithValue("$pref", endpoint.PreferIpv6 ? 1 : 0);
+        cmd.Parameters.AddWithValue("$crid", (object?)endpoint.CredentialRefId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$profile",
+            endpoint.Profile is null ? (object)DBNull.Value : JsonSerializer.Serialize(endpoint.Profile, s_json));
+        await cmd.ExecuteNonQueryAsync(ct);
+
+        await PushChangeAsync("endpoint", endpoint.Id, "updated",
+            new()
+            {
+                ["id"] = endpoint.Id,
+                ["asset_id"] = endpoint.AssetId,
+                ["protocol"] = endpoint.Protocol,
+                ["port"] = endpoint.Port,
+            }, baseVersion: 0, ct);
+
+        return endpoint;
+    }
+
     public async Task DeleteEndpointAsync(string id, CancellationToken ct = default)
     {
         using SqliteConnection conn = await _ctx.OpenConnectionAsync(ct);

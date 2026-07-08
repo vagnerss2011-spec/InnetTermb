@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.2.21",
+      "date": "2026-07-08",
+      "highlights": [
+        "Backspace configurável por equipamento (igual ao PuTTY): tem equipamento (ex.: OLT Huawei) que não apaga com o backspace normal. Agora, no topo da aba do terminal, dá pra escolher 'Backspace: Padrão' ou 'Ctrl+H' — muda na hora, sem reconectar, e fica lembrado pra aquele host. Se o backspace não estiver apagando, troque pra Ctrl+H."
+      ]
+    },
+    {
       "version": "1.2.20",
       "date": "2026-07-08",
       "highlights": [

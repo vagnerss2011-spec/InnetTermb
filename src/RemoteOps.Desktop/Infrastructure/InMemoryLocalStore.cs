@@ -132,6 +132,30 @@ public sealed class InMemoryLocalStore : ILocalStore
         return Task.FromResult(endpoint);
     }
 
+    public Task<Endpoint> UpdateEndpointAsync(Endpoint endpoint, CancellationToken ct = default)
+    {
+        _endpoints[endpoint.Id] = endpoint;
+        // Reflete no asset (a coleção Endpoints do asset é materializada por cópia).
+        if (_assets.TryGetValue(endpoint.AssetId, out Asset? asset))
+        {
+            var updated = new Asset
+            {
+                Id = asset.Id,
+                WorkspaceId = asset.WorkspaceId,
+                GroupId = asset.GroupId,
+                Name = asset.Name,
+                Vendor = asset.Vendor,
+                Model = asset.Model,
+                Site = asset.Site,
+                Tags = asset.Tags,
+                Version = asset.Version,
+                Endpoints = [.. asset.Endpoints.Where(e => e.Id != endpoint.Id), endpoint],
+            };
+            _assets[asset.Id] = updated;
+        }
+        return Task.FromResult(endpoint);
+    }
+
     public Task DeleteEndpointAsync(string id, CancellationToken ct = default)
     {
         _endpoints.Remove(id);
