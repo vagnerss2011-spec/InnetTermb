@@ -16,7 +16,7 @@
              e o mouse continua indo pro Surface (seleção/cópia). -->
         <TextBox x:Name="KeyboardSink"
                  Width="4" Height="4" Opacity="0"
-                 IsReadOnly="True" IsTabStop="False"
+                 IsTabStop="False"
                  BorderThickness="0" Background="Transparent"
                  HorizontalAlignment="Left" VerticalAlignment="Top"/>
     </Grid>
