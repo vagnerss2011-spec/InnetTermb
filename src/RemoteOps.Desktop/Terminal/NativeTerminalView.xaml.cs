@@ -33,10 +33,16 @@ public partial class NativeTerminalView : UserControl
         Unloaded += OnUnloaded;
         IsVisibleChanged += OnIsVisibleChanged;
         Surface.GridSizeChanged += OnGridSizeChanged;
-        Surface.InputBytes += OnSurfaceInput; // bytes de COLAGEM (mouse/atalho) → sessão
+        Surface.InputBytes += OnSurfaceInput; // bytes de COLAGEM (botão direito/atalho) → sessão
         PreviewKeyDown += OnPreviewKeyDown;
         PreviewTextInput += OnPreviewTextInput;
-        PreviewMouseDown += (_, _) => FocusTerminal();
+        // O KeyboardSink (TextBox por cima) pega o foco de teclado no clique (nativo do TextBox);
+        // o mouse dele conduz a seleção do Surface. Não marcamos Handled no down/move/up esquerdo
+        // pra o TextBox continuar pegando o foco.
+        KeyboardSink.PreviewMouseLeftButtonDown += OnSinkLeftDown;
+        KeyboardSink.PreviewMouseMove += OnSinkMove;
+        KeyboardSink.PreviewMouseLeftButtonUp += OnSinkLeftUp;
+        KeyboardSink.PreviewMouseRightButtonUp += OnSinkRightUp;
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -160,6 +166,26 @@ public partial class NativeTerminalView : UserControl
             return;
         }
         _ = _vm.SendInputAsync(Encoding.UTF8.GetBytes(e.Text));
+        e.Handled = true;
+    }
+
+    // ── mouse do KeyboardSink → seleção no Surface ────────────────────────────
+    private void OnSinkLeftDown(object sender, MouseButtonEventArgs e) =>
+        Surface.PointerDown(e.GetPosition(Surface)); // sem Handled: TextBox pega o foco de teclado
+
+    private void OnSinkMove(object sender, MouseEventArgs e)
+    {
+        if (e.LeftButton == MouseButtonState.Pressed)
+        {
+            Surface.PointerMove(e.GetPosition(Surface));
+        }
+    }
+
+    private void OnSinkLeftUp(object sender, MouseButtonEventArgs e) => Surface.PointerUp();
+
+    private void OnSinkRightUp(object sender, MouseButtonEventArgs e)
+    {
+        Surface.Paste(); // cola (→ InputBytes → SendInputAsync); suprime o menu de contexto
         e.Handled = true;
     }
 

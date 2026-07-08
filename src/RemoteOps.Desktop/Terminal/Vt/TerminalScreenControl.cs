@@ -202,51 +202,43 @@ public sealed class TerminalScreenControl : FrameworkElement
     // ── seleção com o mouse: ESQUERDO seleciona e copia ao soltar; DIREITO cola (estilo PuTTY).
     //    O TECLADO é tratado no NativeTerminalView (Preview* no UserControl focado) — mais robusto
     //    dentro do TabControlEx keep-alive. O mouse é hit-test (não depende de foco de teclado). ──
-    protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
+    // Seleção conduzida pelo NativeTerminalView — o KeyboardSink (TextBox transparente por cima)
+    // intercepta o mouse (pra pegar foco de teclado no clique) e repassa a posição relativa a ESTE
+    // controle. Esquerdo arrasta pra selecionar+copiar; direito cola (ver NativeTerminalView).
+    public void PointerDown(Point p)
     {
-        _selStart = CellAt(e.GetPosition(this));
+        _selStart = CellAt(p);
         _selEnd = _selStart;
         _selecting = true;
         _hasSelection = false;
-        CaptureMouse();
         InvalidateVisual();
-        base.OnMouseLeftButtonDown(e);
     }
 
-    protected override void OnMouseMove(MouseEventArgs e)
+    public void PointerMove(Point p)
     {
         if (_selecting)
         {
-            _selEnd = CellAt(e.GetPosition(this));
+            _selEnd = CellAt(p);
             _hasSelection = _selEnd != _selStart;
             InvalidateVisual();
         }
-        base.OnMouseMove(e);
     }
 
-    protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
+    public void PointerUp()
     {
-        if (_selecting)
+        if (!_selecting)
         {
-            _selecting = false;
-            ReleaseMouseCapture();
-            if (_hasSelection)
-            {
-                CopySelection(); // copia ao soltar (estilo PuTTY)
-            }
-            else
-            {
-                InvalidateVisual(); // clique simples limpa a seleção anterior
-            }
+            return;
         }
-        base.OnMouseLeftButtonUp(e);
-    }
-
-    protected override void OnMouseRightButtonUp(MouseButtonEventArgs e)
-    {
-        Paste();
-        e.Handled = true;
-        base.OnMouseRightButtonUp(e);
+        _selecting = false;
+        if (_hasSelection)
+        {
+            CopySelection(); // copia ao soltar (estilo PuTTY)
+        }
+        else
+        {
+            InvalidateVisual(); // clique simples limpa a seleção anterior
+        }
     }
 
     private (int Row, int Col) CellAt(Point p)
