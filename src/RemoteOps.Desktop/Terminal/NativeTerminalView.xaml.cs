@@ -29,9 +29,7 @@ public partial class NativeTerminalView : UserControl
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
         Surface.GridSizeChanged += OnGridSizeChanged;
-        PreviewKeyDown += OnPreviewKeyDown;
-        TextInput += OnTextInput;
-        PreviewMouseDown += (_, _) => Surface.Focus();
+        Surface.InputBytes += OnSurfaceInput;
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -64,7 +62,9 @@ public partial class NativeTerminalView : UserControl
             Surface.Redraw();
         }
 
-        Surface.Focus();
+        // foca o terminal via Dispatcher (garante após o layout) — o teclado vai direto pro controle
+        _ = Dispatcher.BeginInvoke(new Action(() => Keyboard.Focus(Surface)),
+            System.Windows.Threading.DispatcherPriority.Input);
 
         if (!_vm.IsConnected)
         {
@@ -103,28 +103,13 @@ public partial class NativeTerminalView : UserControl
         }
     }
 
-    private void OnPreviewKeyDown(object sender, KeyEventArgs e)
+    // bytes de teclado vindos do controle focado → manda pra sessão remota
+    private void OnSurfaceInput(object? sender, byte[] bytes)
     {
-        if (_vm is null)
-        {
-            return;
-        }
-        byte[]? bytes = TerminalInputMapper.MapKey(e.Key, Keyboard.Modifiers);
-        if (bytes is not null)
+        if (_vm is not null)
         {
             _ = _vm.SendInputAsync(bytes);
-            e.Handled = true;
         }
-    }
-
-    private void OnTextInput(object sender, TextCompositionEventArgs e)
-    {
-        if (_vm is null || string.IsNullOrEmpty(e.Text))
-        {
-            return;
-        }
-        _ = _vm.SendInputAsync(Encoding.UTF8.GetBytes(e.Text));
-        e.Handled = true;
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)

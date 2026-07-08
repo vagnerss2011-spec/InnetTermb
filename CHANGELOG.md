@@ -68,6 +68,17 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.2.14] - 2026-07-07
+
+### Corrigido
+
+- **Teclado no terminal nativo:** a v1.2.13 renderizava certo mas o teclado não chegava à sessão
+  (rotear `PreviewKeyDown`/`TextInput` pelo `UserControl` pai era frágil quando o foco de teclado
+  não estava no filho). Agora a entrada é tratada DIRETO no controle focado
+  (`TerminalScreenControl.OnKeyDown`/`OnTextInput`), que ganha foco no clique (`OnMouseDown`→`Focus()`)
+  e no load (`Keyboard.Focus`), emitindo `InputBytes` que o `NativeTerminalView` manda ao
+  `TerminalTabViewModel.SendInputAsync`. Verificado em campo que a v1.2.13 não pegava tecla; este é o fix.
+
 ## [1.2.13] - 2026-07-07
 
 ### Adicionado
