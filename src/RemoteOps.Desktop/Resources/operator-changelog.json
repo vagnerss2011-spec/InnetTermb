@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.2.14",
+      "date": "2026-07-07",
+      "highlights": [
+        "Teclado no terminal nativo: agora o terminal recebe o que você digita de forma confiável — clicou nele, é só digitar. (A v1.2.13 desenhava o terminal certinho, mas em alguns casos não pegava o teclado.)"
+      ]
+    },
+    {
       "version": "1.2.13",
       "date": "2026-07-07",
       "highlights": [

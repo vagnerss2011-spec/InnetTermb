@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Media;
 
 // UseWindowsForms está ligado no projeto → System.Drawing entra por ImplicitUsings e conflita.
@@ -59,6 +60,9 @@ public sealed class TerminalScreenControl : FrameworkElement
 
     /// <summary>Disparado quando o tamanho em colunas/linhas muda (ao redimensionar o controle).</summary>
     public event EventHandler<GridSize>? GridSizeChanged;
+
+    /// <summary>Bytes VT gerados pelo teclado (texto UTF-8 ou sequências de teclas especiais).</summary>
+    public event EventHandler<byte[]>? InputBytes;
 
     public double FontSize
     {
@@ -181,6 +185,35 @@ public sealed class TerminalScreenControl : FrameworkElement
         double cx = screen.CursorColumn * _cellWidth;
         double cy = screen.CursorRow * _cellHeight;
         dc.DrawRectangle(_cursorBrush, null, new Rect(cx, cy, _cellWidth, _cellHeight));
+    }
+
+    // ── entrada de teclado (tratada direto no controle FOCADO — mais confiável que rotear
+    //    eventos pelo pai; evita o caso "digita e nada acontece") ────────────────────────────
+    protected override void OnMouseDown(MouseButtonEventArgs e)
+    {
+        Focus(); // clicar no terminal dá foco de teclado
+        base.OnMouseDown(e);
+    }
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        byte[]? bytes = TerminalInputMapper.MapKey(e.Key, Keyboard.Modifiers);
+        if (bytes is not null)
+        {
+            InputBytes?.Invoke(this, bytes);
+            e.Handled = true;
+        }
+        base.OnKeyDown(e);
+    }
+
+    protected override void OnTextInput(TextCompositionEventArgs e)
+    {
+        if (!string.IsNullOrEmpty(e.Text))
+        {
+            InputBytes?.Invoke(this, Encoding.UTF8.GetBytes(e.Text));
+            e.Handled = true;
+        }
+        base.OnTextInput(e);
     }
 
     private static bool SameStyle(TerminalCell a, TerminalCell b) =>
