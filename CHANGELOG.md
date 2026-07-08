@@ -68,6 +68,19 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.2.16] - 2026-07-08
+
+### Corrigido
+
+- **Terminal nativo não recebia teclado (só EXIBIA):** dentro do `TabControlEx` keep-alive, dar
+  foco a um `FrameworkElement` cru (`TerminalScreenControl`) não pegava foco de teclado — nem
+  digitar/enter nem os atalhos de copiar/colar funcionavam (as tentativas de v1.2.13/14 falhavam
+  pelo mesmo motivo; validado em campo). Correção: o **UserControl** (`NativeTerminalView`, um
+  `Control` focável) passa a ser o alvo de foco e trata o teclado via `PreviewKeyDown`/
+  `PreviewTextInput` (tunelam esteja o foco no UserControl ou num filho). Foco reforçado em
+  `Loaded`, `IsVisibleChanged` e `PreviewMouseDown`. O mouse (seleção/cópia/colagem) fica no
+  controle de tela (hit-test, independe de foco); `CopySelection`/`Paste` viraram públicos.
+
 ## [1.2.15] - 2026-07-08
 
 ### Adicionado
