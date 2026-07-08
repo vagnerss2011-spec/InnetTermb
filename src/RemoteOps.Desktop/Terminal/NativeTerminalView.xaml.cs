@@ -84,14 +84,16 @@ public partial class NativeTerminalView : UserControl
         }
     }
 
-    // dá foco de teclado ao "sink" (TextBox invisível) — TextBox pega foco de forma confiável no
-    // WPF onde um FrameworkElement cru não pegava. Via Dispatcher pra rodar após layout/seleção de aba.
-    private void FocusTerminal() =>
-        _ = Dispatcher.BeginInvoke(new Action(() =>
+    // dá foco de teclado ao "sink" (TextBox invisível) — TextBox pega foco de forma confiável no WPF.
+    // Tenta síncrono (como clicar num TextBox); se falhar (layout não pronto), agenda no Dispatcher.
+    private void FocusTerminal()
+    {
+        if (KeyboardSink.Focus())
         {
-            KeyboardSink.Focus();
-            Keyboard.Focus(KeyboardSink);
-        }), DispatcherPriority.Input);
+            return;
+        }
+        _ = Dispatcher.BeginInvoke(new Action(() => KeyboardSink.Focus()), DispatcherPriority.Input);
+    }
 
     private void OnIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
     {

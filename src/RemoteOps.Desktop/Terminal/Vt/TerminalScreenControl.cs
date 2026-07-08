@@ -57,7 +57,9 @@ public sealed class TerminalScreenControl : FrameworkElement
         _cursorBrush = Frozen(Color.FromArgb(0x88, 0xD4, 0xD4, 0xD4));
         _selectionBrush = Frozen(Color.FromArgb(0x66, 0x33, 0x99, 0xFF));
 
-        Focusable = true;
+        // NÃO focável: o teclado vai pro KeyboardSink (TextBox) do NativeTerminalView. Se o Surface
+        // fosse focável, clicar nele ROUBARIA o foco do sink e o terminal não receberia tecla.
+        Focusable = false;
         FocusVisualStyle = null;
         ComputeCellMetrics();
     }

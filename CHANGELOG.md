@@ -68,6 +68,16 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.2.18] - 2026-07-08
+
+### Corrigido
+
+- **Teclado no terminal (foco, parte 2):** com o `KeyboardSink` (v1.2.17) o teclado ainda não pegava
+  porque o `TerminalScreenControl` continuava `Focusable=true` e ROUBAVA o foco do sink ao clicar.
+  Agora o Surface é `Focusable=false` (o mouse ainda funciona — é hit-test, não precisa de foco), o
+  `KeyboardSink` (TextBox editável, como o campo de busca que comprovadamente recebe teclado) segura
+  o foco, e `FocusTerminal` foca de forma síncrona (com fallback no Dispatcher).
+
 ## [1.2.17] - 2026-07-08
 
 ### Corrigido
