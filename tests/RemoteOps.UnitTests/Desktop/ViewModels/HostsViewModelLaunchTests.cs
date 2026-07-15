@@ -1,5 +1,9 @@
+using System;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using RemoteOps.Contracts.Assets;
+using RemoteOps.Desktop.Credentials;
 using RemoteOps.Desktop.Infrastructure;
 using RemoteOps.Desktop.Sessions;
 using RemoteOps.Desktop.ViewModels;
@@ -44,5 +48,33 @@ public sealed class HostsViewModelLaunchTests
 
         Assert.NotNull(error);
         Assert.Contains("MIKROTIK", error);
+    }
+
+    [Fact]
+    public async Task Delete_WhenCredRevokeFails_RaisesLaunchFailed_NotSilent()
+    {
+        var launcher = new SessionLauncher(new TabsViewModel(), null, null, null, null, null, null);
+        var vm = new HostsViewModel(new InMemoryLocalStore(), launcher, "ws-local", new ThrowingInlineCredentialService())
+        {
+            SelectedHost = HostWith("ssh"), // asset com 1 endpoint → DeleteForEndpointAsync é chamado
+        };
+        string? error = null;
+        vm.LaunchFailed += (_, msg) => error = msg;
+
+        vm.DeleteHostCommand.Execute(null); // fire-and-forget
+        for (int i = 0; i < 50 && error is null; i++) await Task.Delay(10);
+
+        Assert.NotNull(error);
+        Assert.Contains("excluir", error);
+    }
+
+    // Serviço de credencial inline que SEMPRE falha — simula cofre/DB indisponível na exclusão.
+    private sealed class ThrowingInlineCredentialService : IInlineCredentialService
+    {
+        public Task<string> CreateForEndpointAsync(string workspaceId, string endpointId, string username, char[] password, CancellationToken ct = default)
+            => throw new NotImplementedException();
+        public Task DeleteForEndpointAsync(Endpoint endpoint, CancellationToken ct = default)
+            => throw new InvalidOperationException("cofre indisponível");
+        public bool IsInlineScope(string? scope) => false;
     }
 }

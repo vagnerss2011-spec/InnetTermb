@@ -86,6 +86,14 @@ public sealed class TerminalTabViewModel : ViewModels.SessionTabViewModel
     public event Action<ReadOnlyMemory<byte>>? OutputReceived;
 
     /// <summary>
+    /// Disparado quando a sessão TERMINA por conta própria (o servidor fechou / o link caiu),
+    /// NÃO em fechamento deliberado da aba. null = fim limpo (ex.: logout/exit); mensagem = erro
+    /// (queda de rede). A View escreve "[Sessão encerrada]" / "[Conexão perdida: …]" pra não deixar
+    /// o operador achando que a sessão está viva enquanto as teclas somem em silêncio.
+    /// </summary>
+    public event Action<string?>? SessionEnded;
+
+    /// <summary>
     /// Abre a sessão e inicia o pump de saída. Chamado pela View após WebView2 estar pronto.
     /// </summary>
     public async Task ConnectAsync(int cols, int rows, CancellationToken ct = default)
@@ -122,21 +130,34 @@ public sealed class TerminalTabViewModel : ViewModels.SessionTabViewModel
 
     private async Task PumpOutputAsync(CancellationToken ct)
     {
+        string? endReason = null;
+        bool report = true;
         try
         {
             await foreach (var chunk in _provider.ReadAsync(_handle!, ct).ConfigureAwait(false))
             {
                 OutputReceived?.Invoke(chunk);
             }
+            // Fim do foreach SEM exceção = servidor fechou o stream (logout/exit) — fim limpo.
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException)
+        {
+            report = false; // fechamento DELIBERADO (CloseAsync cancelou) — não avisa o operador
+        }
         catch (Exception ex)
         {
+            // O provider propaga o erro de rede completando o canal com exceção (TryComplete(ex)),
+            // que reaparece aqui. Avisa o operador em vez de fingir um fim limpo.
+            endReason = ex.Message;
             System.Diagnostics.Debug.WriteLine($"[Terminal] Pump error: {ex.Message}");
         }
         finally
         {
             Interlocked.Exchange(ref _connectionState, 0);
+            if (report)
+            {
+                SessionEnded?.Invoke(endReason);
+            }
         }
     }
 
@@ -159,8 +180,12 @@ public sealed class TerminalTabViewModel : ViewModels.SessionTabViewModel
     /// </summary>
     public async Task CloseAsync()
     {
-        if (_handle == null) return;
-
+        // Cancela a conexão em voo MESMO se _handle ainda for null (fechar a aba enquanto conecta):
+        // o _cts.Token foi passado ao OpenAsync, então cancelar aborta o connect e o catch de
+        // ConnectAsync reseta o estado. Sem isto, fechar durante um connect lento (o CAS já passou
+        // pra "connecting" mas _handle só é setado DEPOIS do OpenAsync) caía no early-return antigo
+        // e a sessão completava "sem dono" — conexão viva no equipamento + threads vazando, esgotando
+        // slots vty em MikroTik/OLT. Idempotente (chamável 2x com segurança).
         if (_cts != null)
         {
             await _cts.CancelAsync();
@@ -168,8 +193,12 @@ public sealed class TerminalTabViewModel : ViewModels.SessionTabViewModel
             _cts = null;
         }
 
-        await _provider.CloseAsync(_handle, CancellationToken.None);
-        _handle = null;
+        if (_handle != null)
+        {
+            await _provider.CloseAsync(_handle, CancellationToken.None);
+            _handle = null;
+        }
+
         Interlocked.Exchange(ref _connectionState, 0);
     }
 }

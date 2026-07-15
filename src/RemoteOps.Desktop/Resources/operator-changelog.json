@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.2.23",
+      "date": "2026-07-15",
+      "highlights": [
+        "Rodada de estabilidade e acabamento: (1) fechar a aba do terminal enquanto conecta não deixa mais uma sessão presa no equipamento (importante pra MikroTik/OLT com poucos acessos simultâneos); (2) se a sessão cair no meio, o terminal agora AVISA ('Conexão perdida') em vez de congelar em silêncio; (3) tela não fica mais borrada ao arrastar a janela entre monitores de resolução/escala diferente; (4) 'Verificar atualizações' abre direto na aba certa; (5) 'Senha só deste dispositivo' agora exige usuário e senha; (6) o app não trava mais no início quando a internet está lenta; e outras correções."
+      ]
+    },
+    {
       "version": "1.2.22",
       "date": "2026-07-08",
       "highlights": [

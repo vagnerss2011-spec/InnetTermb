@@ -51,6 +51,22 @@ public partial class RdpTabView : UserControl
             }
         }
 
+        // Descarta EXPLICITAMENTE o controle ActiveX (mstscax.dll) e o WindowsFormsHost. O WPF NÃO
+        // descarta HwndHost/WindowsFormsHost ao remover da árvore visual — sem este Dispose os
+        // handles nativos (HWND/GDI) e os objetos COM da sessão RDP vazam a cada abrir/fechar de aba,
+        // dependendo só do finalizador do AxHost (não-determinístico e problemático em STA).
+        try
+        {
+            _formsHost.Child = null;
+            _client?.Dispose();
+            _formsHost.Dispose();
+        }
+        catch
+        {
+            // Teardown COM/STA é best-effort — não deixa uma falha de descarte derrubar o fechamento.
+        }
+
+        _client = null;
         _connectStarted = false;
     }
 

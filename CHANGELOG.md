@@ -68,6 +68,32 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.2.23] - 2026-07-15
+
+### Corrigido
+
+Rodada de validação (revisão multi-agente + verificação adversarial) — estabilidade e polimento:
+
+- **Fechar a aba do terminal DURANTE a conexão não vaza mais a sessão.** `CloseAsync` agora cancela
+  a conexão em voo mesmo antes do handle existir; a View fecha a sessão se a aba sumiu no meio do
+  connect (guarda pós-await, como o RDP). Antes, fechar durante um connect lento deixava a sessão
+  SSH/Telnet viva e "sem dono" no equipamento — esgotando slots vty em MikroTik/OLT.
+- **Queda de sessão no meio deixou de ser silenciosa.** Os providers propagam o erro de rede
+  (`TryComplete(ex)`) e o terminal mostra `[Conexão perdida: …]` / `[Sessão encerrada]`. Antes o
+  terminal congelava sem aviso e as teclas seguintes eram descartadas em silêncio.
+- **Falha ao excluir host agora aparece.** `DeleteHostAsync` ganhou try/catch + aviso ao operador
+  (antes uma falha do cofre/DB ao revogar a senha inline evaporava sem feedback).
+- **RDP: o controle ActiveX (mstscax) e o WindowsFormsHost são descartados ao fechar a aba** — não
+  vazam mais handles nativos a cada abrir/fechar.
+- **DPI Per-Monitor-V2 (novo `app.manifest`):** a UI não fica mais borrada ao mover a janela entre
+  monitores de escala diferente (comum em NOC multi-monitor).
+- **"Verificar atualizações" abre direto na aba Atualização** (antes caía na aba padrão, igual a
+  "Configurações", sem checar nada).
+- **Modo "senha só deste dispositivo" exige usuário E senha** antes de adicionar — não dá mais pra
+  salvar um host inconectável com credencial vazia.
+- **Startup não trava mais numa rede lenta:** a checagem de update no boot tem timeout curto
+  (fail-open), então a janela abre na hora mesmo com link instável/black-hole.
+
 ## [1.2.22] - 2026-07-08
 
 ### Adicionado
