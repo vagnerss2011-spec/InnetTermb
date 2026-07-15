@@ -133,6 +133,10 @@ jobs:
           name: ${{ env.APP_ID }}-${{ env.VERSION }}
           path: ${{ env.RELEASE_DIR }}/*
           if-no-files-found: error
+          # Estes arquivos JÁ são publicados como assets do Release (grátis/ilimitado). O artefato de
+          # workflow é só um fallback de debug e CONTA no cofre de armazenamento (o de 90 dias padrão
+          # × 260MB/run encheu ~7GB). 3 dias basta pra recuperar um build recém-quebrado.
+          retention-days: 3
 
       - name: vpk upload github (publica o Release + feed de auto-update)
         shell: pwsh
@@ -160,3 +164,32 @@ jobs:
           )
           if ($env:IS_PRERELEASE -eq "True") { $vpkArgs += "--pre" }
           & vpk @vpkArgs
+
+      - name: Podar releases/artefatos antigos (manter no máximo 3)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          REPO="${{ github.repository }}"
+          CURRENT="${{ github.ref_name }}"   # vX.Y.Z desta release
+
+          # RELEASES: ordena por SEMVER numérico (robusto — NÃO por data, que o mirror embaralha),
+          # mantém as 3 maiores versões e apaga o resto. Guarda dupla: nunca apaga a versão ATUAL.
+          to_del=$(gh release list --repo "$REPO" --json tagName \
+            --jq '[.[].tagName | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))]
+                  | sort_by(.[1:] | split(".") | map(tonumber)) | reverse | .[3:] | .[]' || true)
+          for t in $to_del; do
+            if [ "$t" = "$CURRENT" ]; then echo "guarda: pulando release atual $t"; continue; fi
+            echo "apagando release antiga $t (+tag)"
+            gh release delete "$t" --repo "$REPO" --cleanup-tag --yes || true
+          done
+
+          # ARTEFATOS de workflow (contam no armazenamento): mantém os 3 mais novos, apaga o resto.
+          # created_at é confiável aqui (artefato é criado 1x por run, nunca atualizado).
+          del_art=$(gh api "repos/$REPO/actions/artifacts" --paginate \
+            --jq '.artifacts | sort_by(.created_at) | reverse | .[3:] | .[].id' || true)
+          for id in $del_art; do
+            echo "apagando artefato $id"
+            gh api -X DELETE "repos/$REPO/actions/artifacts/$id" || true
+          done
