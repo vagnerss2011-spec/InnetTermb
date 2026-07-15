@@ -48,6 +48,14 @@ public partial class App : Application
     private static void Main(string[] args)
     {
         VelopackApp.Build().SetArgs(args).Run();
+
+        // DPI Per-Monitor V2 ANTES de qualquer janela WPF: sem isto o processo fica System-DPI e a
+        // UI (terminal, hosts, aba RDP) fica BORRADA ao mover a janela entre monitores de escala
+        // diferente (comum em NOC: 100% + 150%/4K). O projeto tem UseWindowsForms=true, então o
+        // caminho sancionado é Application.SetHighDpiMode (declarar no manifesto dá o erro WFO0003);
+        // ela chama SetProcessDpiAwarenessContext, que o WPF respeita ao criar a 1ª janela.
+        System.Windows.Forms.Application.SetHighDpiMode(System.Windows.Forms.HighDpiMode.PerMonitorV2);
+
         var app = new App();
         app.InitializeComponent();
         app.Run();
@@ -99,7 +107,14 @@ public partial class App : Application
             // REMOTEOPS_UPDATE_POLICY_URL estiverem configurados (fail-open sem config).
             // Prompt obrigatório e visível — sem opção de "lembrar depois" — quando a versão
             // instalada está abaixo da mínima exigida pelo feed de política.
-            if (await TryEnforceForcedUpdateAsync(_serviceProvider.GetService<IUpdateService>()))
+            // Não bloquear a abertura da janela indefinidamente: a checagem de update forçado faz um
+            // round-trip de rede ao GitHub em TODA inicialização (VelopackUpdateService), sem timeout.
+            // Numa rede de campo lenta ou com black-hole/captive-portal, isso deixava o app "congelado"
+            // no launch (nenhuma janela por dezenas de segundos). Timeout curto: se estourar, segue
+            // fail-open e a janela abre — o update ainda é oferecido pelo prompt do MainWindow.
+            var enforceTask = TryEnforceForcedUpdateAsync(_serviceProvider.GetService<IUpdateService>());
+            if (await Task.WhenAny(enforceTask, Task.Delay(TimeSpan.FromSeconds(6))) == enforceTask
+                && await enforceTask)
             {
                 Shutdown();
                 return;

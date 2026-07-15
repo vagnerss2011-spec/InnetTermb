@@ -128,6 +128,31 @@ public sealed class InlineCredentialTests
     }
 
     [Fact]
+    public void CanAddEndpoint_KeychainMode_RequiresOnlyAddress()
+    {
+        var vm = new HostEditorViewModel(new InMemoryLocalStore(), "ws-local", existing: null, groupId: null);
+        vm.NewEndpointAddress = "10.0.0.1";
+        Assert.True(vm.CanAddEndpoint);
+    }
+
+    [Fact]
+    public void CanAddEndpoint_InlineMode_RequiresAddressUsernameAndPassword()
+    {
+        var vm = new HostEditorViewModel(new InMemoryLocalStore(), "ws-local", existing: null, groupId: null);
+        vm.UseInlineCredential = true;
+
+        vm.NewEndpointAddress = "10.0.0.1";
+        Assert.False(vm.CanAddEndpoint);   // sem usuário nem senha
+        vm.NewEndpointInlineUsername = "root";
+        Assert.False(vm.CanAddEndpoint);   // sem senha
+        vm.HasInlinePassword = true;
+        Assert.True(vm.CanAddEndpoint);    // endereço + usuário + senha → ok
+
+        vm.HasInlinePassword = false;
+        Assert.False(vm.CanAddEndpoint);   // tirou a senha → bloqueia de novo
+    }
+
+    [Fact]
     public async Task HostEditor_RemovingInlineEndpoint_OnEdit_DeletesItsCred()
     {
         var store = new InMemoryLocalStore();

@@ -56,6 +56,7 @@ public partial class NativeTerminalView : UserControl
         if (!_subscribed)
         {
             _vm.OutputReceived += OnOutput;
+            _vm.SessionEnded += OnSessionEnded;
             _subscribed = true;
         }
 
@@ -82,12 +83,32 @@ public partial class NativeTerminalView : UserControl
             try
             {
                 await _vm.ConnectAsync(grid.Columns, grid.Rows);
+
+                // A aba pode ter sido fechada ENQUANTO conectava (connect leva segundos). Se a View
+                // já foi descarregada, feche a sessão recém-aberta — senão ela fica órfã e viva no
+                // equipamento (esgota slots vty em MikroTik/OLT). Espelha o guard do RdpTabView.
+                if (!IsLoaded)
+                {
+                    await _vm.CloseAsync();
+                }
             }
             catch (Exception ex)
             {
                 WriteLocal($"\r\n[Falha ao conectar: {ex.Message}]\r\n");
             }
         }
+    }
+
+    // Sessão terminou por conta própria (servidor fechou / link caiu) — avisa na tela pra o operador
+    // não continuar digitando achando que está conectado (as teclas seriam descartadas em silêncio).
+    private void OnSessionEnded(string? reason)
+    {
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            WriteLocal(reason is null
+                ? "\r\n[Sessão encerrada]\r\n"
+                : $"\r\n[Conexão perdida: {reason}]\r\n");
+        }));
     }
 
     // dá foco de teclado ao "sink" (TextBox invisível) — TextBox pega foco de forma confiável no WPF.
@@ -205,6 +226,7 @@ public partial class NativeTerminalView : UserControl
         if (_vm is not null && _subscribed)
         {
             _vm.OutputReceived -= OnOutput;
+            _vm.SessionEnded -= OnSessionEnded;
             _subscribed = false;
         }
     }

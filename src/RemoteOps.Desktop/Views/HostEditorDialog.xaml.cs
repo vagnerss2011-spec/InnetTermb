@@ -15,6 +15,15 @@ public partial class HostEditorDialog : Window
         Loaded += async (_, _) => await viewModel.LoadCredentialsAsync();
         // Fechou sem salvar (Cancelar/X) → zera qualquer senha inline que ficou em rascunho.
         Closed += (_, _) => { if (DialogResult != true) viewModel.ClearInlineDrafts(); };
+        // Avisa o VM se o PasswordBox inline tem senha (só o COMPRIMENTO, nunca o valor) — o botão
+        // "Adicionar" no modo inline só habilita com usuário E senha preenchidos.
+        InlinePasswordField.PasswordChanged += (_, _) =>
+        {
+            if (DataContext is HostEditorViewModel vm)
+            {
+                vm.HasInlinePassword = InlinePasswordField.SecurePassword.Length > 0;
+            }
+        };
     }
 
     private HostEditorViewModel Vm => (HostEditorViewModel)DataContext;

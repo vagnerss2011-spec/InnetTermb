@@ -147,18 +147,29 @@ public sealed class HostsViewModel : BaseViewModel
     private async Task DeleteHostAsync()
     {
         if (SelectedHost is null) return;
-        // Apaga as credenciais INLINE dos endpoints do device (revoga o segredo no cofre) pra não
-        // deixar envelope órfão; credenciais do Keychain (compartilhadas) NÃO são tocadas.
-        if (_inlineCreds is not null)
+        // Disparado em fire-and-forget pelo command — envolve em try/catch e reporta via LaunchFailed
+        // (como ConnectAsync). Sem isso, uma falha do cofre/DB ao revogar a senha inline ou apagar o
+        // asset viraria exceção de Task descartada, SUMINDO da vista do operador (o app só captura
+        // DispatcherUnhandledException/AppDomain, que não pegam Task fire-and-forget).
+        try
         {
-            foreach (var ep in SelectedHost.Asset.Endpoints)
+            // Apaga as credenciais INLINE dos endpoints do device (revoga o segredo no cofre) pra não
+            // deixar envelope órfão; credenciais do Keychain (compartilhadas) NÃO são tocadas.
+            if (_inlineCreds is not null)
             {
-                await _inlineCreds.DeleteForEndpointAsync(ep);
+                foreach (var ep in SelectedHost.Asset.Endpoints)
+                {
+                    await _inlineCreds.DeleteForEndpointAsync(ep);
+                }
             }
+            await _store.DeleteAssetAsync(SelectedHost.Id);
+            Hosts.Remove(SelectedHost);
+            SelectedHost = null;
         }
-        await _store.DeleteAssetAsync(SelectedHost.Id);
-        Hosts.Remove(SelectedHost);
-        SelectedHost = null;
+        catch (Exception ex)
+        {
+            LaunchFailed?.Invoke(this, $"Falha ao excluir o host: {ex.Message}");
+        }
     }
 
     public Task ReloadAfterEditAsync() => RefreshAsync();

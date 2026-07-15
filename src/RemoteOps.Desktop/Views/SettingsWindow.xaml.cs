@@ -9,11 +9,28 @@ namespace RemoteOps.Desktop.Views;
 
 public partial class SettingsWindow : Window
 {
-    public SettingsWindow(SettingsViewModel viewModel)
+    public SettingsWindow(SettingsViewModel viewModel, string? initialTab = null)
     {
         InitializeComponent();
         DataContext = viewModel;
         viewModel.Saved += (_, _) => Close();
+        if (initialTab is not null)
+        {
+            SelectTabByHeader(initialTab);
+        }
+    }
+
+    // Seleciona a aba pelo texto do Header (ex.: abrir direto em "Atualização" via o menu do avatar).
+    private void SelectTabByHeader(string header)
+    {
+        foreach (object item in Tabs.Items)
+        {
+            if (item is System.Windows.Controls.TabItem tab && tab.Header as string == header)
+            {
+                tab.IsSelected = true;
+                return;
+            }
+        }
     }
 
     private SettingsViewModel Vm => (SettingsViewModel)DataContext;

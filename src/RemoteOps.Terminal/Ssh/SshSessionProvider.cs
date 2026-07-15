@@ -304,10 +304,15 @@ public sealed class SshSessionProvider : ITerminalSessionProvider
             }
         }
         catch (OperationCanceledException) { }
-        catch (Exception) { }
+        catch (Exception ex)
+        {
+            // Erro de rede/stream (link caiu, equipamento reiniciou): completa o canal COM a
+            // exceção, pra o consumidor distinguir queda de um EOF limpo e avisar o operador.
+            writer.TryComplete(ex);
+        }
         finally
         {
-            writer.TryComplete();
+            writer.TryComplete(); // no-op se já completou (com ou sem erro)
         }
     }
 

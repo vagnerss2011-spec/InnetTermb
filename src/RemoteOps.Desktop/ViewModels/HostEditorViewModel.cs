@@ -29,6 +29,7 @@ public sealed class HostEditorViewModel : BaseViewModel
     private string _newEndpointSshProfile = "auto";
     private bool _useInlineCredential;
     private string _newEndpointInlineUsername = string.Empty;
+    private bool _hasInlinePassword;
 
     // inlineCreds é o ÚLTIMO parâmetro e opcional de propósito: mantém compatível a assinatura
     // (store, workspaceId, existing, groupId) usada nos testes de Keychain/endereço/perfil. É
@@ -79,7 +80,7 @@ public sealed class HostEditorViewModel : BaseViewModel
     public string NewEndpointAddress
     {
         get => _newEndpointAddress;
-        set { Set(ref _newEndpointAddress, value); AddEndpointCommand.RaiseCanExecuteChanged(); RaisePropertyChanged(nameof(CanAddEndpoint)); }
+        set { Set(ref _newEndpointAddress, value); RaiseCanAddEndpointChanged(); }
     }
     public int NewEndpointPort { get => _newEndpointPort; set => Set(ref _newEndpointPort, value); }
     public string? NewEndpointCredentialId { get => _newEndpointCredentialId; set => Set(ref _newEndpointCredentialId, value); }
@@ -103,6 +104,7 @@ public sealed class HostEditorViewModel : BaseViewModel
             _useInlineCredential = value;
             RaisePropertyChanged();
             RaisePropertyChanged(nameof(UseKeychainCredential));
+            RaiseCanAddEndpointChanged(); // trocar de modo muda os requisitos do "Adicionar"
         }
     }
 
@@ -114,9 +116,37 @@ public sealed class HostEditorViewModel : BaseViewModel
     }
 
     /// <summary>Usuário da credencial inline (a senha vem do PasswordBox, nunca por binding).</summary>
-    public string NewEndpointInlineUsername { get => _newEndpointInlineUsername; set => Set(ref _newEndpointInlineUsername, value); }
+    public string NewEndpointInlineUsername
+    {
+        get => _newEndpointInlineUsername;
+        set { Set(ref _newEndpointInlineUsername, value); RaiseCanAddEndpointChanged(); }
+    }
 
-    public bool CanAddEndpoint => !string.IsNullOrWhiteSpace(NewEndpointAddress);
+    /// <summary>
+    /// Se o PasswordBox inline tem senha (a View avisa via PasswordChanged — o valor NUNCA passa por
+    /// binding). Usado só pra habilitar/desabilitar o "Adicionar" no modo inline.
+    /// </summary>
+    public bool HasInlinePassword
+    {
+        get => _hasInlinePassword;
+        set { if (_hasInlinePassword != value) { _hasInlinePassword = value; RaiseCanAddEndpointChanged(); } }
+    }
+
+    /// <summary>
+    /// No modo Keychain, basta o endereço. No modo inline, exige também usuário E senha — senão o
+    /// operador salvaria um host inconectável (SSH tenta autenticar com usuário/senha vazio e falha
+    /// com erro confuso) e deixaria uma credencial inútil escondida no cofre.
+    /// </summary>
+    public bool CanAddEndpoint =>
+        !string.IsNullOrWhiteSpace(NewEndpointAddress)
+        && (!UseInlineCredential
+            || (!string.IsNullOrWhiteSpace(NewEndpointInlineUsername) && HasInlinePassword));
+
+    private void RaiseCanAddEndpointChanged()
+    {
+        AddEndpointCommand.RaiseCanExecuteChanged();
+        RaisePropertyChanged(nameof(CanAddEndpoint));
+    }
 
     public RelayCommand AddEndpointCommand { get; }
     public RelayCommand RemoveEndpointCommand { get; }
@@ -195,6 +225,7 @@ public sealed class HostEditorViewModel : BaseViewModel
         NewEndpointCredentialId = null;
         NewEndpointSshProfile = "auto";
         NewEndpointInlineUsername = string.Empty;
+        HasInlinePassword = false; // a View limpa o PasswordBox no add; espelha aqui por robustez
     }
 
     private void RemoveEndpoint(Endpoint ep)

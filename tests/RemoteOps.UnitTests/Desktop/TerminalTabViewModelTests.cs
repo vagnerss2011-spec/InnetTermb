@@ -295,4 +295,78 @@ public sealed class TerminalTabViewModelTests
 
         Assert.Empty(persisted);
     }
+
+    // ── Fechar durante a conexão (não vazar sessão) ─────────────────────────────
+
+    [Fact]
+    public async Task CloseAsync_DuringSlowConnect_CancelsAndLeavesNoLiveSession()
+    {
+        var (vm, provider) = Build();
+        provider.GateOpen(); // OpenAsync fica preso (connect lento)
+
+        var connectTask = vm.ConnectAsync(80, 24); // trava no OpenAsync (gate)
+
+        // Fecha a aba ENQUANTO conecta — deve cancelar o connect em voo.
+        await vm.CloseAsync();
+        provider.ReleaseOpen(); // libera o gate (mas o ct já foi cancelado)
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => connectTask);
+
+        Assert.False(vm.IsConnected);
+        Assert.Empty(provider.OpenedRequests); // OpenAsync abortou antes de registrar a sessão
+        Assert.Equal(0, provider.CloseCount);  // nada a fechar (não chegou a abrir)
+    }
+
+    // ── Queda de sessão avisa (não silencia) ────────────────────────────────────
+
+    [Fact]
+    public async Task SessionEnded_FiresWithMessage_OnPumpError()
+    {
+        var (vm, provider) = Build();
+        string? reason = "___notset___";
+        bool fired = false;
+        vm.SessionEnded += r => { reason = r; fired = true; };
+
+        await vm.ConnectAsync(80, 24);
+        provider.CompleteOutputWithError(new InvalidOperationException("link down"));
+
+        for (int i = 0; i < 50 && !fired; i++) await Task.Delay(10);
+
+        Assert.True(fired);
+        Assert.Equal("link down", reason);
+
+        await vm.CloseAsync();
+    }
+
+    [Fact]
+    public async Task SessionEnded_FiresWithNull_OnCleanEof()
+    {
+        var (vm, provider) = Build();
+        string? reason = "___notset___";
+        bool fired = false;
+        vm.SessionEnded += r => { reason = r; fired = true; };
+
+        await vm.ConnectAsync(80, 24);
+        provider.CompleteOutput(); // servidor fechou (logout/exit) — fim limpo
+
+        for (int i = 0; i < 50 && !fired; i++) await Task.Delay(10);
+
+        Assert.True(fired);
+        Assert.Null(reason);
+    }
+
+    [Fact]
+    public async Task SessionEnded_DoesNotFire_OnDeliberateClose()
+    {
+        var (vm, provider) = Build();
+        bool fired = false;
+        vm.SessionEnded += _ => fired = true;
+
+        await vm.ConnectAsync(80, 24);
+        await vm.CloseAsync(); // cancelamento deliberado → NÃO deve avisar "sessão caiu"
+
+        await Task.Delay(80); // deixa o pump finalizar
+
+        Assert.False(fired);
+    }
 }

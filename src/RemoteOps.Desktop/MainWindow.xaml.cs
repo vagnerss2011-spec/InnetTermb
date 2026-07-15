@@ -54,7 +54,9 @@ public partial class MainWindow : Window
         };
 
         viewModel.Browser.SettingsRequested += (_, _) => OpenSettings();
-        viewModel.Browser.UpdatesRequested += (_, _) => OpenSettings();
+        // "Verificar atualizações" abre já na aba Atualização (onde estão "Verificar agora" / "Baixar
+        // e instalar") — antes caía na aba padrão "Aparência", igual a "Configurações", enganando o rótulo.
+        viewModel.Browser.UpdatesRequested += (_, _) => OpenSettings(initialTab: "Atualização");
         viewModel.Browser.AboutRequested += (_, _) =>
             MessageBox.Show(this, viewModel.AppVersionText, "Sobre o RemoteOps", MessageBoxButton.OK, MessageBoxImage.Information);
 
@@ -149,9 +151,9 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OpenSettings()
+    private void OpenSettings(string? initialTab = null)
     {
-        var window = new SettingsWindow(Vm.CreateSettingsViewModel()) { Owner = this };
+        var window = new SettingsWindow(Vm.CreateSettingsViewModel(), initialTab) { Owner = this };
         window.ShowDialog();
         Vm.Browser.RefreshChangelogBadge();
     }

@@ -155,10 +155,15 @@ public sealed class TelnetSessionProvider : ITerminalSessionProvider
             }
         }
         catch (OperationCanceledException) { }
-        catch (Exception) { }
+        catch (Exception ex)
+        {
+            // Erro de rede/stream: completa o canal COM a exceção pra o consumidor distinguir
+            // queda de um EOF limpo e avisar o operador (não fingir fim normal).
+            writer.TryComplete(ex);
+        }
         finally
         {
-            writer.TryComplete();
+            writer.TryComplete(); // no-op se já completou (com ou sem erro)
         }
     }
 
