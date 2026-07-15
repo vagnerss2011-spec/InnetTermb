@@ -41,6 +41,49 @@
         </Setter>
     </Style>
 
+    <!-- PasswordBox — espelha o TextBox temático (mesma altura/borda/raio/fundo/foco). Sem isto
+         o PasswordBox caía no template PADRÃO do WPF (claro): no editor de host, ao escolher
+         "Senha só deste dispositivo", o campo "Senha" ficava branco e de altura diferente ao lado
+         do TextBox "Usuário" (desalinhado/"torto") — mesma incoerência do CredentialDialog. O
+         ScrollViewer "PART_ContentHost" é exigido pelo PasswordBox internamente (hospeda os
+         bullets da senha); sem ele o campo perde a área editável. -->
+    <Style TargetType="PasswordBox">
+        <Setter Property="Background" Value="{DynamicResource Brush.Bg.Canvas}"/>
+        <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Primary}"/>
+        <Setter Property="CaretBrush" Value="{DynamicResource Brush.Text.Primary}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border.Default}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Padding" Value="6,4"/>
+        <Setter Property="FontFamily" Value="{DynamicResource Font.Family.Base}"/>
+        <Setter Property="FontSize" Value="{DynamicResource Font.Size.Body}"/>
+        <Setter Property="SelectionBrush" Value="{DynamicResource Brush.Accent.Muted}"/>
+        <Setter Property="SnapsToDevicePixels" Value="True"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="PasswordBox">
+                    <Border x:Name="Chrome"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{DynamicResource Radius.Control}"
+                            SnapsToDevicePixels="True">
+                        <ScrollViewer x:Name="PART_ContentHost"
+                                      Margin="{TemplateBinding Padding}"
+                                      VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Brush.Accent.Base}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Chrome" Property="Opacity" Value="0.5"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- ComboBox — estrutura padrão documentada (ToggleButton + Popup "PART_Popup" +
          ItemsPresenter). Único uso hoje é não-editável (seletor de protocolo do Inspector),
          então PART_EditableTextBox (só necessário com IsEditable=True) foi omitido. -->

@@ -1,0 +1,65 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        Expander temático (tema escuro).
+
+        Sem estilo próprio, o Expander "Ver o que será anexado" (Configurações → Reportar problema)
+        caía no template PADRÃO do WPF (Aero2): o botão de expandir/recolher aparecia como um
+        círculo claro com seta de sistema, destoando da janela escura. Este estilo IMPLÍCITO
+        retempla o cabeçalho com um chevron VETORIAL (fonte de ícones do tema) que gira ao expandir,
+        no mesmo padrão de CheckBox/RadioButton em ToggleControls.xaml. Assume ExpandDirection=Down
+        (único uso no app). -->
+    <Style TargetType="Expander">
+        <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Primary}"/>
+        <Setter Property="FontFamily" Value="{DynamicResource Font.Family.Base}"/>
+        <Setter Property="FontSize" Value="{DynamicResource Font.Size.Body}"/>
+        <Setter Property="SnapsToDevicePixels" Value="True"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Expander">
+                    <StackPanel>
+                        <ToggleButton x:Name="HeaderToggle"
+                                      IsChecked="{Binding IsExpanded, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
+                                      Content="{TemplateBinding Header}"
+                                      Foreground="{DynamicResource Brush.Text.Primary}"
+                                      Focusable="True" Cursor="Hand">
+                            <ToggleButton.Template>
+                                <ControlTemplate TargetType="ToggleButton">
+                                    <Border Background="Transparent" Padding="0,3">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock x:Name="Chevron"
+                                                       Text="{DynamicResource Icon.ChevronRight}"
+                                                       FontFamily="{DynamicResource Font.Family.Icons}" FontSize="9"
+                                                       Foreground="{DynamicResource Brush.Text.Secondary}"
+                                                       VerticalAlignment="Center" Margin="0,0,7,0"/>
+                                            <ContentPresenter VerticalAlignment="Center"
+                                                              RecognizesAccessKey="True"/>
+                                        </StackPanel>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsChecked" Value="True">
+                                            <Setter TargetName="Chevron" Property="Text"
+                                                    Value="{DynamicResource Icon.ChevronDown}"/>
+                                        </Trigger>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Chevron" Property="Foreground"
+                                                    Value="{DynamicResource Brush.Accent.Base}"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </ToggleButton.Template>
+                        </ToggleButton>
+                        <ContentPresenter x:Name="ExpandSite" Margin="18,4,0,0" Visibility="Collapsed"/>
+                    </StackPanel>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsExpanded" Value="True">
+                            <Setter TargetName="ExpandSite" Property="Visibility" Value="Visible"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+</ResourceDictionary>

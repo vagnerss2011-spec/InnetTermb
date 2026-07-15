@@ -89,4 +89,42 @@ public sealed class HostEditorDialogRenderTests
 
         Assert.True(captured is null, captured?.ToString());
     }
+
+    [Fact]
+    public void Constructs_ForNewHost_InlineCredentialMode_WithoutThrowing()
+    {
+        // Regressão da incoerência reportada (v1.2.24): ao escolher "Senha só deste dispositivo",
+        // o Grid inline (TextBox "Usuário" + PasswordBox "Senha") fica visível. O PasswordBox não
+        // tinha estilo temático e caía no template claro padrão do WPF, com altura/fundo diferentes
+        // do TextBox ao lado (desalinhado). Renderiza o diálogo COM o modo inline ATIVO para
+        // realizar (medir/arranjar) o PasswordBox temático lado a lado com o TextBox e provar que
+        // instancia e faz layout sem lançar — o caso "Novo host" padrão abre em modo Keychain e
+        // deixa esse Grid colapsado, sem exercitar o layout realizado.
+        var store = new InMemoryLocalStore();
+        var vm = new HostEditorViewModel(store, "ws-local", existing: null, groupId: null)
+        {
+            UseInlineCredential = true,
+        };
+
+        Exception? captured = StaThreadRunner.Run(() =>
+        {
+            var dialog = new HostEditorDialog(vm)
+            {
+                ShowInTaskbar = false,
+                WindowStyle = WindowStyle.None,
+                ShowActivated = false,
+            };
+            try
+            {
+                dialog.Show();
+                dialog.UpdateLayout();
+            }
+            finally
+            {
+                dialog.Close();
+            }
+        });
+
+        Assert.True(captured is null, captured?.ToString());
+    }
 }

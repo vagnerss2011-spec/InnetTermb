@@ -25,6 +25,10 @@
         <ResourceDictionary Source="Controls/DataGrid.xaml"/>
         <ResourceDictionary Source="Controls/TreeView.xaml"/>
         <ResourceDictionary Source="Controls/ScrollBar.xaml"/>
+        <ResourceDictionary Source="Controls/ToggleControls.xaml"/>
+        <ResourceDictionary Source="Controls/ListBox.xaml"/>
+        <ResourceDictionary Source="Controls/Menus.xaml"/>
+        <ResourceDictionary Source="Controls/Expander.xaml"/>
         <ResourceDictionary Source="Controls/Misc.xaml"/>
 
     </ResourceDictionary.MergedDictionaries>

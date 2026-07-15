@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.2.24",
+      "date": "2026-07-15",
+      "highlights": [
+        "Acabamento geral do tema escuro: vários controles ainda apareciam no visual claro padrão do Windows, destoando do resto. Foram uniformizados de uma vez: (1) as caixinhas de marcar/selecionar (cadastro de host e Configurações) ficavam de tamanhos diferentes, tortas e borradas ao trocar de monitor — agora têm desenho próprio, mesmo tamanho e nítidas em qualquer tela; (2) o campo 'Senha' do modo 'Senha só deste dispositivo' virava uma caixa branca desalinhada do campo 'Usuário' — agora igual; (3) o menu de clique-direito na lista de hosts (Conectar via SSH/RDP, Abrir WinBox, Editar, Excluir) abria BRANCO — agora escuro e coerente; (4) o azul-claro de seleção nas listas de Endpoints e de Logs virou o acento do tema; (5) o 'Ver o que será anexado' em Reportar problema ganhou seta própria. Tudo visual, sem mudar comportamento."
+      ]
+    },
+    {
       "version": "1.2.23",
       "date": "2026-07-15",
       "highlights": [
