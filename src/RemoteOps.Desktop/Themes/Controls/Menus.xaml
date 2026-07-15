@@ -1,0 +1,136 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        ContextMenu + MenuItem temáticos (tema escuro).
+
+        Sem estilo próprio, os menus de clique-direito (lista de hosts: Conectar via SSH/Telnet/
+        RDP, Abrir WinBox, Editar, Excluir; "Novo grupo"; menu da conta) caíam no template PADRÃO
+        do WPF (Aero2, CLARO): popup branco, gutter de ícone claro, texto escuro e realce azul de
+        hover — sobre o app escuro. Como clicar com o botão direito num host é o fluxo principal de
+        conexão, o menu claro aparecia o tempo todo. Estes estilos IMPLÍCITOS (sem x:Key) valem
+        para todo ContextMenu/MenuItem do app.
+    -->
+
+    <!-- Separador dentro de menu: o Separator do popup usa uma StyleKey específica; sem ela cai no
+         gutter claro padrão. Pinta com a borda sutil do tema. -->
+    <Style x:Key="{x:Static MenuItem.SeparatorStyleKey}" TargetType="Separator">
+        <Setter Property="Height" Value="1"/>
+        <Setter Property="Margin" Value="6,4"/>
+        <Setter Property="Background" Value="{DynamicResource Brush.Border.Subtle}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Separator">
+                    <Border Height="1" Background="{DynamicResource Brush.Border.Subtle}"/>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="ContextMenu">
+        <Setter Property="Background" Value="{DynamicResource Brush.Bg.SurfaceRaised}"/>
+        <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Primary}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border.Strong}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="FontFamily" Value="{DynamicResource Font.Family.Base}"/>
+        <Setter Property="FontSize" Value="{DynamicResource Font.Size.Body}"/>
+        <Setter Property="SnapsToDevicePixels" Value="True"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ContextMenu">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{DynamicResource Radius.Control}"
+                            Padding="3"
+                            SnapsToDevicePixels="True">
+                        <ItemsPresenter/>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- MenuItem: um único template cobre item-folha e cabeçalho de submenu (a seta e o Popup
+         "PART_Popup" só aparecem por gatilho de Role). Colunas: ícone (24) | header (*) | atalho
+         (auto) | seta de submenu (14). -->
+    <Style TargetType="MenuItem">
+        <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Primary}"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="FontFamily" Value="{DynamicResource Font.Family.Base}"/>
+        <Setter Property="FontSize" Value="{DynamicResource Font.Size.Body}"/>
+        <Setter Property="SnapsToDevicePixels" Value="True"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="MenuItem">
+                    <Border x:Name="Bg" Background="{TemplateBinding Background}"
+                            CornerRadius="{DynamicResource Radius.Control}"
+                            SnapsToDevicePixels="True">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="24"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="14"/>
+                            </Grid.ColumnDefinitions>
+
+                            <ContentPresenter x:Name="Icon" Grid.Column="0" ContentSource="Icon"
+                                              VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                            <TextBlock x:Name="Check" Grid.Column="0"
+                                       Text="{DynamicResource Icon.Accept}"
+                                       FontFamily="{DynamicResource Font.Family.Icons}" FontSize="11"
+                                       Foreground="{DynamicResource Brush.Accent.Base}"
+                                       VerticalAlignment="Center" HorizontalAlignment="Center"
+                                       Visibility="Collapsed"/>
+
+                            <ContentPresenter Grid.Column="1" ContentSource="Header"
+                                              RecognizesAccessKey="True"
+                                              VerticalAlignment="Center" Margin="4,5,8,5"/>
+
+                            <TextBlock Grid.Column="2" Text="{TemplateBinding InputGestureText}"
+                                       Foreground="{DynamicResource Brush.Text.Tertiary}"
+                                       VerticalAlignment="Center" Margin="0,0,8,0"/>
+
+                            <TextBlock x:Name="Arrow" Grid.Column="3"
+                                       Text="{DynamicResource Icon.ChevronRight}"
+                                       FontFamily="{DynamicResource Font.Family.Icons}" FontSize="9"
+                                       Foreground="{DynamicResource Brush.Text.Secondary}"
+                                       VerticalAlignment="Center" HorizontalAlignment="Center"
+                                       Visibility="Collapsed"/>
+
+                            <Popup x:Name="PART_Popup" Placement="Right" HorizontalOffset="-2"
+                                   IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}"
+                                   AllowsTransparency="True" Focusable="False" PopupAnimation="None">
+                                <Border Background="{DynamicResource Brush.Bg.SurfaceRaised}"
+                                        BorderBrush="{DynamicResource Brush.Border.Strong}"
+                                        BorderThickness="1"
+                                        CornerRadius="{DynamicResource Radius.Control}"
+                                        Padding="3" Margin="2,0,0,0" SnapsToDevicePixels="True">
+                                    <ItemsPresenter/>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="Role" Value="SubmenuHeader">
+                            <Setter TargetName="Arrow" Property="Visibility" Value="Visible"/>
+                        </Trigger>
+                        <Trigger Property="Role" Value="TopLevelHeader">
+                            <Setter TargetName="Arrow" Property="Visibility" Value="Visible"/>
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Check" Property="Visibility" Value="Visible"/>
+                        </Trigger>
+                        <Trigger Property="IsHighlighted" Value="True">
+                            <Setter TargetName="Bg" Property="Background" Value="{DynamicResource Brush.Bg.Hover}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.45"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+</ResourceDictionary>

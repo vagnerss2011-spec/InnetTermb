@@ -72,23 +72,44 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ### Corrigido
 
-- **Checkbox/opção de rádio inconsistentes no cadastro de host (e nas Configurações).** Os poucos
-  `RadioButton`/`CheckBox` do app não tinham estilo próprio e caíam no template padrão do WPF
-  (claro, com indicador desenhado a partir de bitmaps de tema) — que não reescala com nitidez
-  entre monitores de DPI diferente. Depois do Per-Monitor-V2 (v1.2.23) isso ficou visível:
-  indicadores de tamanhos diferentes, tortos e destoando dos controles temáticos ao redor. As
-  duas opções de credencial ("Do Keychain" / "Senha só deste dispositivo") ainda herdavam uma
-  fonte maior que os rótulos do formulário, reforçando o desalinhamento.
+Varredura de coerência de tema: vários controles WPF não tinham estilo próprio e caíam no template
+PADRÃO do WPF (Aero2, CLARO) sobre o app escuro. Uma auditoria multi-agente (com verificação
+adversarial de cada achado) confirmou 6 pontos, todos corrigidos por estilos **implícitos** (sem
+`x:Key`), que também melhoram todas as outras ocorrências dos mesmos controles no app:
+
+- **`RadioButton`/`CheckBox`** (cadastro de host + Configurações): indicador desenhado por bitmaps
+  de tema, que não reescala com nitidez entre monitores de DPI diferente — depois do Per-Monitor-V2
+  (v1.2.23) ficavam de tamanhos diferentes, tortos e destoando. As opções de credencial ainda
+  herdavam fonte maior que os rótulos do formulário.
+- **`PasswordBox`** (campo "Senha" do modo "Senha só deste dispositivo" e do Chaveiro): caía numa
+  caixa branca de altura diferente ao lado do `TextBox` "Usuário" temático — desalinhado.
+- **`ContextMenu` + `MenuItem`** (menu de clique-direito da lista de hosts — Conectar via
+  SSH/Telnet/RDP, Abrir WinBox, Editar, Excluir; "Novo grupo"; menu da conta): popup branco, gutter
+  de ícone claro e realce azul de hover do Aero2. É o fluxo principal de conexão, então o menu claro
+  aparecia o tempo todo.
+- **`ListBoxItem`** (lista de Endpoints no editor de host + lista de Logs): hover/seleção em azul
+  Windows-8 (`#26A0DA`) e cinza — cores HARDCODED no template padrão, que a sobrescrita de
+  `SystemColors` não alcança — sobre o canvas escuro.
+- **`Expander`** ("Ver o que será anexado", em Configurações → Reportar problema): botão de
+  expandir/recolher claro com seta de sistema.
 
 ### Adicionado
 
-- **Estilos temáticos de `RadioButton` e `CheckBox`** (`Themes/Controls/ToggleControls.xaml`,
-  mesclado em `DarkTheme.xaml`). Estilos **implícitos** (sem `x:Key`) que valem para todo
-  rádio/checkbox do app: indicador **vetorial** de 16px (nítido em qualquer DPI,
-  `SnapsToDevicePixels`), preenchimento de acento quando marcado, fonte base do tema e
-  alinhamento central do indicador com o texto. Estados de hover/foco/desabilitado consistentes.
-  Estilos com `x:Key` (ex.: `Rail.Item` do rail de navegação) continuam prevalecendo — o rail
-  não é afetado.
+- **Estilos de controle temáticos** (implícitos, mesclados em `DarkTheme.xaml`):
+  - `Themes/Controls/ToggleControls.xaml` — `RadioButton`/`CheckBox` com indicador **vetorial** de
+    16px (nítido em qualquer DPI, `SnapsToDevicePixels`), preenchimento de acento quando marcado,
+    alinhamento central com o texto, e estados hover/foco/desabilitado.
+  - `Themes/Controls/Menus.xaml` — `ContextMenu`/`MenuItem` escuros (popup em `Bg.SurfaceRaised`,
+    borda forte, realce de hover em `Bg.Hover`, coluna de ícone e seta de submenu vetorial + suporte
+    a submenu via `PART_Popup`, separador de menu via `SeparatorStyleKey`).
+  - `Themes/Controls/ListBox.xaml` — `ListBoxItem` com hover `Bg.Hover` e seleção `Accent.Muted` +
+    borda de acento, espelhando o `ComboBoxItem`/`DataGrid`.
+  - `Themes/Controls/PasswordBox` (em `TextInputs.xaml`) — espelha o `TextBox` temático (mesma
+    altura/borda/raio/foco).
+  - `Themes/Controls/Expander.xaml` — cabeçalho retemplado com chevron vetorial que gira ao expandir.
+- Testes de render STA para as superfícies antes não cobertas (menu de contexto aberto com submenu +
+  ícone, `ListBox` com item selecionado, `Expander` expandido, editor de host em modo inline).
+  Estilos com `x:Key` (ex.: `Rail.Item` do rail de navegação) continuam prevalecendo — não afetados.
 
 ## [1.2.23] - 2026-07-15
 
