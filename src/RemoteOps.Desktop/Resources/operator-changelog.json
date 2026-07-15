@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.2.24",
+      "date": "2026-07-15",
+      "highlights": [
+        "Acabamento das caixinhas de opção: no cadastro de host (e nas Configurações), as opções de marcar/selecionar apareciam de tamanhos diferentes, tortas e destoando do resto — pior ainda ao arrastar a janela entre monitores de resolução diferente. Agora usam um desenho próprio do tema: mesmo tamanho, alinhadas com o texto e nítidas em qualquer monitor."
+      ]
+    },
+    {
       "version": "1.2.23",
       "date": "2026-07-15",
       "highlights": [

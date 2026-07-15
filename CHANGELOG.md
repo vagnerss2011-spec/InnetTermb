@@ -68,6 +68,28 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.2.24] - 2026-07-15
+
+### Corrigido
+
+- **Checkbox/opção de rádio inconsistentes no cadastro de host (e nas Configurações).** Os poucos
+  `RadioButton`/`CheckBox` do app não tinham estilo próprio e caíam no template padrão do WPF
+  (claro, com indicador desenhado a partir de bitmaps de tema) — que não reescala com nitidez
+  entre monitores de DPI diferente. Depois do Per-Monitor-V2 (v1.2.23) isso ficou visível:
+  indicadores de tamanhos diferentes, tortos e destoando dos controles temáticos ao redor. As
+  duas opções de credencial ("Do Keychain" / "Senha só deste dispositivo") ainda herdavam uma
+  fonte maior que os rótulos do formulário, reforçando o desalinhamento.
+
+### Adicionado
+
+- **Estilos temáticos de `RadioButton` e `CheckBox`** (`Themes/Controls/ToggleControls.xaml`,
+  mesclado em `DarkTheme.xaml`). Estilos **implícitos** (sem `x:Key`) que valem para todo
+  rádio/checkbox do app: indicador **vetorial** de 16px (nítido em qualquer DPI,
+  `SnapsToDevicePixels`), preenchimento de acento quando marcado, fonte base do tema e
+  alinhamento central do indicador com o texto. Estados de hover/foco/desabilitado consistentes.
+  Estilos com `x:Key` (ex.: `Rail.Item` do rail de navegação) continuam prevalecendo — o rail
+  não é afetado.
+
 ## [1.2.23] - 2026-07-15
 
 ### Corrigido
