@@ -37,3 +37,18 @@ else
 fi
 
 echo "==> OK: feed público atualizado para $TAG"
+
+# ── Poda: mantém no máximo 3 releases no feed público ────────────────────────────
+# Ordena por SEMVER numérico (robusto — NÃO por data de criação, que se embaralha quando o
+# mirror re-cria/atualiza releases; foi o que me fez apagar a versão errada uma vez). Guarda
+# dupla: NUNCA apaga a que acabou de ser publicada ($TAG).
+echo "==> Podando o feed (mantendo as 3 maiores versões)"
+to_del="$(gh release list --repo "$PUBLIC" --json tagName \
+  --jq '[.[].tagName | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))]
+        | sort_by(.[1:] | split(".") | map(tonumber)) | reverse | .[3:] | .[]' || true)"
+for t in $to_del; do
+  if [ "$t" = "$TAG" ]; then echo "  guarda: pulando release recém-publicada $t"; continue; fi
+  echo "  apagando release antiga do feed: $t"
+  gh release delete "$t" --repo "$PUBLIC" --cleanup-tag --yes || true
+done
+echo "==> Feed com no máximo 3 releases."
