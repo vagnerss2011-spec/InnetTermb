@@ -14,6 +14,9 @@ public sealed class Asset
 
     public string? Model { get; init; }
 
+    /// <summary>Papel normalizado do device (ver <see cref="DeviceRoles"/>). null = não classificado.</summary>
+    public string? DeviceRole { get; init; }
+
     public string? Site { get; init; }
 
     public List<string> Tags { get; init; } = [];
