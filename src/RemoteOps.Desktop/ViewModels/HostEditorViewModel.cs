@@ -31,6 +31,12 @@ public sealed class HostEditorViewModel : BaseViewModel
     private string _newEndpointInlineUsername = string.Empty;
     private bool _hasInlinePassword;
 
+    private string? _vendor;
+    private string? _model;
+    private string? _deviceRole;
+    // O operador mexeu no "Tipo" à mão? Se sim, a auto-sugestão para de sobrescrever.
+    private bool _roleTouched;
+
     // inlineCreds é o ÚLTIMO parâmetro e opcional de propósito: mantém compatível a assinatura
     // (store, workspaceId, existing, groupId) usada nos testes de Keychain/endereço/perfil. É
     // obrigatório na prática (o MainWindow injeta) só quando a senha inline é usada.
@@ -44,6 +50,10 @@ public sealed class HostEditorViewModel : BaseViewModel
         if (existing != null)
         {
             _name = existing.Name;
+            _vendor = existing.Vendor;
+            _model = existing.Model;
+            _deviceRole = existing.DeviceRole;
+            _roleTouched = existing.DeviceRole != null; // já classificado → respeita a escolha salva
             foreach (var ep in existing.Endpoints) Endpoints.Add(ep);
 
             // Sincroniza o seletor de protocolo com o endpoint salvo — antes ficava
@@ -67,7 +77,52 @@ public sealed class HostEditorViewModel : BaseViewModel
     public ObservableCollection<CredentialRef> AvailableCredentials { get; } = [];
 
     public string Name { get => _name; set { Set(ref _name, value); SaveCommand.RaiseCanExecuteChanged(); } }
-    public string NewEndpointProtocol { get => _newEndpointProtocol; set { Set(ref _newEndpointProtocol, value); NewEndpointPort = DefaultPortFor(value); } }
+    public string NewEndpointProtocol { get => _newEndpointProtocol; set { Set(ref _newEndpointProtocol, value); NewEndpointPort = DefaultPortFor(value); AutoSuggestRole(); } }
+
+    /// <summary>Fabricante do device (ex.: Huawei, MikroTik, Debian). Alimenta a auto-sugestão do Tipo.</summary>
+    public string? Vendor { get => _vendor; set { Set(ref _vendor, value); AutoSuggestRole(); } }
+
+    /// <summary>Modelo/OS (ex.: NE8000, CCR2004, 22.04). Alimenta a auto-sugestão do Tipo.</summary>
+    public string? Model { get => _model; set { Set(ref _model, value); AutoSuggestRole(); } }
+
+    /// <summary>Papéis disponíveis no ComboBox "Tipo".</summary>
+    public IReadOnlyList<string> DeviceRoleOptions => DeviceRoles.All;
+
+    /// <summary>Papel do device. Setar manualmente marca <c>_roleTouched</c> → a auto-sugestão para de sobrescrever.</summary>
+    public string? DeviceRole
+    {
+        get => _deviceRole;
+        set
+        {
+            _roleTouched = true;
+            Set(ref _deviceRole, value);
+            RaisePropertyChanged(nameof(DeviceRoleLabel));
+            RaisePropertyChanged(nameof(DeviceVendorKey));
+        }
+    }
+
+    /// <summary>Rótulo pt-BR do papel atual (preview no editor).</summary>
+    public string DeviceRoleLabel => DeviceCatalog.RoleLabel(_deviceRole);
+
+    /// <summary>Chave de vendor derivada (pro preview do ícone/logo).</summary>
+    public string? DeviceVendorKey => DeviceClassifier.Suggest(_vendor, _model, _newEndpointProtocol).VendorKey;
+
+    /// <summary>
+    /// Sugere o papel a partir de Vendor/Model/Protocolo enquanto o operador NÃO tiver mexido no
+    /// "Tipo" à mão (<c>_roleTouched</c>). Só aplica sugestões reconhecidas (não sobrescreve com
+    /// "Other"), pra não apagar um papel já bom quando o texto fica ambíguo.
+    /// </summary>
+    private void AutoSuggestRole()
+    {
+        RaisePropertyChanged(nameof(DeviceVendorKey));
+        if (_roleTouched) return;
+        var c = DeviceClassifier.Suggest(_vendor, _model, _newEndpointProtocol);
+        if (c.Role == DeviceRoles.Other) return;
+        Set(ref _deviceRole, c.Role, nameof(DeviceRole));
+        RaisePropertyChanged(nameof(DeviceRoleLabel));
+    }
+
+    private static string? Trimmed(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 
     private int DefaultPortFor(string protocol) => protocol switch
     {
@@ -251,7 +306,7 @@ public sealed class HostEditorViewModel : BaseViewModel
         if (string.IsNullOrWhiteSpace(Name)) return;
         if (_existing is null)
         {
-            var asset = await _store.AddAssetAsync(new AddAssetRequest { WorkspaceId = _workspaceId, GroupId = _groupId, Name = Name.Trim() });
+            var asset = await _store.AddAssetAsync(new AddAssetRequest { WorkspaceId = _workspaceId, GroupId = _groupId, Name = Name.Trim(), Vendor = Trimmed(_vendor), Model = Trimmed(_model), DeviceRole = _deviceRole });
             foreach (var ep in Endpoints)
             {
                 await AddEndpointWithCredentialAsync(ep, asset.Id);
@@ -259,7 +314,7 @@ public sealed class HostEditorViewModel : BaseViewModel
         }
         else
         {
-            await _store.UpdateAssetAsync(new Asset { Id = _existing.Id, WorkspaceId = _workspaceId, GroupId = _groupId, Name = Name.Trim(), Tags = _existing.Tags, Version = _existing.Version });
+            await _store.UpdateAssetAsync(new Asset { Id = _existing.Id, WorkspaceId = _workspaceId, GroupId = _groupId, Name = Name.Trim(), Vendor = Trimmed(_vendor), Model = Trimmed(_model), DeviceRole = _deviceRole, Site = _existing.Site, Tags = _existing.Tags, Version = _existing.Version });
 
             var existingEndpointIds = new System.Collections.Generic.HashSet<string>(System.Linq.Enumerable.Select(_existing.Endpoints, e => e.Id));
             var currentEndpointIds = new System.Collections.Generic.HashSet<string>(System.Linq.Enumerable.Select(Endpoints, e => e.Id));

@@ -11,6 +11,7 @@
         FontSize="{DynamicResource Font.Size.Body}">
     <Window.Resources>
         <conv:EndpointAddressConverter x:Key="EndpointAddressConverter"/>
+        <conv:DeviceRoleLabelConverter x:Key="RoleLabel"/>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
     </Window.Resources>
     <DockPanel Margin="16">
@@ -28,6 +29,45 @@
             <TextBlock Text="Nome" Style="{DynamicResource Text.BodyStrong}" Margin="0,0,0,4"/>
             <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"/>
         </StackPanel>
+
+        <!-- Classificação do device: Fabricante/Modelo alimentam a sugestão automática do Tipo. -->
+        <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Fabricante" FontSize="11"
+                       Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="0,0,8,2"/>
+            <TextBlock Grid.Row="0" Grid.Column="1" Text="Modelo / OS" FontSize="11"
+                       Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="0,0,8,2"/>
+            <TextBlock Grid.Row="0" Grid.Column="2" Text="Tipo" FontSize="11"
+                       Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="0,0,0,2"/>
+
+            <TextBox Grid.Row="1" Grid.Column="0"
+                     Text="{Binding Vendor, UpdateSourceTrigger=PropertyChanged}"
+                     Margin="0,0,8,0" VerticalAlignment="Center"
+                     ToolTip="Ex.: Huawei, MikroTik, Debian — usado pra sugerir o Tipo e o ícone."/>
+            <TextBox Grid.Row="1" Grid.Column="1"
+                     Text="{Binding Model, UpdateSourceTrigger=PropertyChanged}"
+                     Margin="0,0,8,0" VerticalAlignment="Center"
+                     ToolTip="Ex.: NE8000, CCR2004, S5720, 22.04."/>
+            <ComboBox Grid.Row="1" Grid.Column="2"
+                      ItemsSource="{Binding DeviceRoleOptions}"
+                      SelectedItem="{Binding DeviceRole, Mode=TwoWay}"
+                      VerticalAlignment="Center"
+                      ToolTip="Papel do device — sugerido pelo Fabricante/Modelo; você pode trocar.">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Converter={StaticResource RoleLabel}}"/>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+        </Grid>
 
         <!-- Área "adicionar endpoint": linha 1 (protocolo/endereço/porta/SSH), linha 2 (credencial:
              Keychain compartilhada OU senha só deste dispositivo), botão adicionar. -->
