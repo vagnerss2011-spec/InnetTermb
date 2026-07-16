@@ -13,6 +13,11 @@
 {$REMOTEOPS_PUBLIC_HOSTNAME} {
 	encode zstd gzip
 
+	# SignalR (/hubs/sync) não precisa de configuração: o Caddy faz o upgrade de
+	# WebSocket sozinho e, por padrão, não impõe timeout de resposta — conexão de
+	# longa duração sobrevive. NÃO adicione `transport http { read_timeout ... }`
+	# aqui: essas opções não existem no transport (são do servidor) e o Caddy se
+	# recusa a carregar o arquivo, derrubando o proxy inteiro.
 	reverse_proxy api:8080 {
 		# SOBRESCREVE o X-Forwarded-For em vez de deixar o Caddy APENDAR ao valor
 		# que o cliente mandou. O rate limit do /auth particiona por IP: se o
@@ -20,13 +25,6 @@
 		# freio de força-bruta do AuthHash viraria enfeite.
 		header_up X-Forwarded-For {remote_host}
 		header_up X-Forwarded-Proto {scheme}
-
-		# SignalR (/hubs/sync) é WebSocket de longa duração: sem isto o Caddy
-		# derruba a conexão no timeout padrão de resposta.
-		transport http {
-			read_timeout 0
-			write_timeout 0
-		}
 	}
 
 	# HSTS: o app só fala https; o navegador/cliente não deve nem tentar http.
