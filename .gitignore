@@ -17,3 +17,8 @@ build/
 .claude/settings.local.json
 .DS_Store
 Thumbs.db
+
+# Deploy: o .env do operador tem a senha do Postgres e a chave do JWT.
+# O modelo versionado é o .env.example (sem valores).
+.env
+.env.local

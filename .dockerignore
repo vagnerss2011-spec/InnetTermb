@@ -1,0 +1,37 @@
+# Mantém o contexto de build pequeno e, principalmente, impede que segredo local
+# (.env do operador) e binário do host entrem na imagem.
+.env
+.env.*
+!.env.example
+
+**/bin/
+**/obj/
+**/.vs/
+artifacts/
+TestResults/
+node_modules/
+build/
+
+.git/
+.github/
+.claude/
+.remember/
+
+# Nada disto é usado pelo build da API.
+tests/
+tools/
+docs/
+adr/
+prompts/
+contracts/
+src/deferred/
+src/RemoteOps.Desktop/
+src/RemoteOps.Terminal/
+src/RemoteOps.Rdp/
+src/RemoteOps.MikroTik/
+src/RemoteOps.Security/
+src/RemoteOps.Sync/
+
+*.md
+*.ps1
+*.sln

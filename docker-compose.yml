@@ -1,0 +1,83 @@
+# RemoteOps Cloud — stack de produção single-node (Debian 13).
+# Passo a passo do operador: docs/runbook-deploy-debian.md
+#
+# Os valores vêm do arquivo .env ao lado deste (copie de .env.example). Nenhum
+# segredo mora aqui: `${VAR:?...}` faz o compose ABORTAR com mensagem clara quando
+# a variável não está definida, em vez de subir com default fraco.
+
+name: remoteops-cloud
+
+services:
+  # ── Banco ──────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-remoteops}
+      POSTGRES_USER: ${POSTGRES_USER:-remoteops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Sem `ports:` de propósito: o banco só existe dentro da rede do compose.
+    # Publicar 5432 no host exporia o Postgres à internet.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-remoteops} -d ${POSTGRES_DB:-remoteops}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ── API ────────────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        # A API aplica as migrations no startup: subir antes do banco aceitar
+        # conexão = container em crash-loop no primeiro boot.
+        condition: service_healthy
+    environment:
+      # Não há segredo nesta linha: `${POSTGRES_PASSWORD}` é referência à variável do
+      # .env do operador. O marcador abaixo é o que diz isso ao secret-scan do CI.
+      REMOTEOPS_DB_CONNECTION: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-remoteops};Username=${POSTGRES_USER:-remoteops};Password=${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}" # pragma: allowlist secret
+      Jwt__SecretKeyBase64: ${JWT_SECRET_KEY_BASE64:?defina JWT_SECRET_KEY_BASE64 no .env}
+      Jwt__Issuer: ${JWT_ISSUER:-remoteops-cloud}
+      Jwt__Audience: ${JWT_AUDIENCE:-remoteops-desktop}
+      # Opcional: chave dedicada do decoy anti-enumeração do /auth/kdf. Vazia =
+      # derivada da chave do JWT (ver AccountService.DecoyKey).
+      Auth__KdfDecoyKeyBase64: ${AUTH_KDF_DECOY_KEY_BASE64:-}
+      ASPNETCORE_ENVIRONMENT: Production
+      # Sem isto, atrás do Caddy TODA request chega com o IP do container do proxy:
+      # o rate limit do /auth (particionado por IP) viraria um balde único e global
+      # de 20 req/min para o mundo inteiro. Ver runbook §Troubleshooting.
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+    # Sem `ports:`: quem fala com a internet é o Caddy, sempre em HTTPS.
+    # O healthcheck da API vem do HEALTHCHECK do Dockerfile (curl em /health) e
+    # aparece no `docker compose ps` — não precisa ser redeclarado aqui.
+
+  # ── Proxy reverso + TLS automático ─────────────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      REMOTEOPS_PUBLIC_HOSTNAME: ${REMOTEOPS_PUBLIC_HOSTNAME:?defina REMOTEOPS_PUBLIC_HOSTNAME no .env}
+      ACME_EMAIL: ${ACME_EMAIL:?defina ACME_EMAIL no .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # caddy_data guarda os certificados. Sem volume, cada restart pede
+      # certificado novo e o Let's Encrypt bloqueia por rate limit.
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
