@@ -1,3 +1,4 @@
+using System.Net;
 using System.Security.Cryptography;
 
 using RemoteOps.Security.Account;
@@ -17,6 +18,12 @@ public sealed class E2eeAccountAuthenticator : IAccountAuthenticator
 {
     /// <summary>Versão do esquema de embrulho da AMK (spec §4.2 <c>amk_key_version</c>).</summary>
     private const int AmkKeyVersionV1 = 1;
+
+    /// <summary>
+    /// Papel RBAC de quem cria a conta (backend: <c>Roles.Owner</c>). Só é usado como fallback se o
+    /// servidor omitir a lista de workspaces no registro — o valor autoritativo vem sempre dele.
+    /// </summary>
+    private const string OwnerRole = "Owner";
 
     private readonly IAccountApi _api;
     private readonly AccountKeyService _keys = new();
@@ -45,7 +52,9 @@ public sealed class E2eeAccountAuthenticator : IAccountAuthenticator
             enrollment.WrappedAmkPwd,
             enrollment.WrappedAmkRec,
             AmkKeyVersionV1,
-            new FirstWorkspaceRequest(workspaceName));
+            _deviceId.ToString(),
+            _deviceName,
+            workspaceName);
 
         RegisterAccountResponse response;
         try
@@ -62,9 +71,13 @@ public sealed class E2eeAccountAuthenticator : IAccountAuthenticator
 
         return new AccountSession(
             email,
+            // O workspaceId autoritativo do registro é este campo — não o primeiro item da lista.
+            // É ELE que o backend acabou de criar; a lista existe só porque o registro reusa o
+            // emissor de sessão do login.
+            response.WorkspaceId,
             enrollment.Amk,
             new TokenSet(response.AccessToken, response.RefreshToken, response.ExpiresAt),
-            response.Workspaces,
+            response.Workspaces ?? [new AccountWorkspace(response.WorkspaceId, workspaceName, OwnerRole)],
             enrollment.RecoveryKey);
     }
 
@@ -90,18 +103,30 @@ public sealed class E2eeAccountAuthenticator : IAccountAuthenticator
             CryptographicOperations.ZeroMemory(material.Kek);
         }
 
+        // Um 200 sem escrow/workspace é contrato quebrado do servidor (conta legada, pré-E2EE, não
+        // chega aqui: o /auth/kdf devolve params decoy pra ela e o /auth/login recusa com 401). Sem
+        // o escrow não há AMK — falhar explícito é melhor que seguir com um cofre que não abre.
+        if (login.WrappedAmkPwd is not { Length: > 0 } wrappedAmkPwd
+            || login.Workspaces is not { Count: > 0 } workspaces)
+        {
+            throw new CloudSyncException(HttpStatusCode.UnprocessableContent);
+        }
+
         // 3) Desembrulha a AMK localmente. Chamar UnwrapAmkWithPassword (e não reaproveitar a KEK do
         //    passo 2 com a primitiva UnwrapKey) roda o Argon2id uma 2ª vez — ~centenas de ms, num
         //    fluxo que acontece uma vez por device. É o preço de NÃO duplicar aqui fora o AAD
         //    "amk|pwd|v1", que é privado do núcleo: uma constante de cripto copiada é exatamente o
         //    tipo de coisa que diverge em silêncio e só aparece como "cofre não abre" em campo.
-        byte[] amk = _keys.UnwrapAmkWithPassword(pwd, kdf.Argon2Salt, kdf.Argon2Params, login.WrappedAmkPwd);
+        byte[] amk = _keys.UnwrapAmkWithPassword(pwd, kdf.Argon2Salt, kdf.Argon2Params, wrappedAmkPwd);
 
         return new AccountSession(
             email,
+            // Fase 1 é mono-workspace (spec §11): o primeiro é O workspace da conta. Multi-workspace
+            // na UI é fase seguinte — quando vier, a escolha passa a ser do operador.
+            workspaces[0].Id,
             amk,
             new TokenSet(login.AccessToken, login.RefreshToken, login.ExpiresAt),
-            login.Workspaces);
+            workspaces);
     }
 
     /// <summary>

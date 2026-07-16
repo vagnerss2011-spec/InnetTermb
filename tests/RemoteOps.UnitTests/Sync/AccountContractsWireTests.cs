@@ -1,0 +1,260 @@
+using System;
+using System.Collections.Generic;
+using System.Text.Json;
+
+using RemoteOps.Security.Account;
+using RemoteOps.Sync.Remote;
+
+using Xunit;
+
+namespace RemoteOps.UnitTests.Sync;
+
+/// <summary>
+/// Contrato de fio entre o cliente (RemoteOps.Sync) e os endpoints REAIS de conta do backend (T4).
+///
+/// <para><b>Por que existem DTOs espelhados aqui em vez de referenciar RemoteOps.Cloud.Auth:</b> o
+/// backend E2EE (T4/T5/T8) vive noutro branch — <c>feature/cloud-backend</c>, worktree
+/// <c>C:/dev/remoteops-cloud</c> — e o <c>src/RemoteOps.Cloud</c> DESTE branch ainda é a cópia
+/// pré-E2EE (o <c>LoginRequest</c> antigo, que recebia senha). Referenciar o projeto local aqui
+/// provaria o contrato ERRADO. Os records abaixo são cópia literal de
+/// <c>remoteops-cloud/src/RemoteOps.Cloud/Auth/AuthModels.cs</c> no commit a94fb1e; quando os dois
+/// branches se encontrarem, troque o espelho por um <c>using RemoteOps.Cloud.Auth</c> e apague esta
+/// região (ver pendências da T9).</para>
+///
+/// <para>O teste é de SERIALIZAÇÃO de verdade: monta o tipo do cliente, joga no fio com as mesmas
+/// opções do ASP.NET Core (<see cref="JsonSerializerDefaults.Web"/>) e desserializa como o tipo do
+/// servidor — do jeito que o Minimal API faria. Um campo renomeado, aninhado ou faltando aparece
+/// aqui como null/default, e não como um 400 em campo três meses depois.</para>
+/// </summary>
+public sealed class AccountContractsWireTests
+{
+    private static readonly JsonSerializerOptions s_web = new(JsonSerializerDefaults.Web);
+
+    // ── Espelho do backend T4 (remoteops-cloud@a94fb1e, Auth/AuthModels.cs) ──────────────
+
+    private sealed record ServerArgon2Params(int MemoryKib, int Iterations, int Parallelism, int OutputBytes);
+
+    private sealed record ServerLoginRequest(string Email, string? Password, string DeviceId, string DeviceName)
+    {
+        public string? AuthHash { get; init; }
+    }
+
+    private sealed record ServerWorkspaceSummary(string Id, string Name, string Role);
+
+    private sealed record ServerLoginResponse(
+        string AccessToken,
+        string RefreshToken,
+        DateTimeOffset ExpiresAt,
+        string? WrappedAmkPwd = null,
+        int? AmkKeyVersion = null,
+        IReadOnlyList<ServerWorkspaceSummary>? Workspaces = null);
+
+    private sealed record ServerRegisterRequest(
+        string Email,
+        string Argon2Salt,
+        ServerArgon2Params Argon2Params,
+        string AuthHash,
+        string WrappedAmkPwd,
+        string WrappedAmkRec,
+        int AmkKeyVersion,
+        string DeviceId,
+        string DeviceName,
+        string WorkspaceName);
+
+    private sealed record ServerRegisterResponse(
+        string AccessToken,
+        string RefreshToken,
+        DateTimeOffset ExpiresAt,
+        string WorkspaceId,
+        string? WrappedAmkPwd = null,
+        int? AmkKeyVersion = null,
+        IReadOnlyList<ServerWorkspaceSummary>? Workspaces = null);
+
+    private sealed record ServerKdfResponse(string Argon2Salt, ServerArgon2Params Argon2Params);
+
+    // ── /auth/register ───────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// A request de registro do cliente tem que cair INTEIRA nos campos do servidor. O T7 mandava
+    /// <c>firstWorkspace:{name}</c> aninhado e não mandava device nenhum — o backend real quer
+    /// <c>workspaceName</c>/<c>deviceId</c>/<c>deviceName</c> na raiz.
+    /// </summary>
+    [Fact]
+    public void RegisterRequest_DeserializesIntoServerShape()
+    {
+        var client = new RegisterAccountRequest(
+            "op@innet.tec.br",
+            Argon2Salt: new byte[16],
+            Argon2Params.Default,
+            AuthHash: new byte[32],
+            WrappedAmkPwd: [1, 2, 3],
+            WrappedAmkRec: [4, 5, 6],
+            AmkKeyVersion: 1,
+            DeviceId: "11111111-1111-1111-1111-111111111111",
+            DeviceName: "PC-A",
+            WorkspaceName: "NOC");
+
+        string wire = JsonSerializer.Serialize(client, s_web);
+        ServerRegisterRequest? server = JsonSerializer.Deserialize<ServerRegisterRequest>(wire, s_web);
+
+        Assert.NotNull(server);
+        Assert.Equal("op@innet.tec.br", server!.Email);
+        Assert.Equal("NOC", server.WorkspaceName);
+        Assert.Equal("11111111-1111-1111-1111-111111111111", server.DeviceId);
+        Assert.Equal("PC-A", server.DeviceName);
+        Assert.Equal(1, server.AmkKeyVersion);
+
+        // Blobs: byte[] no cliente vira string base64 no fio — que é EXATAMENTE o que o backend
+        // decodifica com Convert.FromBase64String. Base64 canônico (com padding), sem base64url.
+        Assert.Equal(Convert.ToBase64String(new byte[16]), server.Argon2Salt);
+        Assert.Equal(Convert.ToBase64String(new byte[32]), server.AuthHash);
+        Assert.Equal(Convert.ToBase64String([1, 2, 3]), server.WrappedAmkPwd);
+        Assert.Equal(Convert.ToBase64String([4, 5, 6]), server.WrappedAmkRec);
+
+        // Params públicos do Argon2id: mesmos nomes dos dois lados.
+        Assert.Equal(65536, server.Argon2Params.MemoryKib);
+        Assert.Equal(3, server.Argon2Params.Iterations);
+        Assert.Equal(1, server.Argon2Params.Parallelism);
+        Assert.Equal(32, server.Argon2Params.OutputBytes);
+    }
+
+    /// <summary>
+    /// O backend valida <c>authHash</c> comparando o PBKDF2 da STRING base64 recebida
+    /// (<c>PasswordHasher.Hash(req.AuthHash)</c>), não dos bytes. Se o registro e o login
+    /// codificassem o mesmo AuthHash de formas diferentes, o login falharia com a senha certa —
+    /// então o encoding tem que ser estável e idêntico nos dois caminhos.
+    /// </summary>
+    [Fact]
+    public void AuthHash_HasIdenticalBase64_InRegisterAndLogin()
+    {
+        byte[] authHash = [.. System.Linq.Enumerable.Range(0, 32).Select(i => (byte)i)];
+
+        var register = new RegisterAccountRequest(
+            "op@innet.tec.br", new byte[16], Argon2Params.Default, authHash,
+            [1], [2], 1, "dev-1", "PC-A", "NOC");
+        var login = new E2eeLoginRequest("op@innet.tec.br", authHash, "dev-1", "PC-A");
+
+        var serverRegister = JsonSerializer.Deserialize<ServerRegisterRequest>(
+            JsonSerializer.Serialize(register, s_web), s_web);
+        var serverLogin = JsonSerializer.Deserialize<ServerLoginRequest>(
+            JsonSerializer.Serialize(login, s_web), s_web);
+
+        Assert.Equal(serverRegister!.AuthHash, serverLogin!.AuthHash);
+        Assert.Equal(Convert.ToBase64String(authHash), serverLogin.AuthHash);
+    }
+
+    /// <summary>A resposta de registro do servidor tem que caber no tipo do cliente — inclusive o workspaceId.</summary>
+    [Fact]
+    public void RegisterResponse_FromServerShape_BindsOnClient()
+    {
+        var server = new ServerRegisterResponse(
+            "access", "refresh", DateTimeOffset.Parse("2030-01-01T00:00:00+00:00"),
+            WorkspaceId: "ws-guid",
+            WrappedAmkPwd: Convert.ToBase64String([9, 9]),
+            AmkKeyVersion: 1,
+            Workspaces: [new ServerWorkspaceSummary("ws-guid", "NOC", "owner")]);
+
+        string wire = JsonSerializer.Serialize(server, s_web);
+        RegisterAccountResponse? client = JsonSerializer.Deserialize<RegisterAccountResponse>(wire, s_web);
+
+        Assert.NotNull(client);
+        Assert.Equal("access", client!.AccessToken);
+        Assert.Equal("refresh", client.RefreshToken);
+        Assert.Equal("ws-guid", client.WorkspaceId);
+        Assert.Equal(1, client.AmkKeyVersion);
+        Assert.Equal(new byte[] { 9, 9 }, client.WrappedAmkPwd);
+
+        AccountWorkspace ws = Assert.Single(client.Workspaces!);
+        Assert.Equal("ws-guid", ws.Id);
+        Assert.Equal("NOC", ws.Name);
+        // O papel RBAC vem do servidor desde a T4; o cliente precisa dele pra saber se é owner.
+        Assert.Equal("owner", ws.Role);
+    }
+
+    // ── /auth/login ──────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// O login E2EE do cliente tem que satisfazer o XOR do backend: exatamente um entre
+    /// <c>authHash</c> e <c>password</c>. O cliente nunca tem o campo password — então ele chega
+    /// null e o servidor entra no ramo E2EE.
+    /// </summary>
+    [Fact]
+    public void E2eeLoginRequest_SendsAuthHash_AndNoPasswordField()
+    {
+        var client = new E2eeLoginRequest("op@innet.tec.br", new byte[32], "dev-1", "PC-A");
+
+        string wire = JsonSerializer.Serialize(client, s_web);
+        ServerLoginRequest? server = JsonSerializer.Deserialize<ServerLoginRequest>(wire, s_web);
+
+        Assert.NotNull(server);
+        Assert.Null(server!.Password);
+        Assert.NotNull(server.AuthHash);
+        Assert.Equal("op@innet.tec.br", server.Email);
+        Assert.Equal("dev-1", server.DeviceId);
+        Assert.Equal("PC-A", server.DeviceName);
+
+        // A regra do backend: hasAuthHash != hasPassword. Sem o campo password no fio, passa.
+        Assert.DoesNotContain("\"password\"", wire, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Resposta de login E2EE do servidor real → tipo do cliente, campo a campo.</summary>
+    [Fact]
+    public void LoginResponse_FromServerShape_BindsOnClient()
+    {
+        var server = new ServerLoginResponse(
+            "access", "refresh", DateTimeOffset.Parse("2030-01-01T00:00:00+00:00"),
+            WrappedAmkPwd: Convert.ToBase64String([7, 7, 7]),
+            AmkKeyVersion: 1,
+            Workspaces: [new ServerWorkspaceSummary("ws-guid", "NOC", "owner")]);
+
+        string wire = JsonSerializer.Serialize(server, s_web);
+        E2eeLoginResponse? client = JsonSerializer.Deserialize<E2eeLoginResponse>(wire, s_web);
+
+        Assert.NotNull(client);
+        Assert.Equal(new byte[] { 7, 7, 7 }, client!.WrappedAmkPwd);
+        Assert.Equal(1, client.AmkKeyVersion);
+        Assert.Equal("owner", Assert.Single(client.Workspaces!).Role);
+    }
+
+    /// <summary>
+    /// Conta LEGADA (criada antes do E2EE): o backend devolve 200 com os campos E2EE NULOS. O tipo
+    /// do cliente precisa aceitar isso sem estourar na desserialização — quem decide o que fazer é o
+    /// authenticator (que rejeita a sessão), não o parser.
+    /// </summary>
+    [Fact]
+    public void LoginResponse_WithNullE2eeFields_StillDeserializes()
+    {
+        var server = new ServerLoginResponse(
+            "access", "refresh", DateTimeOffset.Parse("2030-01-01T00:00:00+00:00"));
+
+        string wire = JsonSerializer.Serialize(server, s_web);
+        E2eeLoginResponse? client = JsonSerializer.Deserialize<E2eeLoginResponse>(wire, s_web);
+
+        Assert.NotNull(client);
+        Assert.Null(client!.WrappedAmkPwd);
+        Assert.Null(client.AmkKeyVersion);
+        Assert.Null(client.Workspaces);
+    }
+
+    // ── /auth/kdf ────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// O salt do servidor é base64 numa string; o cliente lê como byte[] pra alimentar o Argon2id
+    /// direto. Os 16 bytes têm que voltar idênticos — um salt errado deriva a MasterKey errada e o
+    /// cofre não abre.
+    /// </summary>
+    [Fact]
+    public void KdfResponse_FromServerShape_BindsOnClient()
+    {
+        byte[] salt = [.. System.Linq.Enumerable.Range(0, 16).Select(i => (byte)(i * 7))];
+        var server = new ServerKdfResponse(
+            Convert.ToBase64String(salt), new ServerArgon2Params(65536, 3, 1, 32));
+
+        string wire = JsonSerializer.Serialize(server, s_web);
+        KdfResponse? client = JsonSerializer.Deserialize<KdfResponse>(wire, s_web);
+
+        Assert.NotNull(client);
+        Assert.Equal(salt, client!.Argon2Salt);
+        Assert.Equal(Argon2Params.Default, client.Argon2Params);
+    }
+}

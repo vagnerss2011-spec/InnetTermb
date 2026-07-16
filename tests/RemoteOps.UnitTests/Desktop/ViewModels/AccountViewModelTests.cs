@@ -41,8 +41,8 @@ public sealed class AccountViewModelTests
             return Throw is not null
                 ? Task.FromException<AccountSession>(Throw)
                 : Task.FromResult(new AccountSession(
-                    email, new byte[32], Tokens,
-                    new[] { new AccountWorkspace("ws-1", workspaceName) },
+                    email, "ws-1", new byte[32], Tokens,
+                    new[] { new AccountWorkspace("ws-1", workspaceName, "Owner") },
                     "AAAA-BBBB-CCCC-DDDD-EEEE-FFFF-GGGG-HHHH"));
         }
 
@@ -53,7 +53,8 @@ public sealed class AccountViewModelTests
             return Throw is not null
                 ? Task.FromException<AccountSession>(Throw)
                 : Task.FromResult(new AccountSession(
-                    email, new byte[32], Tokens, new[] { new AccountWorkspace("ws-1", "NOC") }));
+                    email, "ws-1", new byte[32], Tokens,
+                    new[] { new AccountWorkspace("ws-1", "NOC", "Owner") }));
         }
     }
 

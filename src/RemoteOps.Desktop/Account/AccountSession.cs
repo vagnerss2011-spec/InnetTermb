@@ -16,12 +16,14 @@ public sealed class AccountSession
 {
     public AccountSession(
         string email,
+        string workspaceId,
         byte[] amk,
         TokenSet tokens,
         IReadOnlyList<AccountWorkspace> workspaces,
         string? recoveryKey = null)
     {
         Email = email;
+        WorkspaceId = workspaceId;
         Amk = amk;
         Tokens = tokens;
         Workspaces = workspaces;
@@ -30,10 +32,16 @@ public sealed class AccountSession
 
     public string Email { get; }
 
+    /// <summary>
+    /// Workspace ATIVO desta sessão no servidor (GUID). Fase 1 é mono-workspace (spec §11); é este
+    /// id que o sync usa e que entra na entropia do cache da AMK.
+    /// </summary>
+    public string WorkspaceId { get; }
+
     /// <summary>Raiz portável do cofre (32B). Nunca serializar, logar ou mandar pra rede.</summary>
     public byte[] Amk { get; }
 
-    /// <summary>Tokens do backend. TODO(Fase1 T6): persistir no VaultTokenStore (AccountSyncCoordinator).</summary>
+    /// <summary>Tokens do backend — persistidos no VaultTokenStore pelo <c>AccountSyncCoordinator</c>.</summary>
     public TokenSet Tokens { get; }
 
     public IReadOnlyList<AccountWorkspace> Workspaces { get; }

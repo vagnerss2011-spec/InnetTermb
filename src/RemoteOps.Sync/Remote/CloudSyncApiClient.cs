@@ -60,30 +60,10 @@ public sealed class CloudSyncApiClient : ICloudSyncApi
         return await ReadResultAsync<PullResponse>(resp, ct);
     }
 
-    /// <summary>
-    /// Autentica com email/senha, guarda os tokens no <see cref="ITokenStore"/> usando o
-    /// <c>deviceId</c> do cliente. Endpoint anônimo — não envia Bearer.
-    /// </summary>
-    public async Task LoginAsync(
-        string email, string password, string deviceName, CancellationToken ct = default)
-    {
-        var loginRequest = new LoginRequest(email, password, _deviceId.ToString(), deviceName);
-        using var req = new HttpRequestMessage(HttpMethod.Post, "/auth/login")
-        {
-            Content = JsonContent.Create(loginRequest, options: s_json),
-        };
-
-        using HttpResponseMessage resp = await _http.SendAsync(req, ct);
-        if (!resp.IsSuccessStatusCode)
-        {
-            throw new CloudSyncException(resp.StatusCode);
-        }
-
-        LoginResponse login = await resp.Content.ReadFromJsonAsync<LoginResponse>(s_json, ct)
-            ?? throw new InvalidOperationException("Resposta de login vazia.");
-        _tokens = new TokenSet(login.AccessToken, login.RefreshToken, login.ExpiresAt);
-        await _tokenStore.SaveAsync(_tokens, ct);
-    }
+    // O LoginAsync(email, senha) saiu na Fase 1: quem autentica agora é o
+    // E2eeAccountAuthenticator (authHash via IAccountApi), e os tokens chegam aqui já prontos pelo
+    // ITokenStore que o AccountSyncCoordinator preencheu. Este cliente só consome a sessão — ele
+    // nunca vê senha nem a cria.
 
     /// <summary>
     /// Envia a request autenticada; em 401 faz refresh do token e repete UMA vez. A request é

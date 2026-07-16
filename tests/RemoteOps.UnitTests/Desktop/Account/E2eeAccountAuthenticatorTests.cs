@@ -42,7 +42,10 @@ public sealed class E2eeAccountAuthenticatorTests
             Stored = request;
             return Task.FromResult(new RegisterAccountResponse(
                 "access", "refresh", DateTimeOffset.UtcNow.AddHours(1),
-                new[] { new AccountWorkspace("ws-1", request.FirstWorkspace.Name) }));
+                WorkspaceId: "ws-1",
+                WrappedAmkPwd: request.WrappedAmkPwd,
+                AmkKeyVersion: request.AmkKeyVersion,
+                Workspaces: new[] { new AccountWorkspace("ws-1", request.WorkspaceName, "Owner") }));
         }
 
         public Task<KdfResponse> GetKdfAsync(string email, CancellationToken ct = default)
@@ -61,7 +64,7 @@ public sealed class E2eeAccountAuthenticatorTests
             return Task.FromResult(new E2eeLoginResponse(
                 "access", "refresh", DateTimeOffset.UtcNow.AddHours(1),
                 Stored.WrappedAmkPwd, Stored.AmkKeyVersion,
-                new[] { new AccountWorkspace("ws-1", Stored.FirstWorkspace.Name) }));
+                new[] { new AccountWorkspace("ws-1", Stored.WorkspaceName, "Owner") }));
         }
     }
 
@@ -103,6 +106,26 @@ public sealed class E2eeAccountAuthenticatorTests
         Assert.Equal(32, server.Stored!.AuthHash.Length);
         Assert.NotEmpty(server.Stored.WrappedAmkPwd);
         Assert.NotEmpty(server.Stored.WrappedAmkRec);
+    }
+
+    /// <summary>
+    /// O registro identifica o DEVICE. O backend cria a conta e emite a sessão na mesma chamada, e
+    /// um refresh token só existe amarrado a um device — sem estes campos o /auth/register real
+    /// rejeitaria a request (foi a divergência que a T6 encontrou contra o contrato da T4).
+    /// </summary>
+    [Fact]
+    public async Task Register_SendsDeviceIdentityAndWorkspaceName()
+    {
+        var server = new FakeAccountServer();
+        var auth = new E2eeAccountAuthenticator(server, DeviceA, "PC-A");
+
+        AccountSession session = await auth.RegisterAsync("op@innet.tec.br", Password.ToCharArray(), "NOC");
+
+        Assert.Equal(DeviceA.ToString(), server.Stored!.DeviceId);
+        Assert.Equal("PC-A", server.Stored.DeviceName);
+        Assert.Equal("NOC", server.Stored.WorkspaceName);
+        // O workspaceId autoritativo do registro é o do servidor — é ele que o sync vai usar.
+        Assert.Equal("ws-1", session.WorkspaceId);
     }
 
     /// <summary>O login manda o authHash — nunca a senha (o backend não teria como recebê-la).</summary>

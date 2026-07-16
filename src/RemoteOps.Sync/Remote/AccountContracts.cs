@@ -6,23 +6,32 @@ namespace RemoteOps.Sync.Remote;
 // RemoteOps.Sync não depende do assembly do servidor; a forma JSON (camelCase, blobs em base64 —
 // System.Text.Json serializa byte[] como base64) é o contrato.
 //
-// TODO(Fase1 T4/T5): os endpoints /auth/register, /auth/kdf e o /auth/login com authHash AINDA NÃO
-// EXISTEM no backend (remoteops-cloud) — hoje o /auth/login recebe a SENHA (ver LoginRequest em
-// AuthContracts.cs, pré-E2EE). Estes contratos seguem a spec §5 e são o alvo da T4; quando ela
-// aterrissar, conferir campo a campo (nomes/casing/tipos) e remover este TODO. Nada aqui foi
-// inventado além do que a spec define.
+// CONFERIDO CAMPO A CAMPO contra o backend real da T4 (remoteops-cloud@a94fb1e,
+// Auth/AuthModels.cs + Auth/AccountService.cs). O contrato está fixado por
+// AccountContractsWireTests, que serializa estes tipos e desserializa nos do servidor — é lá que um
+// drift futuro aparece, e não num 400 em campo.
+//
+// Por que byte[] aqui e string (base64) lá: os dois produzem a MESMA string base64 no fio
+// (System.Text.Json usa Convert.ToBase64String — canônico, com padding), então o tipo forte fica do
+// lado que faz cripto e o servidor segue tratando tudo como blob opaco. Isso importa além da
+// estética: o backend valida o authHash pelo PBKDF2 da STRING base64 recebida, então o encoding
+// precisa ser idêntico no registro e no login (provado em AuthHash_HasIdenticalBase64_InRegisterAndLogin).
 
-/// <summary>Workspace criado junto com a conta (o operador dá o nome no registro).</summary>
-public sealed record FirstWorkspaceRequest(string Name);
-
-/// <summary>Workspace que a conta enxerga (devolvido no registro/login).</summary>
-public sealed record AccountWorkspace(string Id, string Name);
+/// <summary>
+/// Workspace que a conta enxerga (devolvido no registro/login). Espelha o <c>WorkspaceSummary</c> do
+/// backend — inclusive o <see cref="Role"/> (RBAC), que diz se esta conta é dona do workspace.
+/// </summary>
+public sealed record AccountWorkspace(string Id, string Name, string Role);
 
 /// <summary>
 /// <c>POST /auth/register</c>. TUDO aqui é público ou opaco (spec §4.2): salt/params do Argon2 são
 /// públicos, os <c>Wrapped*</c> são a AMK cifrada (inúteis sem a senha/chave de recuperação) e o
 /// <see cref="AuthHash"/> só prova a senha — é matematicamente incapaz de derivar a KEK
 /// (domain-separation do HKDF). Senha, MasterKey, KEK e AMK NÃO aparecem neste tipo por construção.
+///
+/// <para>O registro já identifica o device (<see cref="DeviceId"/>/<see cref="DeviceName"/>): o
+/// backend cria a conta E EMITE a sessão na mesma chamada, e um refresh token só existe amarrado a
+/// um device.</para>
 /// </summary>
 public sealed record RegisterAccountRequest(
     string Email,
@@ -32,35 +41,52 @@ public sealed record RegisterAccountRequest(
     byte[] WrappedAmkPwd,
     byte[] WrappedAmkRec,
     int AmkKeyVersion,
-    FirstWorkspaceRequest FirstWorkspace);
+    string DeviceId,
+    string DeviceName,
+    string WorkspaceName);
 
+/// <summary>
+/// Resposta do registro: tokens + o workspace recém-criado. Os campos de escrow vêm preenchidos
+/// (o backend reusa o mesmo emissor de sessão do login), mas o device que acabou de registrar já
+/// tem a AMK em mãos — quem precisa deles é o login noutro device.
+/// </summary>
 public sealed record RegisterAccountResponse(
     string AccessToken,
     string RefreshToken,
     DateTimeOffset ExpiresAt,
-    IReadOnlyList<AccountWorkspace> Workspaces);
+    string WorkspaceId,
+    byte[]? WrappedAmkPwd = null,
+    int? AmkKeyVersion = null,
+    IReadOnlyList<AccountWorkspace>? Workspaces = null);
 
 /// <summary>
 /// <c>GET /auth/kdf?email=</c> — pré-login: o device precisa do salt/params pra re-derivar a
 /// MasterKey da senha. Público por design (spec §4.2); o backend responde de forma uniforme pra
-/// e-mail inexistente (anti-enumeração) e aplica rate-limit.
+/// e-mail inexistente (params decoy determinísticos, anti-enumeração) e aplica rate-limit.
 /// </summary>
 public sealed record KdfResponse(byte[] Argon2Salt, Argon2Params Argon2Params);
 
 /// <summary>
 /// <c>POST /auth/login</c> na forma E2EE: manda o <see cref="AuthHash"/>, NUNCA a senha (o servidor
-/// guarda PBKDF2 dele — nem o AuthHash cru).
+/// guarda PBKDF2 dele — nem o AuthHash cru). O backend aceita exatamente UM entre <c>authHash</c> e
+/// <c>password</c>; este tipo não tem o campo <c>password</c>, então o servidor sempre entra no ramo
+/// E2EE — o caminho legado é inalcançável a partir do cliente por construção.
 /// </summary>
 public sealed record E2eeLoginRequest(string Email, byte[] AuthHash, string DeviceId, string DeviceName);
 
 /// <summary>
 /// Resposta do login E2EE: além dos tokens, devolve o escrow por senha pra o device desembrulhar a
 /// AMK LOCALMENTE (o servidor não participa disso — ele não tem a KEK).
+///
+/// <para>Os campos E2EE são NULÁVEIS porque o backend os devolve nulos para contas LEGADAS (criadas
+/// antes da Fase 1, sem escrow). Modelá-los como não-nuláveis fazia a desserialização de
+/// <c>amkKeyVersion: null</c> estourar um JsonException cru na cara do operador; agora o parser
+/// aceita, e quem rejeita a sessão com uma mensagem em pt-BR é o E2eeAccountAuthenticator.</para>
 /// </summary>
 public sealed record E2eeLoginResponse(
     string AccessToken,
     string RefreshToken,
     DateTimeOffset ExpiresAt,
-    byte[] WrappedAmkPwd,
-    int AmkKeyVersion,
-    IReadOnlyList<AccountWorkspace> Workspaces);
+    byte[]? WrappedAmkPwd = null,
+    int? AmkKeyVersion = null,
+    IReadOnlyList<AccountWorkspace>? Workspaces = null);

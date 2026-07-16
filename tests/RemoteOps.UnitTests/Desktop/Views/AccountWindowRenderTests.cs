@@ -28,16 +28,16 @@ public sealed class AccountWindowRenderTests
         public Task<AccountSession> RegisterAsync(
             string email, char[] password, string workspaceName, CancellationToken ct = default)
             => Task.FromResult(new AccountSession(
-                email, new byte[32],
+                email, "ws-1", new byte[32],
                 new TokenSet("access", "refresh", DateTimeOffset.UtcNow.AddHours(1)),
-                new[] { new AccountWorkspace("ws-1", workspaceName) },
+                new[] { new AccountWorkspace("ws-1", workspaceName, "Owner") },
                 "ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ23-4567"));
 
         public Task<AccountSession> LoginAsync(string email, char[] password, CancellationToken ct = default)
             => Task.FromResult(new AccountSession(
-                email, new byte[32],
+                email, "ws-1", new byte[32],
                 new TokenSet("access", "refresh", DateTimeOffset.UtcNow.AddHours(1)),
-                new[] { new AccountWorkspace("ws-1", "NOC") }));
+                new[] { new AccountWorkspace("ws-1", "NOC", "Owner") }));
     }
 
     private static Exception? RenderWith(AccountViewModel vm) => StaThreadRunner.Run(() =>
