@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.2.25",
+      "date": "2026-07-16",
+      "highlights": [
+        "Classificador de equipamento na lista de hosts: agora dá pra saber o TIPO do device de relance. Ao cadastrar/editar, você preenche o Fabricante e o Modelo e o app já sugere o tipo (roteador, switch, servidor Linux, OLT, firewall, load balancer…) — você confirma ou troca. Na lista, cada host aparece com um ícone do lado do nome (o logo do fabricante, se você tiver colocado o arquivo dele, senão um desenho do tipo colorido pelo fabricante), uma coluna 'Tipo', e chips de filtro no topo pra ver só os roteadores, só os servidores Linux, só os Huawei, etc. Some tudo mais visual e organizado. (Os logos dos fabricantes são opcionais e ficam numa pasta local; sem eles, o desenho do tipo já resolve.)"
+      ]
+    },
+    {
       "version": "1.2.24",
       "date": "2026-07-15",
       "highlights": [

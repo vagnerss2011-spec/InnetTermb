@@ -68,6 +68,26 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.2.25] - 2026-07-16
+
+### Adicionado
+
+- **Classificador de device (tipo + ícone + filtro na lista).** Cada host ganha um **papel**
+  normalizado (roteador, switch, servidor Linux/Windows, OLT, firewall, load balancer, wireless)
+  auto-sugerido a partir do **Fabricante/Modelo** por uma heurística LOCAL (`DeviceClassifier`,
+  sem rede) — Huawei `NE*`→VRP8 roteador, `S*/CE*`→VRP5 switch, `MA5*`→OLT, MikroTik→RouterOS,
+  Debian/Ubuntu→Linux, A10→load balancer, Cisco/Juniper… O operador confirma ou troca o Tipo. É o
+  ponto único onde a detecção ATIVA futura (banner SSH/identidade RouterOS/SNMP) vai entrar.
+  - **Ícone** (`DeviceIcon`): mostra o **logo do vendor** (`assets/logos/<vendor>.png`) quando o
+    arquivo existe, senão cai num **glifo vetorial** de papel tingido pela cor do vendor — nunca
+    fica sem ícone. Os PNGs de logo são de uso interno e ficam fora do repositório (`.gitignore`).
+  - **Lista**: ícone colado ao nome, coluna **"Tipo"** e barra de **chips de filtro** por
+    papel/vendor (só aparecem os presentes), ortogonais aos grupos.
+  - **Editor de host**: campos Fabricante/Modelo (que antes não eram persistidos — gap corrigido)
+    + seletor "Tipo" com sugestão automática e override manual.
+- Campo `device_role` no armazenamento local (SqlCipher, com migração `ALTER TABLE` idempotente, +
+  InMemory). Retrocompatível: hosts antigos ficam como "Sem tipo" até serem editados.
+
 ## [1.2.24] - 2026-07-15
 
 ### Corrigido
