@@ -48,6 +48,13 @@ internal sealed class FakeSecretsApi : ISecretsApi
     /// <summary>Quando setado, o próximo PullAsync com <c>since</c> igual ao valor estoura (queda de rede).</summary>
     public long? FailPullOnCursor { get; set; }
 
+    /// <summary>
+    /// Respostas de upsert forçadas, consumidas antes do comportamento normal. Serve pra encenar os
+    /// conflitos que o servidor real emite mas que este fake não produz sozinho (<c>cursor.race-retry</c>,
+    /// <c>envelope.workspace-mismatch</c>).
+    /// </summary>
+    public Queue<SecretUpsertResult> ForcedUpsertResults { get; } = new();
+
     /// <summary>Segredo em claro que não pode existir em NENHUM campo do fio.</summary>
     public void Forbid(string plaintext) => _forbidden.Add(plaintext);
 
@@ -93,6 +100,11 @@ internal sealed class FakeSecretsApi : ISecretsApi
     {
         AssertOpaque(dto);
         UpsertAttempts.Add(dto.Id);
+
+        if (ForcedUpsertResults.Count > 0)
+        {
+            return ForcedUpsertResults.Dequeue();
+        }
 
         Guid ws = RequireGuid(workspaceId, nameof(workspaceId));
         Guid id = RequireGuid(dto.Id, nameof(dto.Id));

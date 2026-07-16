@@ -94,6 +94,97 @@ public sealed class SecretSyncOrchestratorTests
     }
 
     /// <summary>
+    /// Conflito RETENTÁVEL não pode ser marcado como enviado. <c>cursor.race-retry</c> é o servidor
+    /// dizendo "corrida no cursor, manda de novo" — marcar no ledger aqui esconderia pra sempre um
+    /// envelope que NUNCA subiu: o segredo simplesmente não existiria no device B, em silêncio.
+    /// </summary>
+    [Fact]
+    public async Task ConflitoRetentavel_NaoMarcaComoEnviado_ETentaDeNovo()
+    {
+        string ws = NewServerWorkspace();
+        var api = new FakeSecretsApi();
+        api.ForcedUpsertResults.Enqueue(new SecretUpsertResult("conflict", 0, null, "cursor.race-retry"));
+
+        using var deviceA = new SecretSyncDevice("A", Amk, api, ws);
+        await deviceA.SealAsync("c1", "segredo-1");
+
+        await deviceA.Secrets.SyncOnceAsync();
+        Assert.Empty(api.Accepted); // a corrida barrou
+
+        // Ciclo seguinte: sem a marca no ledger, ele TEM que tentar de novo — e aí entra.
+        await deviceA.Secrets.SyncOnceAsync();
+        Assert.Single(api.Accepted);
+    }
+
+    /// <summary>
+    /// <c>envelope.workspace-mismatch</c> (o id já existe noutro workspace) é anomalia real: também
+    /// não marca. Marcar declararia "está no servidor" para um envelope que o servidor recusou.
+    /// </summary>
+    [Fact]
+    public async Task ConflitoDeWorkspace_NaoMarcaComoEnviado()
+    {
+        string ws = NewServerWorkspace();
+        var api = new FakeSecretsApi();
+        api.ForcedUpsertResults.Enqueue(
+            new SecretUpsertResult("conflict", 0, null, "envelope.workspace-mismatch"));
+
+        using var deviceA = new SecretSyncDevice("A", Amk, api, ws);
+        await deviceA.SealAsync("c1", "segredo-1");
+
+        await deviceA.Secrets.SyncOnceAsync();
+        await deviceA.Secrets.SyncOnceAsync();
+
+        // Duas tentativas: a recusa não vira "enviado" em silêncio.
+        Assert.Equal(2, api.UpsertAttempts.Count);
+    }
+
+    /// <summary>
+    /// <c>version.conflict</c> é o oposto: o servidor JÁ tem esta versão (ou mais nova). Aí marcar é
+    /// o certo — insistir seria um POST inútil por ciclo, pra sempre.
+    /// </summary>
+    [Fact]
+    public async Task ConflitoDeVersao_MarcaComoEnviado_ENaoInsiste()
+    {
+        string ws = NewServerWorkspace();
+        var api = new FakeSecretsApi();
+        api.ForcedUpsertResults.Enqueue(new SecretUpsertResult("conflict", 3, 9, "version.conflict"));
+
+        using var deviceA = new SecretSyncDevice("A", Amk, api, ws);
+        await deviceA.SealAsync("c1", "segredo-1");
+
+        await deviceA.Secrets.SyncOnceAsync();
+        await deviceA.Secrets.SyncOnceAsync();
+
+        Assert.Single(api.UpsertAttempts); // não insistiu
+    }
+
+    /// <summary>
+    /// O fake de API é a rede de segurança da opacidade — se ELE não morder, nenhum teste de E2EE
+    /// nesta suíte vale. Prova que um plaintext no fio realmente estoura.
+    /// </summary>
+    [Fact]
+    public async Task GuardaDeOpacidade_NaoEhVacua_EstouraSePlaintextVazar()
+    {
+        var api = new FakeSecretsApi();
+        api.Forbid("senha-em-claro");
+
+        SecretEnvelopeDto vazando = new(
+            Id: Guid.NewGuid().ToString(),
+            WorkspaceId: Guid.NewGuid().ToString(),
+            Ciphertext: Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("senha-em-claro")),
+            Nonce: Convert.ToBase64String(new byte[12]),
+            Tag: Convert.ToBase64String(new byte[16]),
+            WrappedCek: Convert.ToBase64String(new byte[32]),
+            CekNonce: Convert.ToBase64String(new byte[12]),
+            CekTag: Convert.ToBase64String(new byte[16]),
+            KeyVersion: "1|password|c1",
+            Version: 1);
+
+        await Assert.ThrowsAnyAsync<Xunit.Sdk.XunitException>(
+            () => api.PushAsync(NewServerWorkspace(), [vazando]));
+    }
+
+    /// <summary>
     /// O device NÃO devolve como push o que acabou de PUXAR. Sem isso, B re-subiria tudo que baixou,
     /// queimando cursor no servidor, o que faria A re-baixar, que re-subiria... — churn infinito
     /// entre dois devices ociosos.
@@ -160,6 +251,68 @@ public sealed class SecretSyncOrchestratorTests
             SecretEnvelope env = Assert.Single(await deviceB.ListAsync(), e => e.CredentialId == $"c{i}");
             using VaultSecret opened = await deviceB.OpenAsync(env.EnvelopeId);
             Assert.Equal($"segredo-{i}", opened.RevealString());
+        }
+    }
+
+    /// <summary>
+    /// <b>Queda GRAVANDO a página</b> (disco cheio, processo morto) — o caso que decide a ORDEM
+    /// entre gravar o envelope e avançar o cursor.
+    ///
+    /// <para>Gravando primeiro: a falha estoura ANTES do cursor avançar, o ciclo seguinte re-baixa a
+    /// página inteira (idempotente) e nada se perde. Avançando o cursor primeiro, os envelopes da
+    /// página ficariam ATRÁS do cursor e nunca mais seriam baixados — segredo perdido em silêncio,
+    /// que é o pior desfecho possível aqui.</para>
+    /// </summary>
+    [Fact]
+    public async Task QuedaGravandoAPagina_NaoAvancaOCursor_ENaoPerdeEnvelope()
+    {
+        string ws = NewServerWorkspace();
+        var api = new FakeSecretsApi();
+
+        using var deviceA = new SecretSyncDevice("A", Amk, api, ws);
+        await deviceA.SealAsync("c1", "segredo-1");
+        await deviceA.SealAsync("c2", "segredo-2");
+        await deviceA.Secrets.SyncOnceAsync();
+
+        string dir = Path.Combine(Path.GetTempPath(), $"remoteops-flaky-{Guid.NewGuid():n}");
+        try
+        {
+            var inner = new FileVaultStore(Path.Combine(dir, "vault.json"));
+            var flaky = new FlakyEnvelopeStore(inner);
+            using var keyRing = new AmkWorkspaceKeyRing(Amk);
+            var vault = new CredentialVault(flaky, keyRing, NullVaultAuditSink.Instance);
+            var metadata = new FakeSyncMetadataStore();
+            var orchestrator = new SecretSyncOrchestrator(
+                ws, SecretSyncDevice.VaultWorkspaceId, flaky, api, metadata);
+
+            // A 2ª gravação da página estoura.
+            flaky.FailSaveAfter = 1;
+            await Assert.ThrowsAsync<IOException>(() => orchestrator.SyncOnceAsync());
+
+            // O cursor NÃO pode ter avançado: a página não foi aplicada inteira.
+            Assert.Equal(0, metadata.SecretsCursor);
+
+            // Disco volta: o ciclo seguinte re-baixa a página e completa. Nada se perdeu.
+            flaky.FailSaveAfter = int.MaxValue;
+            await orchestrator.SyncOnceAsync();
+
+            Assert.Equal(2, (await inner.ListEnvelopesAsync(SecretSyncDevice.VaultWorkspaceId)).Count);
+            foreach ((string cred, string secret) in new[] { ("c1", "segredo-1"), ("c2", "segredo-2") })
+            {
+                SecretEnvelope env = Assert.Single(
+                    await inner.ListEnvelopesAsync(SecretSyncDevice.VaultWorkspaceId),
+                    e => e.CredentialId == cred);
+                using VaultSecret opened = await vault.RetrieveAsync(
+                    env.EnvelopeId, new VaultAccessContext { ActorUserId = "op" });
+                Assert.Equal(secret, opened.RevealString());
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, recursive: true);
+            }
         }
     }
 
