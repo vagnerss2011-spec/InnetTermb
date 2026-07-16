@@ -74,6 +74,7 @@ public sealed class InMemoryLocalStore : ILocalStore
             Name = request.Name,
             Vendor = request.Vendor,
             Model = request.Model,
+            DeviceRole = request.DeviceRole,
             Site = request.Site,
             Tags = [.. request.Tags],
         };
@@ -122,6 +123,7 @@ public sealed class InMemoryLocalStore : ILocalStore
                 Name = asset.Name,
                 Vendor = asset.Vendor,
                 Model = asset.Model,
+                DeviceRole = asset.DeviceRole,
                 Site = asset.Site,
                 Tags = asset.Tags,
                 Version = asset.Version,
@@ -146,6 +148,7 @@ public sealed class InMemoryLocalStore : ILocalStore
                 Name = asset.Name,
                 Vendor = asset.Vendor,
                 Model = asset.Model,
+                DeviceRole = asset.DeviceRole,
                 Site = asset.Site,
                 Tags = asset.Tags,
                 Version = asset.Version,

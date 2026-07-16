@@ -1,0 +1,3 @@
+# Logos de vendor (PNG) ficam AQUI, mas NÃO são versionados (repo público, uso interno).
+# O app resolve assets/logos/<vendorKey>.png em runtime; sem o arquivo, cai no glifo de papel.
+# Ver docs/superpowers/specs/2026-07-15-classificador-device-design.md.

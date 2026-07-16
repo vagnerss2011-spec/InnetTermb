@@ -23,3 +23,8 @@ build/
 .claude/settings.local.json
 .DS_Store
 Thumbs.db
+
+# Logos de vendor (classificador de device) — uso INTERNO; não versionar no repo público.
+# O app resolve assets/logos/<vendorKey>.png em runtime; sem o arquivo, cai no glifo de papel.
+src/RemoteOps.Desktop/assets/logos/*
+!src/RemoteOps.Desktop/assets/logos/.gitkeep

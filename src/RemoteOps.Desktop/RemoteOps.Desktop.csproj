@@ -90,4 +90,11 @@
       <LogicalName>operator-changelog.json</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
+  <ItemGroup>
+    <!-- Logos de vendor do classificador (assets/logos/*.png) — copiados pra saída pra o DeviceIcon
+         resolver em runtime. Gitignored (uso interno / repo público); o glob não falha se vazio. -->
+    <Content Include="assets\logos\**\*.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
 </Project>

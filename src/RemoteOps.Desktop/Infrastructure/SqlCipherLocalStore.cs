@@ -49,6 +49,7 @@ public sealed class SqlCipherLocalStore : ILocalStore
                 name         TEXT NOT NULL,
                 vendor       TEXT,
                 model        TEXT,
+                device_role  TEXT,
                 site         TEXT,
                 tags_json    TEXT NOT NULL DEFAULT '[]',
                 version      INTEGER NOT NULL DEFAULT 0
@@ -82,6 +83,40 @@ public sealed class SqlCipherLocalStore : ILocalStore
             CREATE INDEX IF NOT EXISTS idx_cred_scope ON credential_refs (scope);
             """;
         await cmd.ExecuteNonQueryAsync(ct);
+
+        // Migração idempotente: bancos criados antes do classificador (v1.2.24-) não têm a coluna
+        // device_role — CREATE TABLE IF NOT EXISTS não altera tabela existente. Adiciona se faltar.
+        await EnsureColumnAsync(conn, "assets", "device_role", "TEXT", ct);
+    }
+
+    /// <summary>
+    /// Adiciona <paramref name="column"/> a <paramref name="table"/> se ainda não existir (via
+    /// PRAGMA table_info). Nomes são constantes internas (não entrada do usuário) — sem risco de
+    /// injeção. ALTER TABLE ADD COLUMN é barato e idempotente por esta checagem.
+    /// </summary>
+    private static async Task EnsureColumnAsync(
+        SqliteConnection conn, string table, string column, string type, CancellationToken ct)
+    {
+        bool exists = false;
+        using (SqliteCommand check = conn.CreateCommand())
+        {
+            check.CommandText = $"PRAGMA table_info({table})";
+            using SqliteDataReader r = await check.ExecuteReaderAsync(ct);
+            while (await r.ReadAsync(ct))
+            {
+                if (string.Equals(r.GetString(1), column, StringComparison.OrdinalIgnoreCase))
+                {
+                    exists = true;
+                    break;
+                }
+            }
+        }
+        if (!exists)
+        {
+            using SqliteCommand alter = conn.CreateCommand();
+            alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {type}";
+            await alter.ExecuteNonQueryAsync(ct);
+        }
     }
 
     // ── Grupos ───────────────────────────────────────────────────────────────
@@ -175,11 +210,11 @@ public sealed class SqlCipherLocalStore : ILocalStore
         using SqliteCommand assetCmd = conn.CreateCommand();
         assetCmd.CommandText = groupId is null
             ? """
-              SELECT id, workspace_id, group_id, name, vendor, model, site, tags_json, version
+              SELECT id, workspace_id, group_id, name, vendor, model, site, tags_json, version, device_role
               FROM assets WHERE workspace_id = $wid ORDER BY name ASC
               """
             : """
-              SELECT id, workspace_id, group_id, name, vendor, model, site, tags_json, version
+              SELECT id, workspace_id, group_id, name, vendor, model, site, tags_json, version, device_role
               FROM assets WHERE workspace_id = $wid AND group_id = $gid ORDER BY name ASC
               """;
         assetCmd.Parameters.AddWithValue("$wid", workspaceId);
@@ -239,7 +274,7 @@ public sealed class SqlCipherLocalStore : ILocalStore
 
         using SqliteCommand cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT id, workspace_id, group_id, name, vendor, model, site, tags_json, version
+            SELECT id, workspace_id, group_id, name, vendor, model, site, tags_json, version, device_role
             FROM assets WHERE id = $id
             """;
         cmd.Parameters.AddWithValue("$id", id);
@@ -267,8 +302,8 @@ public sealed class SqlCipherLocalStore : ILocalStore
 
         using SqliteCommand cmd = conn.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO assets (id, workspace_id, group_id, name, vendor, model, site, tags_json, version)
-            VALUES ($id, $wid, $gid, $name, $vendor, $model, $site, $tags, 0)
+            INSERT INTO assets (id, workspace_id, group_id, name, vendor, model, device_role, site, tags_json, version)
+            VALUES ($id, $wid, $gid, $name, $vendor, $model, $device_role, $site, $tags, 0)
             """;
         cmd.Parameters.AddWithValue("$id", id);
         cmd.Parameters.AddWithValue("$wid", request.WorkspaceId);
@@ -276,6 +311,7 @@ public sealed class SqlCipherLocalStore : ILocalStore
         cmd.Parameters.AddWithValue("$name", request.Name);
         cmd.Parameters.AddWithValue("$vendor", (object?)request.Vendor ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$model", (object?)request.Model ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$device_role", (object?)request.DeviceRole ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$site", (object?)request.Site ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$tags", JsonSerializer.Serialize(request.Tags, s_json));
         await cmd.ExecuteNonQueryAsync(ct);
@@ -300,6 +336,7 @@ public sealed class SqlCipherLocalStore : ILocalStore
             Name = request.Name,
             Vendor = request.Vendor,
             Model = request.Model,
+            DeviceRole = request.DeviceRole,
             Site = request.Site,
             Tags = [.. request.Tags],
         };
@@ -314,7 +351,7 @@ public sealed class SqlCipherLocalStore : ILocalStore
         cmd.CommandText = """
             UPDATE assets
             SET group_id = $gid, name = $name, vendor = $vendor, model = $model,
-                site = $site, tags_json = $tags, version = $ver
+                device_role = $device_role, site = $site, tags_json = $tags, version = $ver
             WHERE id = $id
             """;
         cmd.Parameters.AddWithValue("$id", asset.Id);
@@ -322,6 +359,7 @@ public sealed class SqlCipherLocalStore : ILocalStore
         cmd.Parameters.AddWithValue("$name", asset.Name);
         cmd.Parameters.AddWithValue("$vendor", (object?)asset.Vendor ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$model", (object?)asset.Model ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$device_role", (object?)asset.DeviceRole ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$site", (object?)asset.Site ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$tags", JsonSerializer.Serialize(asset.Tags, s_json));
         cmd.Parameters.AddWithValue("$ver", asset.Version);
@@ -654,7 +692,7 @@ public sealed class SqlCipherLocalStore : ILocalStore
     // Intermediate struct to carry raw row data before endpoints are fetched.
     private readonly record struct AssetRow(
         string Id, string WorkspaceId, string? GroupId, string Name,
-        string? Vendor, string? Model, string? Site, string TagsJson, int Version);
+        string? Vendor, string? Model, string? Site, string TagsJson, int Version, string? DeviceRole);
 
     private static AssetRow ReadAssetRow(SqliteDataReader r) => new(
         Id: r.GetString(0),
@@ -665,7 +703,8 @@ public sealed class SqlCipherLocalStore : ILocalStore
         Model: r.IsDBNull(5) ? null : r.GetString(5),
         Site: r.IsDBNull(6) ? null : r.GetString(6),
         TagsJson: r.GetString(7),
-        Version: r.GetInt32(8));
+        Version: r.GetInt32(8),
+        DeviceRole: r.IsDBNull(9) ? null : r.GetString(9));
 
     private static Asset BuildAsset(AssetRow row, List<Endpoint> endpoints)
     {
@@ -678,6 +717,7 @@ public sealed class SqlCipherLocalStore : ILocalStore
             Name = row.Name,
             Vendor = row.Vendor,
             Model = row.Model,
+            DeviceRole = row.DeviceRole,
             Site = row.Site,
             Tags = tags,
             Version = row.Version,
