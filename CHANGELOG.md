@@ -68,6 +68,16 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   `vagnerss2011-spec/InnetTermb` — Task 4 é ação de usuário, não executada neste workflow); até
   lá, o smoke test do fluxo "Verificar atualizações" no app instalado não pode ser validado.
 
+## [1.2.26] - 2026-07-16
+
+### Alterado
+
+- **Classificador de device: taxonomia enxugada por fabricante.** Removidos os papéis **Firewall**,
+  **Load Balancer** e **Wireless** do seletor "Tipo" — a operação classifica por fabricante
+  (Huawei/MikroTik têm roteador e switch, etc.), então esses três não são usados. Papéis restantes:
+  Roteador, Switch, Servidor Linux, Servidor Windows, OLT e "Sem tipo". A detecção de vendor A10
+  continua (ícone/cor), mas sem sugerir papel — o operador escolhe o Tipo se precisar.
+
 ## [1.2.25] - 2026-07-16
 
 ### Adicionado

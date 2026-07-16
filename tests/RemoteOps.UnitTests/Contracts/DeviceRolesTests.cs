@@ -9,7 +9,7 @@ public class DeviceRolesTests
     [Fact]
     public void All_ContainsEveryRole_AndNoDuplicates()
     {
-        Assert.Equal(9, DeviceRoles.All.Count);
+        Assert.Equal(6, DeviceRoles.All.Count);
         Assert.Equal(DeviceRoles.All.Count, DeviceRoles.All.Distinct().Count());
         Assert.Contains(DeviceRoles.Router, DeviceRoles.All);
         Assert.Contains(DeviceRoles.Switch, DeviceRoles.All);

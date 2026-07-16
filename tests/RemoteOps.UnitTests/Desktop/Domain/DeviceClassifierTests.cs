@@ -15,7 +15,7 @@ public class DeviceClassifierTests
     [InlineData("Huawei", "MA5800", "telnet", DeviceRoles.Olt, "huawei", "OLT")]
     [InlineData("Debian", null, "ssh", DeviceRoles.ServerLinux, "debian", "DEB")]
     [InlineData("Ubuntu", "22.04", "ssh", DeviceRoles.ServerLinux, "ubuntu", "UBU")]
-    [InlineData("A10 Networks", "Thunder", "ssh", DeviceRoles.LoadBalancer, "a10", "A10")]
+    [InlineData("A10 Networks", "Thunder", "ssh", DeviceRoles.Other, "a10", "A10")]
     [InlineData("Cisco", "Catalyst 9300", "ssh", DeviceRoles.Switch, "cisco", "CSC")]
     [InlineData(null, null, "rdp", DeviceRoles.ServerWindows, "windows", "WIN")]
     public void Suggest_MapsKnownDevices(string? v, string? m, string? p, string role, string vk, string badge)
