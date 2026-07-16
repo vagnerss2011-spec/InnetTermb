@@ -183,7 +183,8 @@ public partial class App : Application
             // valendo (compatibilidade com quem já usava o preview do sync).
             if (_coordinator is not null && _accountConfig is { } account)
             {
-                _syncContext = new SyncStartContext(dataDir, ctx, vault, account.CloudUrl, account.DeviceId);
+                _syncContext = new SyncStartContext(
+                    dataDir, ctx, vault, account.CloudUrl, account.DeviceId, fileStore);
                 _ = _coordinator.StartSyncAsync();
             }
             else if (TryBuildSyncOptions(dataDir, ctx, vault, out SyncSessionOptions syncOptions))
@@ -345,8 +346,18 @@ public partial class App : Application
     /// A URL/device vêm carimbados aqui (e não relidos do ambiente) pra o sync usar exatamente a
     /// mesma config que a conta usou pra logar.
     /// </summary>
+    /// <param name="EnvelopeStore">
+    /// O cofre em arquivo, para o transporte de segredos (spec §5) enumerar os envelopes a subir e
+    /// gravar os que descem. É o MESMO <see cref="FileVaultStore"/> que o <see cref="CredentialVault"/>
+    /// usa — tem que ser, senão o device B gravaria o envelope num cofre que ninguém lê.
+    /// </param>
     private sealed record SyncStartContext(
-        string DataDir, WorkspaceContext Workspace, CredentialVault Vault, Uri CloudUrl, Guid DeviceId);
+        string DataDir,
+        WorkspaceContext Workspace,
+        CredentialVault Vault,
+        Uri CloudUrl,
+        Guid DeviceId,
+        FileVaultStore EnvelopeStore);
 
     /// <summary>
     /// Fluxo de conta E2EE (spec §6), ANTES de o cofre existir — é a AMK que decide a raiz dele.
@@ -491,6 +502,14 @@ public partial class App : Application
             DeviceId = context.DeviceId,
             Vault = context.Vault,
             TokenRefPath = Path.Combine(context.DataDir, "cloud-tokens.tokenref"),
+
+            // Transporte de segredos (spec §5): só existe NESTE caminho, o da conta E2EE — é o único
+            // em que o cofre está enraizado na AMK, portanto o único em que um envelope subido faz
+            // sentido pra outro device. O escopo é o workspace das CREDENCIAIS: a chave do banco
+            // (AppRuntime.DbWorkspace) e os tokens (workspace = GUID do servidor) também moram no
+            // cofre e não podem sair daqui nunca.
+            EnvelopeStore = context.EnvelopeStore,
+            VaultWorkspaceId = AppRuntime.CredentialsWorkspace,
         });
         return Task.CompletedTask;
     }

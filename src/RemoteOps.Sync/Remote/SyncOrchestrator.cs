@@ -6,8 +6,9 @@ namespace RemoteOps.Sync.Remote;
 /// Orquestra o ciclo de sync de um workspace (ADR-013), atrás da feature flag <c>cloud.sync.enabled</c>:
 /// drena o outbox local → <c>POST /sync/push</c> → trata <see cref="PushResult"/> (avança o outbox cursor;
 /// grava conflitos) → <c>GET /sync/pull</c> → aplica via <see cref="IRemoteChangeApplier"/> → avança o
-/// server cursor. Expõe estado (Offline/Syncing/Synced/Error) + contagem de conflitos.
-/// Nunca loga token, segredo ou patch — em falha apenas sinaliza <see cref="SyncState.Error"/>.
+/// server cursor → e, se houver, roda o canal dos <c>SecretEnvelope</c>
+/// (<see cref="SecretSyncOrchestrator"/>). Expõe estado (Offline/Syncing/Synced/Error) + contagem de
+/// conflitos. Nunca loga token, segredo ou patch — em falha apenas sinaliza <see cref="SyncState.Error"/>.
 /// </summary>
 public sealed class SyncOrchestrator
 {
@@ -16,15 +17,22 @@ public sealed class SyncOrchestrator
     private readonly ICloudSyncApi _api;
     private readonly IRemoteChangeApplier _applier;
     private readonly ISyncMetadataStore _metadata;
+    private readonly SecretSyncOrchestrator? _secrets;
     private readonly int _pageSize;
 
+    /// <param name="secrets">
+    /// Canal dos <c>SecretEnvelope</c> (spec §5), ou <c>null</c> pra sincronizar só metadados.
+    /// Roda DENTRO deste ciclo, depois do changelog — ver <see cref="SecretSyncOrchestrator"/> pra
+    /// por que separado em classe mas junto no ciclo.
+    /// </param>
     public SyncOrchestrator(
         string workspaceId,
         ISyncClient outbox,
         ICloudSyncApi api,
         IRemoteChangeApplier applier,
         ISyncMetadataStore metadata,
-        int pageSize = 200)
+        int pageSize = 200,
+        SecretSyncOrchestrator? secrets = null)
     {
         _workspaceId = workspaceId;
         _outbox = outbox;
@@ -32,6 +40,7 @@ public sealed class SyncOrchestrator
         _applier = applier;
         _metadata = metadata;
         _pageSize = pageSize;
+        _secrets = secrets;
     }
 
     public event Action<SyncStatus>? StatusChanged;
@@ -61,6 +70,13 @@ public sealed class SyncOrchestrator
                 SyncCursors cursors = await _metadata.GetCursorsAsync(_workspaceId, ct);
                 await DrainOutboxAsync(cursors.OutboxCursor, ct);
                 await ApplyServerChangesAsync(cursors.ServerCursor, ct);
+
+                // Segredos DEPOIS dos metadados, sempre: assim o credential_ref já existe localmente
+                // quando o envelope dele chega, e o device que recebe nunca fica com uma senha órfã.
+                if (_secrets is not null)
+                {
+                    await _secrets.SyncOnceAsync(ct);
+                }
 
                 int conflicts = await _metadata.GetConflictCountAsync(ct);
                 SetStatus(SyncState.Synced, conflicts);
