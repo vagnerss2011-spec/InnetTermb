@@ -12,11 +12,8 @@ public static class DeviceRoles
     public const string ServerLinux = "server-linux";
     public const string ServerWindows = "server-windows";
     public const string Olt = "olt";
-    public const string Firewall = "firewall";
-    public const string LoadBalancer = "loadbalancer";
-    public const string Wireless = "wireless";
     public const string Other = "other";
 
     public static readonly IReadOnlyList<string> All =
-        [Router, Switch, ServerLinux, ServerWindows, Olt, Firewall, LoadBalancer, Wireless, Other];
+        [Router, Switch, ServerLinux, ServerWindows, Olt, Other];
 }

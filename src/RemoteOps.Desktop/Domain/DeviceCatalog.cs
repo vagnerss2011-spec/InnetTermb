@@ -24,12 +24,6 @@ public static class DeviceCatalog
         DeviceRoles.ServerWindows => "M3,3 H13 V6 H3 Z M3,7 H13 V10 H3 Z M3,11 H13 V14 H3 Z",
         // 2 unidades + portas (rack de fibra)
         DeviceRoles.Olt => "M2,4 H14 V7 H2 Z M2,9 H14 V12 H2 Z M4,7 V9 M8,7 V9 M12,7 V9",
-        // parede de tijolos
-        DeviceRoles.Firewall => "M2,4 H14 V12 H2 Z M2,7 H14 M2,10 H14 M6,4 V7 M10,4 V7 M8,7 V10 M4,10 V12 M12,10 V12",
-        // uma entrada dividindo em duas saídas
-        DeviceRoles.LoadBalancer => "M2,8 H7 M7,8 L11,4 H14 M7,8 L11,12 H14",
-        // ondas wi-fi (chevrons) + ponto
-        DeviceRoles.Wireless => "M4,9 L8,6 L12,9 M2,6 L8,2 L14,6 M8,11 L8,12",
         // monitor/dispositivo genérico
         _ => "M3,4 H13 V11 H3 Z M6,11 V13 M10,11 V13 M5,13 H11",
     };
@@ -41,9 +35,6 @@ public static class DeviceCatalog
         DeviceRoles.ServerLinux => "Servidor Linux",
         DeviceRoles.ServerWindows => "Servidor Windows",
         DeviceRoles.Olt => "OLT",
-        DeviceRoles.Firewall => "Firewall",
-        DeviceRoles.LoadBalancer => "Load Balancer",
-        DeviceRoles.Wireless => "Wireless",
         _ => "Sem tipo",
     };
 

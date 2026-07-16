@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.2.26",
+      "date": "2026-07-16",
+      "highlights": [
+        "Tipos de equipamento enxugados: como a classificação é por fabricante (Huawei e MikroTik têm roteador e switch, e assim por diante), tiramos do seletor 'Tipo' os papéis Firewall, Load Balancer e Wireless, que não são usados. Ficaram: Roteador, Switch, Servidor Linux, Servidor Windows, OLT e 'Sem tipo'."
+      ]
+    },
+    {
       "version": "1.2.25",
       "date": "2026-07-16",
       "highlights": [

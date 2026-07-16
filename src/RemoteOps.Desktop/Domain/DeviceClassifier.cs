@@ -31,7 +31,9 @@ public static class DeviceClassifier
         (v, m, p) => Regex.IsMatch(v + " " + m, "centos|rhel|red ?hat|rocky|almalinux|(^| )linux")
             ? new(DeviceRoles.ServerLinux, "linux", "LNX", 70) : null,
         (v, m, p) => Regex.IsMatch(v + " " + m, "windows|win ?server") ? new(DeviceRoles.ServerWindows, "windows", "WIN", 75) : null,
-        (v, m, p) => v.Contains("a10") ? new(DeviceRoles.LoadBalancer, "a10", "A10", 80) : null,
+        // A10 (ADC/load balancer): detecta o VENDOR pro ícone, mas sem sugerir papel — a operação
+        // não usa o papel "load balancer"; o operador escolhe o Tipo se precisar.
+        (v, m, p) => v.Contains("a10") ? new(DeviceRoles.Other, "a10", "A10", 40) : null,
         (v, m, p) => Regex.IsMatch(v, "cisco|ios|nx-os")
             ? new(Regex.IsMatch(m, "catalyst|nexus") ? DeviceRoles.Switch : DeviceRoles.Router, "cisco", "CSC", 70) : null,
         (v, m, p) => Regex.IsMatch(v, "juniper|junos") ? new(DeviceRoles.Router, "juniper", "JNP", 70) : null,
