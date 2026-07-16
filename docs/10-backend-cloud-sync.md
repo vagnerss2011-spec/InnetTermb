@@ -6,10 +6,21 @@
 
 | Variável | Descrição |
 |---|---|
-| `ConnectionStrings__Default` | Connection string PostgreSQL. Nunca em appsettings. |
-| `Jwt__SigningKey` | Chave HMAC-SHA256 (≥ 32 bytes). Nunca commitada. |
+| `REMOTEOPS_DB_CONNECTION` | Connection string PostgreSQL. Nunca em appsettings. Alias legado: `ConnectionStrings__Default` (tem precedência se os dois existirem). |
+| `Jwt__SecretKeyBase64` | Chave HMAC-SHA256 em base64, ≥ 32 bytes decodificados (`openssl rand -base64 32`). Nunca commitada. |
+| `Jwt__SigningKey` | Forma legada da chave acima (texto puro, UTF-8). Vale se `Jwt__SecretKeyBase64` não estiver definida. |
 | `Jwt__Issuer` | Issuer do JWT (ex.: `remoteops-cloud`). Pode estar em appsettings. |
 | `Jwt__Audience` | Audience do JWT (ex.: `remoteops-desktop`). Pode estar em appsettings. |
+| `Auth__KdfDecoyKeyBase64` | Opcional. Chave do decoy anti-enumeração do `/auth/kdf`. Ausente = derivada da chave do JWT via HKDF. |
+
+Resolução centralizada em `Configuration/DeploymentConfig.cs` — falha no startup
+(não no primeiro login) quando falta config ou a chave é curta demais.
+
+## Deploy
+
+Migrations EF aplicadas no startup (`DatabaseBootstrapper`); imagem e stack em
+`Dockerfile` + `docker-compose.yml` (API + Postgres + Caddy/TLS). Passo a passo do
+operador: **`docs/runbook-deploy-debian.md`**.
 
 
 

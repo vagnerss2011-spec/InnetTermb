@@ -2,6 +2,31 @@
 
 Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.com/) e versionamento SemVer interno.
 
+## [0.8.0-cloud-deploy] - 2026-07-16
+
+### Adicionado
+
+- **Migrations EF**: `InitialCreate` cobrindo as 13 tabelas do `AppDbContext`, incluindo as colunas E2EE em `users` (`Argon2Salt`, params do Argon2id, `AuthHashHash`, `WrappedAmkPwd`, `WrappedAmkRec`, `AmkKeyVersion`) e o índice único `(WorkspaceId, Cursor)` de `secret_envelopes`. Aplicadas no startup por `DatabaseBootstrapper.MigrateIfRelational` — resolve o "migrations pendentes de aplicação" registrado em `[0.7.0-cloud-backend]`.
+- **`Configuration/DeploymentConfig`**: resolve `REMOTEOPS_DB_CONNECTION` e `Jwt__SecretKeyBase64` (nomes do spec/runbook), mantendo `ConnectionStrings__Default` e `Jwt__SigningKey` como alias legado. Valida no startup: connection string ausente/vazia e chave JWT com menos de 32 bytes derrubam o boot com mensagem acionável, em vez de falhar no primeiro login.
+- **`Data/DesignTimeDbContextFactory`**: `dotnet ef migrations add` deixa de exigir as env vars de produção na máquina do dev/CI.
+- **Deploy**: `Dockerfile` multi-stage (.NET 10, runtime não-root, healthcheck em `/health`), `docker-compose.yml` (api + postgres:16 + Caddy com TLS automático, volumes persistentes, healthchecks), `deploy/Caddyfile`, `.env.example` sem valores e `scripts/bootstrap.sh` (verifica a stack e mostra o `workspaceId` para o app).
+- **`docs/runbook-deploy-debian.md`**: passo a passo do operador — pré-requisitos, geração dos segredos, subida do compose, verificação do `/health`, configuração do app (`REMOTEOPS_CLOUD_ENABLED`/`URL`/`WORKSPACE_ID`), troubleshooting e backup manual.
+- **`adr/ADR-009-deploy-docker-compose-debian.md`**: topologia do deploy, migration no startup e contrato de configuração.
+- Testes: `MigrationsTests` (drift de modelo vira teste vermelho; migration cobre o schema E2EE e o índice único), `DatabaseBootstrapperTests`, `DeploymentConfigTests`.
+
+### Segurança
+
+- Nenhum segredo versionado: `.env` no `.gitignore` e `.env.example` com campos vazios + o comando que gera cada valor. `.dockerignore` impede que o `.env` do operador entre na imagem.
+- Postgres e API não publicam porta no host — só o Caddy fala com a internet, sempre em HTTPS (HSTS habilitado). Runtime da API roda como usuário não-root.
+- Piso de 32 bytes (256 bits) na chave HMAC-SHA256 do JWT; mensagens de erro de configuração nunca incluem o valor da chave (vão para o log do container).
+- `ASPNETCORE_FORWARDEDHEADERS_ENABLED` + `header_up X-Forwarded-For {remote_host}` no Caddy: sem os dois, o rate limit do `/auth` enxergaria só o IP do proxy (balde único global) ou aceitaria o header do cliente (balde escolhido pelo atacante) — nos dois casos o freio de força-bruta do AuthHash seria inútil.
+
+### Pendências conhecidas
+
+- `POST /auth/register` é aberto: qualquer um que alcance o servidor cria conta e tenant. Mitigação por Caddy documentada no runbook §9; convite/allowlist no backend fica para fase posterior.
+- Backup/restore automatizado do Postgres é da Fase 5; o runbook §10 traz o procedimento manual (`pg_dump`) enquanto isso.
+- Migration no startup pressupõe **single-node**; a 2ª réplica exige mover para job de release (ADR-009, critérios de revisão).
+
 ## [0.7.0-cloud-backend] - 2026-06-30
 
 ### Adicionado
