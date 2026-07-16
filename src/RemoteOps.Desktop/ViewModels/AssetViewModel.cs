@@ -1,4 +1,5 @@
 using RemoteOps.Contracts.Assets;
+using RemoteOps.Desktop.Domain;
 
 namespace RemoteOps.Desktop.ViewModels;
 
@@ -19,6 +20,15 @@ public sealed class AssetViewModel : BaseViewModel
     public string? Model => Asset.Model;
     public string? Site => Asset.Site;
     public string Tags => string.Join(", ", Asset.Tags);
+
+    /// <summary>Papel salvo (ver <c>DeviceRoles</c>). null = "Sem tipo".</summary>
+    public string? DeviceRole => Asset.DeviceRole;
+
+    /// <summary>Rótulo pt-BR do papel (coluna "Tipo").</summary>
+    public string RoleLabel => DeviceCatalog.RoleLabel(Asset.DeviceRole);
+
+    /// <summary>Chave do vendor derivada do Vendor/Model/protocolo — escolhe o logo/cor do ícone.</summary>
+    public string? VendorKey => DeviceClassifier.Suggest(Asset.Vendor, Asset.Model, PrimaryProtocol).VendorKey;
 
     public string PrimaryProtocol => Asset.Endpoints.Count > 0
         ? Asset.Endpoints[0].Protocol
@@ -43,5 +53,8 @@ public sealed class AssetViewModel : BaseViewModel
         RaisePropertyChanged(nameof(PrimaryProtocol));
         RaisePropertyChanged(nameof(PrimaryAddress));
         RaisePropertyChanged(nameof(Tags));
+        RaisePropertyChanged(nameof(DeviceRole));
+        RaisePropertyChanged(nameof(RoleLabel));
+        RaisePropertyChanged(nameof(VendorKey));
     }
 }
