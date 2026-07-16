@@ -111,7 +111,25 @@ public partial class App : Application
             // Conta E2EE (Fase 1): resolve a AMK ANTES de montar o cofre — é ela que decide a raiz.
             // Devolve null quando não há conta configurada/logada: aí o cofre segue na raiz DPAPI e
             // o app é exatamente o de hoje (offline-first, ADR-002 — nuvem é opt-in, nunca requisito).
-            CredentialVault vault = await TryActivateAccountAsync(dataDir, fileStore, legacyKeyRing)
+            CredentialVault? activated = await TryActivateAccountAsync(dataDir, fileStore, legacyKeyRing);
+            if (activated is null && await IsVaultAmkRootedAsync(fileStore))
+            {
+                // Cofre já vinculado a uma conta e sem AMK em mãos (o operador saiu da conta e
+                // cancelou o login, ou o cache foi apagado). Não há modo local possível aqui — a
+                // chave do banco só abre com a AMK. Dizer isso é MUITO melhor que deixar o startup
+                // estourar um erro de cripto genérico logo adiante.
+                MessageBox.Show(
+                    "Este computador está vinculado a uma conta RemoteOps: seus dados locais estão "
+                    + "protegidos pela senha dela.\n\nAbra o RemoteOps de novo e entre na conta para "
+                    + "continuar. Sem entrar, não é possível abrir o cofre nem os equipamentos.",
+                    "RemoteOps — É preciso entrar na conta",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                Shutdown();
+                return;
+            }
+
+            CredentialVault vault = activated
                 ?? new CredentialVault(fileStore, legacyKeyRing, new InMemoryVaultAuditSink());
 
             // SQLCipher local store (ADR-008): banco criptografado por workspace.
@@ -383,11 +401,27 @@ public partial class App : Application
             await _coordinator.ActivateFromLoginAsync(session);
             return activator.Vault;
         }
+        catch (Exception ex) when (activator.Vault is not null)
+        {
+            // A ativação passou da troca de raiz e estourou DEPOIS (cache da AMK, tokens). O cofre
+            // AMK existe e o vault.json em disco JÁ tem envelopes re-selados sob a AMK — voltar pra
+            // raiz DPAPI aqui seria fatal: o cofre legado não abriria o que já migrou, e a chave do
+            // banco é um desses segredos (o app morreria com CryptographicException no startup).
+            // Segue com a raiz nova; o que se perde é o cache/sync (pede a senha no próximo boot),
+            // nunca o cofre.
+            _coordinator = null;
+            ShowError(
+                "Conta ativada, mas com pendências",
+                ex,
+                "O RemoteOps vai abrir normalmente e seus dados estão intactos, mas talvez peça a "
+                + "senha de novo na próxima abertura e fique sem sincronizar.",
+                MessageBoxImage.Warning);
+            return activator.Vault;
+        }
         catch (Exception ex)
         {
-            // Falhou ativar a conta (cofre travado, migração incompleta, DPAPI recusando o cache).
-            // NÃO derruba o app: avisa e segue local com a raiz antiga — os dados continuam lá, e
-            // um app que não abre é pior que um app sem sync.
+            // Estourou ANTES de a raiz virar AMK: o cofre em disco segue como estava, então voltar
+            // pro modo local é seguro. Um app que não abre é pior que um app sem sync.
             _coordinator = null;
             _accountActivator = null;
             activator.Dispose();
@@ -399,6 +433,27 @@ public partial class App : Application
                 MessageBoxImage.Warning);
             return null;
         }
+    }
+
+    /// <summary>
+    /// O cofre em disco já foi migrado pra raiz AMK?
+    ///
+    /// <para>Quando já foi, NÃO EXISTE modo local: a chave do banco SQLCipher é um segredo do cofre
+    /// (<c>VaultDbKeyProvider</c>) e só a AMK a abre. Sem conta, o app não tem como abrir o banco —
+    /// e sem esta checagem ele estouraria um <c>CryptographicException</c> genérico no meio do
+    /// startup ("Não foi possível iniciar"), sem dizer ao operador que o que falta é entrar.</para>
+    /// </summary>
+    private static async Task<bool> IsVaultAmkRootedAsync(FileVaultStore fileStore)
+    {
+        foreach (string workspaceId in AppRuntime.VaultWorkspaces)
+        {
+            if (await fileStore.LoadKeyRootingAsync(workspaceId) == VaultKeyRooting.AmkDerived)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>Abre a janela de conta (modal) e devolve a sessão autenticada, ou null se cancelou.</summary>

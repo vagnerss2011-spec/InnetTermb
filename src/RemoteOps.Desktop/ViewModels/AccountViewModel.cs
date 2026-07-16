@@ -135,9 +135,9 @@ public sealed class AccountViewModel : BaseViewModel
     }
 
     /// <summary>
-    /// Sessão autenticada (contém a AMK). TODO(Fase1 T6): o AccountSyncCoordinator consome via
-    /// <see cref="TakeSession"/> — persiste os tokens no VaultTokenStore, cacheia a AMK sob DPAPI
-    /// (spec §4.3) e liga o SyncSessionFactory.
+    /// Sessão autenticada (contém a AMK). Quem consome é o <c>AccountSyncCoordinator</c>, via
+    /// <see cref="TakeSession"/>: ele troca a raiz do cofre pra AMK, migra o cofre local, persiste
+    /// os tokens no VaultTokenStore, cacheia a AMK sob DPAPI (spec §4.3) e liga o sync.
     /// </summary>
     public AccountSession? Session => _session;
 

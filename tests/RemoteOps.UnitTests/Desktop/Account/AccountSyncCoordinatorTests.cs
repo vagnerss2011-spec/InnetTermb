@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -52,6 +53,9 @@ public sealed class AccountSyncCoordinatorTests
         public int ClearCount { get; private set; }
         public CachedAccount? Entry => _entry;
 
+        /// <summary>Falha no SaveAsync — DPAPI recusando, disco cheio, antivírus travando o arquivo.</summary>
+        public Exception? ThrowOnSave { get; set; }
+
         public void Seed(CachedAccount entry) => _entry = entry;
 
         public Task<CachedAccount?> LoadAsync(CancellationToken ct = default)
@@ -65,6 +69,11 @@ public sealed class AccountSyncCoordinatorTests
 
         public Task SaveAsync(CachedAccount account, CancellationToken ct = default)
         {
+            if (ThrowOnSave is not null)
+            {
+                return Task.FromException(ThrowOnSave);
+            }
+
             _entry = new CachedAccount(
                 account.Email, account.WorkspaceId, account.AmkKeyVersion, account.Amk.ToArray());
             SaveCount++;
@@ -350,6 +359,33 @@ public sealed class AccountSyncCoordinatorTests
         // pular o login e reencontrar exatamente o mesmo cofre quebrado, sem chance de se recuperar.
         Assert.Equal(0, cache.SaveCount);
         Assert.Empty(sync.Started);
+    }
+
+    /// <summary>
+    /// FALHA CARA E SUTIL: o cache da AMK falha (DPAPI recusando, disco cheio, antivírus segurando
+    /// o arquivo) DEPOIS de a migração já ter sido gravada no disco. A ativação estoura — mas o
+    /// cofre AMK JÁ EXISTE e é o único que abre o cofre migrado. Quem trata a exceção NÃO pode
+    /// voltar pra raiz DPAPI: o vault.json já tem envelopes re-selados sob a AMK (inclusive a chave
+    /// do banco), e o cofre legado morreria com CryptographicException no startup — app não abre.
+    ///
+    /// Este teste fixa o contrato de que o ativador continua ATIVADO depois do erro, que é o que
+    /// permite ao App.TryActivateAccountAsync se recuperar usando activator.Vault.
+    /// </summary>
+    [Fact]
+    public async Task ActivateFromLogin_WhenAmkCacheFails_StillLeavesTheVaultActivated()
+    {
+        var cache = new FakeAmkCache { ThrowOnSave = new CryptographicException("DPAPI fora") };
+        var activator = new FakeVaultActivator();
+
+        await Assert.ThrowsAsync<CryptographicException>(
+            () => NewCoordinator(cache, activator, new FakeSyncStarter())
+                .ActivateFromLoginAsync(NewSession()));
+
+        // A migração já foi gravada e a raiz já é a AMK: voltar atrás não é opção.
+        Assert.Equal(SampleAmk(), Assert.Single(activator.ActivatedWith));
+        Assert.Equal(VaultWorkspaces, activator.Migrated);
+        // Sem cache: o próximo boot pede a senha de novo. É a degradação CERTA — o cofre continua.
+        Assert.Equal(0, cache.SaveCount);
     }
 
     // ── (e) logout: zera cache e tokens ──────────────────────────────────────────────────
