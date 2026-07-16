@@ -335,9 +335,15 @@ public sealed class AccountViewModel : BaseViewModel
         CloudSyncException { StatusCode: >= HttpStatusCode.InternalServerError }
             => "O servidor está fora do ar. Tente de novo em alguns minutos.",
 
-        CloudSyncException e
-            => $"O servidor recusou a operação (HTTP {(int)e.StatusCode}). "
+        CloudSyncException { StatusCode: { } status }
+            => $"O servidor recusou a operação (HTTP {(int)status}). "
                 + "Se persistir, confira o endereço do RemoteOps Cloud nas configurações.",
+
+        // StatusCode nulo = falha de CONTRATO (campo fora do formato acordado), não de HTTP. O
+        // servidor respondeu, só que numa forma que esta versão do app não sabe ler.
+        CloudSyncException
+            => "O servidor respondeu num formato que este app não reconhece. "
+                + "Atualize o RemoteOps; se persistir, avise o suporte.",
 
         // Sem rede, DNS, TLS, servidor inalcançável.
         HttpRequestException
