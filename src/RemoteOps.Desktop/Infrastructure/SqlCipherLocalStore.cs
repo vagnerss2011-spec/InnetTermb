@@ -6,6 +6,7 @@ using RemoteOps.Contracts.Assets;
 using RemoteOps.Contracts.Sync;
 using RemoteOps.Desktop.Domain;
 using RemoteOps.Sync;
+using RemoteOps.Sync.Storage;
 
 namespace RemoteOps.Desktop.Infrastructure;
 
@@ -28,96 +29,10 @@ public sealed class SqlCipherLocalStore : ILocalStore
 
     // ── Schema ───────────────────────────────────────────────────────────────
 
-    private static async Task EnsureSchemaAsync(SqliteConnection conn, CancellationToken ct)
-    {
-        using SqliteCommand cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            CREATE TABLE IF NOT EXISTS asset_groups (
-                id                        TEXT PRIMARY KEY,
-                workspace_id              TEXT NOT NULL,
-                parent_id                 TEXT,
-                name                      TEXT NOT NULL,
-                default_credential_ref_id TEXT,
-                version                   INTEGER NOT NULL DEFAULT 0
-            );
-            CREATE INDEX IF NOT EXISTS idx_ag_workspace ON asset_groups (workspace_id);
-
-            CREATE TABLE IF NOT EXISTS assets (
-                id           TEXT PRIMARY KEY,
-                workspace_id TEXT NOT NULL,
-                group_id     TEXT,
-                name         TEXT NOT NULL,
-                vendor       TEXT,
-                model        TEXT,
-                device_role  TEXT,
-                site         TEXT,
-                tags_json    TEXT NOT NULL DEFAULT '[]',
-                version      INTEGER NOT NULL DEFAULT 0
-            );
-            CREATE INDEX IF NOT EXISTS idx_assets_workspace ON assets (workspace_id);
-
-            CREATE TABLE IF NOT EXISTS endpoints (
-                id                TEXT PRIMARY KEY,
-                asset_id          TEXT NOT NULL,
-                protocol          TEXT NOT NULL,
-                fqdn              TEXT,
-                ipv4              TEXT,
-                ipv6              TEXT,
-                port              INTEGER NOT NULL DEFAULT 0,
-                prefer_ipv6       INTEGER NOT NULL DEFAULT 1,
-                credential_ref_id TEXT,
-                profile_json      TEXT,
-                version           INTEGER NOT NULL DEFAULT 0
-            );
-            CREATE INDEX IF NOT EXISTS idx_ep_asset ON endpoints (asset_id);
-
-            CREATE TABLE IF NOT EXISTS credential_refs (
-                id                 TEXT PRIMARY KEY,
-                name               TEXT NOT NULL,
-                type               TEXT NOT NULL,
-                scope              TEXT,
-                metadata_json      TEXT,
-                secret_envelope_id TEXT,
-                version            INTEGER NOT NULL DEFAULT 0
-            );
-            CREATE INDEX IF NOT EXISTS idx_cred_scope ON credential_refs (scope);
-            """;
-        await cmd.ExecuteNonQueryAsync(ct);
-
-        // Migração idempotente: bancos criados antes do classificador (v1.2.24-) não têm a coluna
-        // device_role — CREATE TABLE IF NOT EXISTS não altera tabela existente. Adiciona se faltar.
-        await EnsureColumnAsync(conn, "assets", "device_role", "TEXT", ct);
-    }
-
-    /// <summary>
-    /// Adiciona <paramref name="column"/> a <paramref name="table"/> se ainda não existir (via
-    /// PRAGMA table_info). Nomes são constantes internas (não entrada do usuário) — sem risco de
-    /// injeção. ALTER TABLE ADD COLUMN é barato e idempotente por esta checagem.
-    /// </summary>
-    private static async Task EnsureColumnAsync(
-        SqliteConnection conn, string table, string column, string type, CancellationToken ct)
-    {
-        bool exists = false;
-        using (SqliteCommand check = conn.CreateCommand())
-        {
-            check.CommandText = $"PRAGMA table_info({table})";
-            using SqliteDataReader r = await check.ExecuteReaderAsync(ct);
-            while (await r.ReadAsync(ct))
-            {
-                if (string.Equals(r.GetString(1), column, StringComparison.OrdinalIgnoreCase))
-                {
-                    exists = true;
-                    break;
-                }
-            }
-        }
-        if (!exists)
-        {
-            using SqliteCommand alter = conn.CreateCommand();
-            alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {type}";
-            await alter.ExecuteNonQueryAsync(ct);
-        }
-    }
+    // O schema mora no RemoteOps.Sync (LocalSchema) porque o applier do changelog escreve nas MESMAS
+    // tabelas — e duas definições do mesmo schema já divergiram uma vez (ver LocalSchema).
+    private static Task EnsureSchemaAsync(SqliteConnection conn, CancellationToken ct)
+        => LocalSchema.EnsureAsync(conn, ct);
 
     // ── Grupos ───────────────────────────────────────────────────────────────
 
@@ -163,11 +78,10 @@ public sealed class SqlCipherLocalStore : ILocalStore
         cmd.Parameters.AddWithValue("$name", name);
         await cmd.ExecuteNonQueryAsync(ct);
 
-        await PushChangeAsync("asset_group", id, "created",
-            new() { ["id"] = id, ["workspace_id"] = workspaceId, ["name"] = name, ["parent_id"] = parentId },
-            baseVersion: 0, ct);
+        var group = new AssetGroup { Id = id, WorkspaceId = workspaceId, Name = name, ParentId = parentId };
+        await PushChangeAsync("asset_group", id, "created", GroupPatch(group), baseVersion: 0, ct);
 
-        return new AssetGroup { Id = id, WorkspaceId = workspaceId, Name = name, ParentId = parentId };
+        return group;
     }
 
     public async Task RenameGroupAsync(string id, string newName, CancellationToken ct = default)
@@ -175,14 +89,18 @@ public sealed class SqlCipherLocalStore : ILocalStore
         using SqliteConnection conn = await _ctx.OpenConnectionAsync(ct);
         await EnsureSchemaAsync(conn, ct);
 
+        int baseVersion = await CurrentVersionAsync(conn, "asset_groups", id, ct);
+
         using SqliteCommand cmd = conn.CreateCommand();
         cmd.CommandText = "UPDATE asset_groups SET name = $name WHERE id = $id";
         cmd.Parameters.AddWithValue("$name", newName);
         cmd.Parameters.AddWithValue("$id", id);
         await cmd.ExecuteNonQueryAsync(ct);
 
+        // Patch PARCIAL de propósito: rename mexe no nome e só. O applier do outro lado toca apenas
+        // as colunas presentes, então o resto da linha fica intacto.
         await PushChangeAsync("asset_group", id, "updated",
-            new() { ["name"] = newName }, baseVersion: 0, ct);
+            new() { ["name"] = newName }, baseVersion, ct);
     }
 
     public async Task DeleteGroupAsync(string id, CancellationToken ct = default)
@@ -190,12 +108,14 @@ public sealed class SqlCipherLocalStore : ILocalStore
         using SqliteConnection conn = await _ctx.OpenConnectionAsync(ct);
         await EnsureSchemaAsync(conn, ct);
 
+        int baseVersion = await CurrentVersionAsync(conn, "asset_groups", id, ct);
+
         using SqliteCommand cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM asset_groups WHERE id = $id";
         cmd.Parameters.AddWithValue("$id", id);
         await cmd.ExecuteNonQueryAsync(ct);
 
-        await PushChangeAsync("asset_group", id, "deleted", [], baseVersion: 0, ct);
+        await PushChangeAsync("asset_group", id, "deleted", [], baseVersion, ct);
     }
 
     // ── Ativos ───────────────────────────────────────────────────────────────
@@ -316,19 +236,7 @@ public sealed class SqlCipherLocalStore : ILocalStore
         cmd.Parameters.AddWithValue("$tags", JsonSerializer.Serialize(request.Tags, s_json));
         await cmd.ExecuteNonQueryAsync(ct);
 
-        await PushChangeAsync("asset", id, "created",
-            new()
-            {
-                ["id"] = id,
-                ["workspace_id"] = request.WorkspaceId,
-                ["group_id"] = request.GroupId,
-                ["name"] = request.Name,
-                ["vendor"] = request.Vendor,
-                ["model"] = request.Model,
-                ["site"] = request.Site,
-            }, baseVersion: 0, ct);
-
-        return new Asset
+        var asset = new Asset
         {
             Id = id,
             WorkspaceId = request.WorkspaceId,
@@ -340,12 +248,20 @@ public sealed class SqlCipherLocalStore : ILocalStore
             Site = request.Site,
             Tags = [.. request.Tags],
         };
+
+        await PushChangeAsync("asset", id, "created", AssetPatch(asset), baseVersion: 0, ct);
+
+        return asset;
     }
 
     public async Task<Asset> UpdateAssetAsync(Asset asset, CancellationToken ct = default)
     {
         using SqliteConnection conn = await _ctx.OpenConnectionAsync(ct);
         await EnsureSchemaAsync(conn, ct);
+
+        // A versão do BANCO, não a que o chamador trouxe: uma Asset carregada há dois minutos pode
+        // ter versão obsoleta, e baseVersion obsoleta = mudança recusada pelo servidor, em silêncio.
+        int baseVersion = await CurrentVersionAsync(conn, "assets", asset.Id, ct);
 
         using SqliteCommand cmd = conn.CreateCommand();
         cmd.CommandText = """
@@ -365,15 +281,7 @@ public sealed class SqlCipherLocalStore : ILocalStore
         cmd.Parameters.AddWithValue("$ver", asset.Version);
         await cmd.ExecuteNonQueryAsync(ct);
 
-        await PushChangeAsync("asset", asset.Id, "updated",
-            new()
-            {
-                ["group_id"] = asset.GroupId,
-                ["name"] = asset.Name,
-                ["vendor"] = asset.Vendor,
-                ["model"] = asset.Model,
-                ["site"] = asset.Site,
-            }, asset.Version, ct);
+        await PushChangeAsync("asset", asset.Id, "updated", AssetPatch(asset), baseVersion, ct);
 
         return asset;
     }
@@ -382,6 +290,8 @@ public sealed class SqlCipherLocalStore : ILocalStore
     {
         using SqliteConnection conn = await _ctx.OpenConnectionAsync(ct);
         await EnsureSchemaAsync(conn, ct);
+
+        int baseVersion = await CurrentVersionAsync(conn, "assets", id, ct);
 
         using SqliteTransaction tx = conn.BeginTransaction();
 
@@ -399,7 +309,9 @@ public sealed class SqlCipherLocalStore : ILocalStore
 
         await tx.CommitAsync(ct);
 
-        await PushChangeAsync("asset", id, "deleted", [], baseVersion: 0, ct);
+        // Só o delete do ATIVO sobe: os endpoints foram cascateados aqui e o applier do outro device
+        // cascateia igual. Empurrar cada endpoint separado só encheria o changelog.
+        await PushChangeAsync("asset", id, "deleted", [], baseVersion, ct);
     }
 
     // ── Endpoints ────────────────────────────────────────────────────────────
@@ -448,14 +360,7 @@ public sealed class SqlCipherLocalStore : ILocalStore
             endpoint.Profile is null ? (object)DBNull.Value : JsonSerializer.Serialize(endpoint.Profile, s_json));
         await cmd.ExecuteNonQueryAsync(ct);
 
-        await PushChangeAsync("endpoint", endpoint.Id, "created",
-            new()
-            {
-                ["id"] = endpoint.Id,
-                ["asset_id"] = endpoint.AssetId,
-                ["protocol"] = endpoint.Protocol,
-                ["port"] = endpoint.Port,
-            }, baseVersion: 0, ct);
+        await PushChangeAsync("endpoint", endpoint.Id, "created", EndpointPatch(endpoint), baseVersion: 0, ct);
 
         return endpoint;
     }
@@ -464,6 +369,8 @@ public sealed class SqlCipherLocalStore : ILocalStore
     {
         using SqliteConnection conn = await _ctx.OpenConnectionAsync(ct);
         await EnsureSchemaAsync(conn, ct);
+
+        int baseVersion = await CurrentVersionAsync(conn, "endpoints", endpoint.Id, ct);
 
         using SqliteCommand cmd = conn.CreateCommand();
         cmd.CommandText = """
@@ -484,14 +391,7 @@ public sealed class SqlCipherLocalStore : ILocalStore
             endpoint.Profile is null ? (object)DBNull.Value : JsonSerializer.Serialize(endpoint.Profile, s_json));
         await cmd.ExecuteNonQueryAsync(ct);
 
-        await PushChangeAsync("endpoint", endpoint.Id, "updated",
-            new()
-            {
-                ["id"] = endpoint.Id,
-                ["asset_id"] = endpoint.AssetId,
-                ["protocol"] = endpoint.Protocol,
-                ["port"] = endpoint.Port,
-            }, baseVersion: 0, ct);
+        await PushChangeAsync("endpoint", endpoint.Id, "updated", EndpointPatch(endpoint), baseVersion, ct);
 
         return endpoint;
     }
@@ -501,12 +401,14 @@ public sealed class SqlCipherLocalStore : ILocalStore
         using SqliteConnection conn = await _ctx.OpenConnectionAsync(ct);
         await EnsureSchemaAsync(conn, ct);
 
+        int baseVersion = await CurrentVersionAsync(conn, "endpoints", id, ct);
+
         using SqliteCommand cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM endpoints WHERE id = $id";
         cmd.Parameters.AddWithValue("$id", id);
         await cmd.ExecuteNonQueryAsync(ct);
 
-        await PushChangeAsync("endpoint", id, "deleted", [], baseVersion: 0, ct);
+        await PushChangeAsync("endpoint", id, "deleted", [], baseVersion, ct);
     }
 
     // ── Referências de credencial ─────────────────────────────────────────────
@@ -577,14 +479,7 @@ public sealed class SqlCipherLocalStore : ILocalStore
 
         // SecretEnvelopeId é referência (não o segredo) — seguro incluir no outbox.
         await PushChangeAsync("credential_ref", credentialRef.Id, "created",
-            new()
-            {
-                ["id"] = credentialRef.Id,
-                ["name"] = credentialRef.Name,
-                ["type"] = credentialRef.Type,
-                ["scope"] = credentialRef.Scope,
-                ["secret_envelope_id"] = credentialRef.SecretEnvelopeId,
-            }, credentialRef.Version, ct);
+            CredentialRefPatch(credentialRef), baseVersion: 0, ct);
 
         return credentialRef;
     }
@@ -594,6 +489,8 @@ public sealed class SqlCipherLocalStore : ILocalStore
     {
         using SqliteConnection conn = await _ctx.OpenConnectionAsync(ct);
         await EnsureSchemaAsync(conn, ct);
+
+        int baseVersion = await CurrentVersionAsync(conn, "credential_refs", credentialRef.Id, ct);
 
         string? metaJson = credentialRef.Metadata is null
             ? null
@@ -617,14 +514,7 @@ public sealed class SqlCipherLocalStore : ILocalStore
 
         // SecretEnvelopeId é referência (não o segredo) — seguro incluir no outbox.
         await PushChangeAsync("credential_ref", credentialRef.Id, "updated",
-            new()
-            {
-                ["id"] = credentialRef.Id,
-                ["name"] = credentialRef.Name,
-                ["type"] = credentialRef.Type,
-                ["scope"] = credentialRef.Scope,
-                ["secret_envelope_id"] = credentialRef.SecretEnvelopeId,
-            }, credentialRef.Version, ct);
+            CredentialRefPatch(credentialRef), baseVersion, ct);
 
         return credentialRef;
     }
@@ -634,13 +524,79 @@ public sealed class SqlCipherLocalStore : ILocalStore
         using SqliteConnection conn = await _ctx.OpenConnectionAsync(ct);
         await EnsureSchemaAsync(conn, ct);
 
+        int baseVersion = await CurrentVersionAsync(conn, "credential_refs", id, ct);
+
         using SqliteCommand cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM credential_refs WHERE id = $id";
         cmd.Parameters.AddWithValue("$id", id);
         await cmd.ExecuteNonQueryAsync(ct);
 
-        await PushChangeAsync("credential_ref", id, "deleted", [], baseVersion: 0, ct);
+        await PushChangeAsync("credential_ref", id, "deleted", [], baseVersion, ct);
     }
+
+    // ── Outbox: os patches ────────────────────────────────────────────────────
+    //
+    // As chaves do patch são os NOMES DAS COLUNAS, de propósito: o applier do outro device
+    // (LocalEntitiesChangeApplier) grava direto na tabela real, sem tradução — não há onde divergir.
+    // Cada tipo tem UM construtor de patch, usado por created E updated: a versão anterior tinha
+    // dois patches escritos à mão por tipo, e foi exatamente aí que os campos sumiram (o endpoint
+    // subia sem fqdn/ipv4/credential_ref_id, e o device B recebia um host sem endereço e sem senha).
+    //
+    // NUNCA entra segredo aqui (ADR-003). SecretEnvelopeId e PassphraseEnvelopeId são REFERÊNCIAS a
+    // envelopes cifrados — é o que liga o host à senha no outro device, e o servidor não abre nada
+    // com elas. O blob viaja pelo canal /secrets.
+
+    private static Dictionary<string, object?> GroupPatch(AssetGroup group) => new()
+    {
+        ["id"] = group.Id,
+        ["workspace_id"] = group.WorkspaceId,
+        ["parent_id"] = group.ParentId,
+        ["name"] = group.Name,
+        ["default_credential_ref_id"] = group.DefaultCredentialRefId,
+    };
+
+    private static Dictionary<string, object?> AssetPatch(Asset asset) => new()
+    {
+        ["id"] = asset.Id,
+        ["workspace_id"] = asset.WorkspaceId,
+        ["group_id"] = asset.GroupId,
+        ["name"] = asset.Name,
+        ["vendor"] = asset.Vendor,
+        ["model"] = asset.Model,
+        ["device_role"] = asset.DeviceRole,
+        ["site"] = asset.Site,
+        // Colunas *_json viajam já serializadas (o mesmo texto que a coluna guarda) — o applier grava
+        // verbatim e o round-trip não tem chance de reinterpretar nada.
+        ["tags_json"] = JsonSerializer.Serialize(asset.Tags, s_json),
+    };
+
+    private static Dictionary<string, object?> EndpointPatch(Endpoint endpoint) => new()
+    {
+        ["id"] = endpoint.Id,
+        ["asset_id"] = endpoint.AssetId,
+        ["protocol"] = endpoint.Protocol,
+        ["fqdn"] = endpoint.Fqdn,
+        ["ipv4"] = endpoint.Ipv4,
+        ["ipv6"] = endpoint.Ipv6,
+        ["port"] = endpoint.Port,
+        ["prefer_ipv6"] = endpoint.PreferIpv6,
+        ["credential_ref_id"] = endpoint.CredentialRefId,
+        ["profile_json"] = endpoint.Profile is null
+            ? null
+            : JsonSerializer.Serialize(endpoint.Profile, s_json),
+    };
+
+    private static Dictionary<string, object?> CredentialRefPatch(CredentialRef cr) => new()
+    {
+        ["id"] = cr.Id,
+        ["name"] = cr.Name,
+        ["type"] = cr.Type,
+        ["scope"] = cr.Scope,
+        // metadata_json carrega o USERNAME (metadado, não segredo) — sem ele o device B recebe a
+        // senha e não sabe de quem ela é.
+        ["metadata_json"] = cr.Metadata is null ? null : JsonSerializer.Serialize(cr.Metadata, s_json),
+        ["secret_envelope_id"] = cr.SecretEnvelopeId,
+    };
 
     // ── Helpers privados ──────────────────────────────────────────────────────
 
@@ -657,6 +613,26 @@ public sealed class SqlCipherLocalStore : ILocalStore
                 BaseVersion = baseVersion,
                 Patch = patch,
             }], ct);
+
+    /// <summary>
+    /// Versão ATUAL da linha, para usar como <c>BaseVersion</c> do push. 0 se a linha não existe.
+    ///
+    /// <para><b>Por que ler do banco em vez de mandar 0:</b> o servidor recusa a mudança quando
+    /// <c>baseVersion &lt; versão atual</c> (<c>version.conflict</c>) e ela nunca entra no changelog.
+    /// Como toda entidade fica em v1 assim que o primeiro push é aceito, um <c>baseVersion: 0</c>
+    /// fixo fazia TODO update e TODO delete serem silenciosamente recusados — o rename e o host
+    /// apagado simplesmente não chegavam no outro device. O nome da tabela é constante interna
+    /// (não entrada do usuário), então a interpolação não abre injeção.</para>
+    /// </summary>
+    private static async Task<int> CurrentVersionAsync(
+        SqliteConnection conn, string table, string id, CancellationToken ct)
+    {
+        using SqliteCommand cmd = conn.CreateCommand();
+        cmd.CommandText = $"SELECT version FROM {table} WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", id);
+        object? result = await cmd.ExecuteScalarAsync(ct);
+        return result is null or DBNull ? 0 : Convert.ToInt32(result);
+    }
 
     private static async Task<List<Endpoint>> FetchEndpointsForAssetAsync(
         SqliteConnection conn, string assetId, CancellationToken ct)
