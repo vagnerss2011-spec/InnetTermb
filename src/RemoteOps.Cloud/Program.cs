@@ -97,6 +97,16 @@ builder.Services.AddHttpLogging(opt =>
 
 var app = builder.Build();
 
+// ── Schema do banco ──────────────────────────────────────────────────────────
+// Antes de atender request: o container tem que subir com o schema certo ou não
+// subir. Falhar aqui é melhor que servir 500 no primeiro /auth/register.
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DatabaseBootstrapper");
+    DatabaseBootstrapper.MigrateIfRelational(db, logger);
+}
+
 // ── Middlewares ──────────────────────────────────────────────────────────────
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseExceptionHandler();
