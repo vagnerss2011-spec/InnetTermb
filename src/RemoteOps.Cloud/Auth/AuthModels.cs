@@ -1,9 +1,75 @@
 namespace RemoteOps.Cloud.Auth;
 
-public sealed record LoginRequest(string Email, string Password, string DeviceId, string DeviceName);
+/// <summary>
+/// Parâmetros públicos do Argon2id. O servidor só os transporta — quem deriva a
+/// MasterKey é o device (spec §4.1).
+/// </summary>
+public sealed record Argon2Params(int MemoryKib, int Iterations, int Parallelism, int OutputBytes);
 
-public sealed record LoginResponse(string AccessToken, string RefreshToken, DateTimeOffset ExpiresAt);
+/// <summary>
+/// Login. Contas E2EE mandam <see cref="AuthHash"/>; contas legadas mandam
+/// <see cref="Password"/>. Exatamente um dos dois — nunca os dois.
+/// </summary>
+public sealed record LoginRequest(string Email, string? Password, string DeviceId, string DeviceName)
+{
+    /// <summary>Prova de senha derivada no device (base64). O servidor nunca recebe a senha.</summary>
+    public string? AuthHash { get; init; }
+}
+
+/// <summary>
+/// Resposta de login. Os campos E2EE vêm nulos para contas legadas — por isso são
+/// opcionais, e o construtor de 3 argumentos continua válido.
+/// </summary>
+public sealed record LoginResponse(
+    string AccessToken,
+    string RefreshToken,
+    DateTimeOffset ExpiresAt,
+    string? WrappedAmkPwd = null,
+    int? AmkKeyVersion = null,
+    IReadOnlyList<WorkspaceSummary>? Workspaces = null);
+
+public sealed record WorkspaceSummary(string Id, string Name, string Role);
 
 public sealed record RefreshRequest(string RefreshToken, string DeviceId);
 
 public sealed record RefreshResponse(string AccessToken, string RefreshToken, DateTimeOffset ExpiresAt);
+
+/// <summary>
+/// Registro E2EE. Todo material sensível já chega embrulhado: o servidor recebe
+/// AuthHash (prova, não senha) e os dois escrows opacos da AMK.
+/// </summary>
+public sealed record RegisterRequest(
+    string Email,
+    string Argon2Salt,
+    Argon2Params Argon2Params,
+    string AuthHash,
+    string WrappedAmkPwd,
+    string WrappedAmkRec,
+    int AmkKeyVersion,
+    string DeviceId,
+    string DeviceName,
+    string WorkspaceName);
+
+/// <summary>Mesmo formato do login + o workspace recém-criado.</summary>
+public sealed record RegisterResponse(
+    string AccessToken,
+    string RefreshToken,
+    DateTimeOffset ExpiresAt,
+    string WorkspaceId,
+    string? WrappedAmkPwd = null,
+    int? AmkKeyVersion = null,
+    IReadOnlyList<WorkspaceSummary>? Workspaces = null);
+
+/// <summary>Params públicos de KDF para o device derivar a MasterKey antes do login.</summary>
+public sealed record KdfResponse(string Argon2Salt, Argon2Params Argon2Params);
+
+/// <summary>
+/// Troca de senha: re-embrulha a AMK sob a nova KEK. A AMK não muda, então os
+/// segredos do cofre continuam decifráveis e o escrow de recuperação segue válido.
+/// </summary>
+public sealed record ChangePasswordRequest(
+    string OldAuthHash,
+    string NewAuthHash,
+    string NewArgon2Salt,
+    Argon2Params NewArgon2Params,
+    string NewWrappedAmkPwd);

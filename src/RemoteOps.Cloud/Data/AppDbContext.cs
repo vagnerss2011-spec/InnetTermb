@@ -46,7 +46,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.Property(x => x.Email).HasMaxLength(320).IsRequired();
             e.HasIndex(x => x.Email).IsUnique();
             e.Property(x => x.Status).HasMaxLength(50).IsRequired();
-            e.Property(x => x.PasswordHash).HasMaxLength(256).IsRequired();
+            // Opcional desde o E2EE: conta nova autentica por AuthHash e não tem senha legada.
+            e.Property(x => x.PasswordHash).HasMaxLength(256);
+            e.Property(x => x.AuthHashHash).HasMaxLength(256);
         });
 
         model.Entity<MembershipEntity>(e =>

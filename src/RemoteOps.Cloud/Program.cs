@@ -1,5 +1,7 @@
 using System.Text;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using RemoteOps.Cloud.Audit;
@@ -55,11 +57,29 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
+// ── Rate limit do /auth ──────────────────────────────────────────────────────
+// Freia força-bruta de AuthHash e enumeração via /auth/kdf. Particionado por IP:
+// o /auth/kdf é anônimo, então não há identidade melhor antes do login.
+builder.Services.AddRateLimiter(opt =>
+{
+    opt.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    opt.AddPolicy(AuthEndpoints.RateLimitPolicy, ctx =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 20,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+            }));
+});
+
 // ── SignalR ──────────────────────────────────────────────────────────────────
 builder.Services.AddSignalR();
 
 // ── Serviços de domínio ──────────────────────────────────────────────────────
 builder.Services.AddScoped<TokenService>();
+builder.Services.AddScoped<AccountService>();
 builder.Services.AddScoped<PermissionEvaluator>();
 builder.Services.AddScoped<SyncService>();
 builder.Services.AddScoped<AuditService>();
@@ -82,6 +102,7 @@ var app = builder.Build();
 // ── Middlewares ──────────────────────────────────────────────────────────────
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseExceptionHandler();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 

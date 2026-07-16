@@ -17,13 +17,14 @@ public sealed class TokenService(AppDbContext db, IConfiguration config, ILogger
 
     public async Task<LoginResponse?> LoginAsync(LoginRequest req, string ipAddress, CancellationToken ct)
     {
+        var email = EmailNormalizer.Normalize(req.Email);
         var user = await db.Users
-            .FirstOrDefaultAsync(u => u.Email == req.Email && u.Status == "active", ct);
+            .FirstOrDefaultAsync(u => u.Email == email && u.Status == "active", ct);
 
-        if (user is null || !VerifyPassword(req.Password, user.PasswordHash))
+        if (user is null || !VerifyProof(req, user))
         {
             logger.LogWarning("Login failed for email hash {EmailHash} from {Ip}",
-                HashForLog(req.Email), ipAddress);
+                HashForLog(email), ipAddress);
             return null;
         }
 
@@ -34,11 +35,75 @@ public sealed class TokenService(AppDbContext db, IConfiguration config, ILogger
             return null;
         }
 
-        var (accessToken, expiresAt) = IssueAccessToken(user);
-        var refreshToken = await IssueRefreshTokenAsync(user.Id, device.Id, ct);
-
         logger.LogInformation("Login ok for user {UserId} device {DeviceId}", user.Id, device.Id);
-        return new LoginResponse(accessToken, refreshToken, expiresAt);
+        return await IssueSessionAsync(user, device.Id, ct);
+    }
+
+    /// <summary>
+    /// Emite a sessão (tokens + escrow da AMK + workspaces). Compartilhado entre
+    /// login e registro para que os dois devolvam exatamente o mesmo formato.
+    /// </summary>
+    internal async Task<LoginResponse> IssueSessionAsync(UserEntity user, Guid deviceId, CancellationToken ct)
+    {
+        var (accessToken, expiresAt) = IssueAccessToken(user);
+        var refreshToken = await IssueRefreshTokenAsync(user.Id, deviceId, ct);
+        var workspaces = await LoadWorkspacesAsync(user.Id, ct);
+
+        return new LoginResponse(
+            accessToken,
+            refreshToken,
+            expiresAt,
+            // Escrow: cifrado com a KEK, que só existe no device. Devolver isto ao
+            // cliente é seguro por construção — sem a senha não abre.
+            user.WrappedAmkPwd is not null ? Convert.ToBase64String(user.WrappedAmkPwd) : null,
+            user.WrappedAmkPwd is not null ? user.AmkKeyVersion : null,
+            workspaces);
+    }
+
+    internal async Task<IReadOnlyList<WorkspaceSummary>> LoadWorkspacesAsync(Guid userId, CancellationToken ct)
+        => await db.Memberships
+            .AsNoTracking()
+            .Where(m => m.UserId == userId && m.Workspace.Status == "active")
+            .Select(m => new WorkspaceSummary(
+                m.WorkspaceId.ToString(), m.Workspace.Name, m.Role))
+            .ToListAsync(ct);
+
+    internal async Task<DeviceEntity> EnsureDeviceAsync(
+        Guid userId, string deviceIdStr, string deviceName, CancellationToken ct)
+    {
+        if (!Guid.TryParse(deviceIdStr, out var deviceId))
+            deviceId = Guid.NewGuid();
+
+        var device = await db.Devices.FirstOrDefaultAsync(d => d.Id == deviceId && d.UserId == userId, ct);
+        if (device is not null) return device;
+
+        device = new DeviceEntity
+        {
+            Id = deviceId,
+            UserId = userId,
+            Name = deviceName,
+            Status = "active",
+            RegisteredAt = DateTimeOffset.UtcNow,
+        };
+        db.Devices.Add(device);
+        await db.SaveChangesAsync(ct);
+        return device;
+    }
+
+    /// <summary>
+    /// Valida a prova de identidade. Conta E2EE só aceita AuthHash; conta legada só
+    /// aceita senha. Nunca os dois — senão o caminho legado viraria bypass do E2EE.
+    /// </summary>
+    private static bool VerifyProof(LoginRequest req, UserEntity user)
+    {
+        var hasAuthHash = !string.IsNullOrEmpty(req.AuthHash);
+        var hasPassword = !string.IsNullOrEmpty(req.Password);
+        if (hasAuthHash == hasPassword) return false;
+
+        if (hasAuthHash)
+            return user.AuthHashHash is not null && PasswordHasher.Verify(req.AuthHash!, user.AuthHashHash);
+
+        return user.PasswordHash is not null && PasswordHasher.Verify(req.Password!, user.PasswordHash);
     }
 
     public async Task<RefreshResponse?> RefreshAsync(RefreshRequest req, string ipAddress, CancellationToken ct)
@@ -135,36 +200,12 @@ public sealed class TokenService(AppDbContext db, IConfiguration config, ILogger
         return rawToken;
     }
 
-    private async Task<DeviceEntity> EnsureDeviceAsync(Guid userId, string deviceIdStr, string deviceName, CancellationToken ct)
-    {
-        if (!Guid.TryParse(deviceIdStr, out var deviceId))
-            deviceId = Guid.NewGuid();
-
-        var device = await db.Devices.FirstOrDefaultAsync(d => d.Id == deviceId && d.UserId == userId, ct);
-        if (device is not null) return device;
-
-        device = new DeviceEntity
-        {
-            Id = deviceId,
-            UserId = userId,
-            Name = deviceName,
-            Status = "active",
-            RegisteredAt = DateTimeOffset.UtcNow,
-        };
-        db.Devices.Add(device);
-        await db.SaveChangesAsync(ct);
-        return device;
-    }
-
     private SymmetricSecurityKey GetSigningKey()
     {
         var keyStr = config["Jwt:SigningKey"]
             ?? throw new InvalidOperationException("Jwt:SigningKey não configurada. Use variável de ambiente.");
         return new SymmetricSecurityKey(Encoding.UTF8.GetBytes(keyStr));
     }
-
-    private static bool VerifyPassword(string password, string hash)
-        => BCryptNet.Verify(password, hash);
 
     private static string HashToken(string token)
     {
@@ -176,34 +217,5 @@ public sealed class TokenService(AppDbContext db, IConfiguration config, ILogger
     {
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value));
         return Convert.ToHexString(bytes)[..8].ToLowerInvariant();
-    }
-}
-
-// PBKDF2-SHA256 (OWASP 2023: 310 000 iterations). Hash format: "v1:salt_b64:hash_b64"
-file static class BCryptNet
-{
-    private const int Iterations = 310_000;
-    private const int HashLength = 32;
-
-    public static bool Verify(string password, string hash)
-    {
-        if (string.IsNullOrEmpty(hash)) return false;
-        var parts = hash.Split(':');
-        if (parts.Length != 3 || parts[0] != "v1") return false;
-        var salt = Convert.FromBase64String(parts[1]);
-        var expected = Convert.FromBase64String(parts[2]);
-        var actual = Rfc2898DeriveBytes.Pbkdf2(
-            Encoding.UTF8.GetBytes(password), salt,
-            Iterations, HashAlgorithmName.SHA256, HashLength);
-        return CryptographicOperations.FixedTimeEquals(actual, expected);
-    }
-
-    public static string HashPassword(string password)
-    {
-        var salt = RandomNumberGenerator.GetBytes(16);
-        var hash = Rfc2898DeriveBytes.Pbkdf2(
-            Encoding.UTF8.GetBytes(password), salt,
-            Iterations, HashAlgorithmName.SHA256, HashLength);
-        return $"v1:{Convert.ToBase64String(salt)}:{Convert.ToBase64String(hash)}";
     }
 }
