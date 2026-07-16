@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using RemoteOps.Cloud.Configuration;
 using RemoteOps.Cloud.Data;
 using RemoteOps.Cloud.Data.Entities;
 
@@ -201,11 +202,7 @@ public sealed class TokenService(AppDbContext db, IConfiguration config, ILogger
     }
 
     private SymmetricSecurityKey GetSigningKey()
-    {
-        var keyStr = config["Jwt:SigningKey"]
-            ?? throw new InvalidOperationException("Jwt:SigningKey não configurada. Use variável de ambiente.");
-        return new SymmetricSecurityKey(Encoding.UTF8.GetBytes(keyStr));
-    }
+        => new(DeploymentConfig.ResolveJwtSigningKey(config));
 
     private static string HashToken(string token)
     {

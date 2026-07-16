@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
+using RemoteOps.Cloud.Configuration;
 using RemoteOps.Cloud.Data;
 using RemoteOps.Cloud.Data.Entities;
 using RemoteOps.Cloud.Rbac;
@@ -194,13 +195,13 @@ public sealed class AccountService(
 
         // Fallback: deriva do segredo de assinatura do JWT para não exigir uma env var
         // nova em deploys já existentes. HKDF com info dedicada evita reusar a chave
-        // crua de assinatura para outro fim.
-        var signing = config["Jwt:SigningKey"]
-            ?? throw new InvalidOperationException(
-                "Auth:KdfDecoyKeyBase64 ou Jwt:SigningKey precisa estar configurada para o decoy do /auth/kdf.");
+        // crua de assinatura para outro fim. Resolve pelo DeploymentConfig (e não por
+        // config["Jwt:SigningKey"]) porque o deploy do runbook só define
+        // Jwt__SecretKeyBase64 — ler o nome legado direto derrubaria o /auth/kdf lá.
+        var signing = DeploymentConfig.ResolveJwtSigningKey(config);
         return HKDF.DeriveKey(
             HashAlgorithmName.SHA256,
-            Encoding.UTF8.GetBytes(signing),
+            signing,
             outputLength: 32,
             info: Encoding.UTF8.GetBytes("remoteops:kdf-decoy:v1"));
     }

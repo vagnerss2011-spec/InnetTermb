@@ -1,4 +1,3 @@
-using System.Text;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
@@ -6,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using RemoteOps.Cloud.Audit;
 using RemoteOps.Cloud.Auth;
+using RemoteOps.Cloud.Configuration;
 using RemoteOps.Cloud.Data;
 using RemoteOps.Cloud.Errors;
 using RemoteOps.Cloud.Hubs;
@@ -16,17 +16,13 @@ using RemoteOps.Cloud.Sync;
 var builder = WebApplication.CreateBuilder(args);
 
 // ── Banco de dados ──────────────────────────────────────────────────────────
-var connectionString = builder.Configuration.GetConnectionString("Default")
-    ?? throw new InvalidOperationException(
-        "ConnectionString 'Default' não configurada. Use variável de ambiente ConnectionStrings__Default.");
+var connectionString = DeploymentConfig.ResolveConnectionString(builder.Configuration);
 
 builder.Services.AddDbContext<AppDbContext>(opt =>
     opt.UseNpgsql(connectionString));
 
 // ── Autenticação JWT ─────────────────────────────────────────────────────────
-var jwtKey = builder.Configuration["Jwt:SigningKey"]
-    ?? throw new InvalidOperationException(
-        "Jwt:SigningKey não configurada. Use variável de ambiente Jwt__SigningKey.");
+var jwtKey = DeploymentConfig.ResolveJwtSigningKey(builder.Configuration);
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(opt =>
@@ -39,7 +35,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateIssuerSigningKey = true,
             ValidIssuer = builder.Configuration["Jwt:Issuer"],
             ValidAudience = builder.Configuration["Jwt:Audience"],
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+            IssuerSigningKey = new SymmetricSecurityKey(jwtKey),
             ClockSkew = TimeSpan.FromSeconds(30),
         };
         // Permite JWT via query string para SignalR (WebSocket não suporta header Authorization)
