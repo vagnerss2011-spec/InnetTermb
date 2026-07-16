@@ -20,9 +20,22 @@ public interface IAccountVaultActivator
     /// existir depois da troca de raiz.
     /// </summary>
     /// <param name="amk">A AMK (32B). O ativador não toma posse — o chamador ainda a zera.</param>
-    /// <param name="vaultWorkspaceId">Workspace LOCAL do cofre (identidade local, não a do servidor).</param>
+    /// <param name="syncWorkspaceId">
+    /// Workspace do SERVIDOR (GUID): é sob ele que o <c>VaultTokenStore</c> guarda os tokens. Vem
+    /// como parâmetro (e não no construtor) porque só é conhecido DEPOIS do login/cache — o ativador
+    /// precisa existir antes disso.
+    /// </param>
+    /// <param name="vaultWorkspaceIds">
+    /// Workspaces LOCAIS do cofre a migrar (identidade local, não a do servidor). São VÁRIOS: além
+    /// das credenciais do operador ("ws-local"), a chave do banco SQLCipher é ela própria um segredo
+    /// do cofre, guardada sob "local" (ver <c>VaultDbKeyProvider</c>). Deixar um de fora não degrada
+    /// — trava o app.
+    /// </param>
     Task<ITokenStore> ActivateAsync(
-        ReadOnlyMemory<byte> amk, string vaultWorkspaceId, CancellationToken ct = default);
+        ReadOnlyMemory<byte> amk,
+        string syncWorkspaceId,
+        IReadOnlyList<string> vaultWorkspaceIds,
+        CancellationToken ct = default);
 }
 
 /// <summary>
@@ -38,8 +51,4 @@ public interface IAccountSyncStarter
 /// <summary>Conta ativa neste device depois de um login ou de um relaunch pelo cache.</summary>
 /// <param name="Email">Identidade da conta.</param>
 /// <param name="WorkspaceId">Workspace no servidor (GUID).</param>
-/// <param name="SyncStarted">
-/// <c>false</c> quando o sync não subiu (servidor fora, rede caída). O app abre do mesmo jeito —
-/// offline-first (ADR-002): o sync degrada, não bloqueia.
-/// </param>
-public sealed record AccountActivation(string Email, string WorkspaceId, bool SyncStarted);
+public sealed record AccountActivation(string Email, string WorkspaceId);

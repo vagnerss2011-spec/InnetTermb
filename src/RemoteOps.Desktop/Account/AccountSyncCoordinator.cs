@@ -10,7 +10,7 @@ namespace RemoteOps.Desktop.Account;
 ///   <item>troca a raiz do cofre pra AMK + migra o cofre local (<see cref="IAccountVaultActivator"/>);</item>
 ///   <item>persiste os tokens no cofre já ativado (<c>VaultTokenStore</c>);</item>
 ///   <item>cacheia a AMK sob DPAPI (spec §4.3) — é o que dispensa a senha no próximo boot;</item>
-///   <item>liga o sync (best-effort).</item>
+///   <item>liga o sync — <see cref="StartSyncAsync"/>, best-effort.</item>
 /// </list>
 ///
 /// <para><b>A ordem não é arbitrária.</b> A raiz vem antes dos tokens porque o VaultTokenStore
@@ -19,39 +19,52 @@ namespace RemoteOps.Desktop.Account;
 /// falhar: um cache gravado numa ativação incompleta faria o próximo boot pular o login e
 /// reencontrar o mesmo cofre quebrado, sem caminho de recuperação.</para>
 ///
+/// <para><b>Por que o sync é um passo SEPARADO</b> e não o fim da ativação: ele precisa do
+/// <c>WorkspaceContext</c> (SQLCipher), que só nasce DEPOIS do cofre — que é o que a ativação
+/// produz. A cadeia real é AMK → cofre → banco → sync, então o App ativa, monta o banco e só então
+/// chama <see cref="StartSyncAsync"/>. Fingir que cabia tudo numa chamada só exigiria abrir o banco
+/// duas vezes.</para>
+///
 /// <para><b>Postura de falha</b> (ADR-002, offline-first): cofre é obrigatório, sync é best-effort.
 /// Se a migração falhar, estoura — seguir abriria o app com credenciais que não decifram. Se o sync
-/// falhar, a conta ativa mesmo assim e <see cref="AccountActivation.SyncStarted"/> vem
-/// <c>false</c>: servidor fora nunca impede o operador de trabalhar local.</para>
+/// falhar, <see cref="StartSyncAsync"/> devolve <c>false</c> e o app abre do mesmo jeito: servidor
+/// fora nunca impede o operador de trabalhar local.</para>
 /// </summary>
 public sealed class AccountSyncCoordinator
 {
     private readonly IAmkCache _amkCache;
     private readonly IAccountVaultActivator _activator;
     private readonly IAccountSyncStarter _syncStarter;
-    private readonly string _vaultWorkspaceId;
+    private readonly IReadOnlyList<string> _vaultWorkspaceIds;
 
     private ITokenStore? _tokens;
+    private string? _activeWorkspaceId;
 
-    /// <param name="vaultWorkspaceId">
-    /// Workspace do COFRE LOCAL (ex.: <c>ws-local</c>) — a identidade sob a qual os segredos deste
-    /// device estão selados. Não confundir com o workspace do servidor (GUID), que vem da sessão.
+    /// <param name="vaultWorkspaceIds">
+    /// Workspaces do COFRE LOCAL (ex.: <c>ws-local</c>, <c>local</c>) — as identidades sob as quais
+    /// os segredos deste device estão selados. Não confundir com o workspace do SERVIDOR (GUID), que
+    /// vem da sessão. Ver <c>AppRuntime.VaultWorkspaces</c> pra por que são mais de um.
     /// </param>
     public AccountSyncCoordinator(
         IAmkCache amkCache,
         IAccountVaultActivator activator,
         IAccountSyncStarter syncStarter,
-        string vaultWorkspaceId)
+        IReadOnlyList<string> vaultWorkspaceIds)
     {
         ArgumentNullException.ThrowIfNull(amkCache);
         ArgumentNullException.ThrowIfNull(activator);
         ArgumentNullException.ThrowIfNull(syncStarter);
-        ArgumentException.ThrowIfNullOrWhiteSpace(vaultWorkspaceId);
+        ArgumentNullException.ThrowIfNull(vaultWorkspaceIds);
+        if (vaultWorkspaceIds.Count == 0)
+        {
+            throw new ArgumentException(
+                "Informe ao menos um workspace do cofre local a migrar.", nameof(vaultWorkspaceIds));
+        }
 
         _amkCache = amkCache;
         _activator = activator;
         _syncStarter = syncStarter;
-        _vaultWorkspaceId = vaultWorkspaceId;
+        _vaultWorkspaceIds = vaultWorkspaceIds;
     }
 
     /// <summary>
@@ -120,37 +133,28 @@ public sealed class AccountSyncCoordinator
             await _tokens.ClearAsync(ct).ConfigureAwait(false);
             _tokens = null;
         }
+
+        _activeWorkspaceId = null;
     }
 
     /// <summary>Versão do esquema de embrulho da AMK (spec §4.2 <c>amk_key_version</c>).</summary>
     private const int AmkKeyVersionV1 = 1;
 
-    /// <summary>O miolo comum ao login e ao cache: raiz + migração → tokens → sync.</summary>
-    /// <param name="tokens">Tokens novos (login), ou <c>null</c> pra reusar os do cofre (relaunch).</param>
-    private async Task<AccountActivation> ActivateAsync(
-        string email, string workspaceId, byte[] amk, TokenSet? tokens, CancellationToken ct)
+    /// <summary>
+    /// Liga o sync do workspace ativo. Chamado pelo App DEPOIS de montar o banco sobre o cofre já
+    /// ativado. <c>false</c> = não subiu (servidor fora, rede caída, sem conta ativa) — e isso é
+    /// rotina de campo, não erro: o app abre e trabalha local (ADR-002).
+    /// </summary>
+    public async Task<bool> StartSyncAsync(CancellationToken ct = default)
     {
-        // 1+2. Raiz do cofre → AMK e migração do cofre local. Obrigatório: se falhar, estoura.
-        _tokens = await _activator.ActivateAsync(amk, _vaultWorkspaceId, ct).ConfigureAwait(false);
-
-        // 3. Tokens no cofre JÁ ativado (a raiz acabou de virar AMK, então o envelope nasce sob ela).
-        if (tokens is not null)
+        if (_activeWorkspaceId is null)
         {
-            await _tokens.SaveAsync(tokens, ct).ConfigureAwait(false);
+            return false; // sem conta ativa não há o que sincronizar.
         }
 
-        // 4. Sync best-effort. Falhar aqui é rotina de campo (servidor fora, rede de cliente
-        //    bloqueando WebSocket) e não pode impedir o app de abrir — ADR-002.
-        bool syncStarted = await TryStartSyncAsync(workspaceId, ct).ConfigureAwait(false);
-
-        return new AccountActivation(email, workspaceId, syncStarted);
-    }
-
-    private async Task<bool> TryStartSyncAsync(string workspaceId, CancellationToken ct)
-    {
         try
         {
-            await _syncStarter.StartAsync(workspaceId, ct).ConfigureAwait(false);
+            await _syncStarter.StartAsync(_activeWorkspaceId, ct).ConfigureAwait(false);
             return true;
         }
         catch (OperationCanceledException)
@@ -163,5 +167,24 @@ public sealed class AccountSyncCoordinator
             // mostra "Offline"/"Erro de sincronização" pro operador.
             return false;
         }
+    }
+
+    /// <summary>O miolo comum ao login e ao cache: raiz + migração → tokens.</summary>
+    /// <param name="tokens">Tokens novos (login), ou <c>null</c> pra reusar os do cofre (relaunch).</param>
+    private async Task<AccountActivation> ActivateAsync(
+        string email, string workspaceId, byte[] amk, TokenSet? tokens, CancellationToken ct)
+    {
+        // 1+2. Raiz do cofre → AMK e migração do cofre local. Obrigatório: se falhar, estoura.
+        _tokens = await _activator.ActivateAsync(amk, workspaceId, _vaultWorkspaceIds, ct)
+            .ConfigureAwait(false);
+
+        // 3. Tokens no cofre JÁ ativado (a raiz acabou de virar AMK, então o envelope nasce sob ela).
+        if (tokens is not null)
+        {
+            await _tokens.SaveAsync(tokens, ct).ConfigureAwait(false);
+        }
+
+        _activeWorkspaceId = workspaceId;
+        return new AccountActivation(email, workspaceId);
     }
 }

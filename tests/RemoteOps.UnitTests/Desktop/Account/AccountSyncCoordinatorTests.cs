@@ -25,7 +25,13 @@ public sealed class AccountSyncCoordinatorTests
 {
     private const string Email = "op@innet.tec.br";
     private const string WorkspaceId = "ws-guid";
-    private const string VaultWorkspace = "ws-local";
+
+    /// <summary>
+    /// Os DOIS workspaces do cofre local que guardam segredo selado sob a raiz antiga: "ws-local"
+    /// (credenciais do operador) e "local" (a chave do banco SQLCipher — o VaultDbKeyProvider guarda
+    /// a chave do DB como um segredo do cofre). Ver AppRuntime.VaultWorkspaces.
+    /// </summary>
+    private static readonly string[] VaultWorkspaces = ["ws-local", "local"];
 
     private static byte[] SampleAmk() => [.. Enumerable.Range(0, 32).Select(i => (byte)(i + 1))];
 
@@ -79,11 +85,15 @@ public sealed class AccountSyncCoordinatorTests
     {
         public List<byte[]> ActivatedWith { get; } = [];
         public List<string> Migrated { get; } = [];
+        public List<string> TokenScopes { get; } = [];
         public FakeTokenStore Tokens { get; } = new();
         public Exception? Throw { get; set; }
 
         public Task<ITokenStore> ActivateAsync(
-            ReadOnlyMemory<byte> amk, string vaultWorkspaceId, CancellationToken ct = default)
+            ReadOnlyMemory<byte> amk,
+            string syncWorkspaceId,
+            IReadOnlyList<string> vaultWorkspaceIds,
+            CancellationToken ct = default)
         {
             if (Throw is not null)
             {
@@ -92,7 +102,8 @@ public sealed class AccountSyncCoordinatorTests
 
             // Cópia: o coordenador pode zerar a dele depois — o teste precisa do valor de então.
             ActivatedWith.Add(amk.ToArray());
-            Migrated.Add(vaultWorkspaceId);
+            TokenScopes.Add(syncWorkspaceId);
+            Migrated.AddRange(vaultWorkspaceIds);
             return Task.FromResult<ITokenStore>(Tokens);
         }
     }
@@ -132,7 +143,7 @@ public sealed class AccountSyncCoordinatorTests
 
     private static AccountSyncCoordinator NewCoordinator(
         FakeAmkCache cache, FakeVaultActivator activator, FakeSyncStarter sync)
-        => new(cache, activator, sync, VaultWorkspace);
+        => new(cache, activator, sync, VaultWorkspaces);
 
     // ── (a) pós-login: tokens + cache + migração + sync ───────────────────────────────────
 
@@ -149,7 +160,11 @@ public sealed class AccountSyncCoordinatorTests
         var sync = new FakeSyncStarter();
         AccountSession session = NewSession();
 
-        await NewCoordinator(cache, activator, sync).ActivateFromLoginAsync(session);
+        AccountSyncCoordinator coordinator = NewCoordinator(cache, activator, sync);
+        await coordinator.ActivateFromLoginAsync(session);
+        // O sync é um passo separado porque depende do banco, que depende do cofre que a ativação
+        // acabou de produzir (ver AccountSyncCoordinator: a cadeia é AMK → cofre → banco → sync).
+        bool syncStarted = await coordinator.StartSyncAsync();
 
         // a. tokens persistidos no cofre (VaultTokenStore em produção)
         Assert.Equal("access", activator.Tokens.Current!.AccessToken);
@@ -163,10 +178,32 @@ public sealed class AccountSyncCoordinatorTests
 
         // c+d. raiz trocada pra AMK e cofre local migrado
         Assert.Equal(SampleAmk(), Assert.Single(activator.ActivatedWith));
-        Assert.Equal(VaultWorkspace, Assert.Single(activator.Migrated));
+        Assert.Equal(VaultWorkspaces, activator.Migrated);
 
         // e. sync ligado no workspace do servidor
+        Assert.True(syncStarted);
         Assert.Equal(WorkspaceId, Assert.Single(sync.Started));
+        // os tokens são escopados pelo workspace do SERVIDOR, não pelo do cofre local
+        Assert.Equal(WorkspaceId, Assert.Single(activator.TokenScopes));
+    }
+
+    /// <summary>
+    /// REGRESSÃO CARA: o cofre local tem DOIS workspaces com segredo selado sob a raiz antiga —
+    /// "ws-local" (credenciais) e "local" (a chave do banco SQLCipher, que o VaultDbKeyProvider
+    /// guarda como segredo do cofre). Migrar só as credenciais deixaria a chave do DB ilegível sob
+    /// a raiz nova: o RetrieveSecretAsync lança CryptographicException e o app NÃO ABRE — não é
+    /// degradação, é tijolo. Os dois têm que entrar na migração.
+    /// </summary>
+    [Fact]
+    public async Task ActivateFromLogin_MigratesTheDbKeyWorkspaceToo()
+    {
+        var activator = new FakeVaultActivator();
+
+        await NewCoordinator(new FakeAmkCache(), activator, new FakeSyncStarter())
+            .ActivateFromLoginAsync(NewSession());
+
+        Assert.Contains("ws-local", activator.Migrated);
+        Assert.Contains("local", activator.Migrated);
     }
 
     /// <summary>
@@ -216,13 +253,15 @@ public sealed class AccountSyncCoordinatorTests
         var activator = new FakeVaultActivator();
         var sync = new FakeSyncStarter();
 
-        AccountActivation? result = await NewCoordinator(cache, activator, sync).TryActivateFromCacheAsync();
+        AccountSyncCoordinator coordinator = NewCoordinator(cache, activator, sync);
+        AccountActivation? result = await coordinator.TryActivateFromCacheAsync();
+        await coordinator.StartSyncAsync();
 
         Assert.NotNull(result);
         Assert.Equal(Email, result!.Email);
         Assert.Equal(WorkspaceId, result.WorkspaceId);
         Assert.Equal(SampleAmk(), Assert.Single(activator.ActivatedWith));
-        Assert.Equal(VaultWorkspace, Assert.Single(activator.Migrated));
+        Assert.Equal(VaultWorkspaces, activator.Migrated);
         Assert.Equal(WorkspaceId, Assert.Single(sync.Started));
         // Nada de reescrever o cache num caminho que só leu.
         Assert.Equal(0, cache.SaveCount);
@@ -237,13 +276,15 @@ public sealed class AccountSyncCoordinatorTests
         var activator = new FakeVaultActivator();
         var sync = new FakeSyncStarter();
 
-        AccountActivation? result = await NewCoordinator(new FakeAmkCache(), activator, sync)
-            .TryActivateFromCacheAsync();
+        AccountSyncCoordinator coordinator = NewCoordinator(new FakeAmkCache(), activator, sync);
+        AccountActivation? result = await coordinator.TryActivateFromCacheAsync();
+        bool syncStarted = await coordinator.StartSyncAsync();
 
         Assert.Null(result);
         // Sem AMK, nada pode ser tocado: não troca raiz, não migra, não liga sync.
         Assert.Empty(activator.ActivatedWith);
         Assert.Empty(sync.Started);
+        Assert.False(syncStarted);
     }
 
     // ── (d) servidor fora: o app abre offline ────────────────────────────────────────────
@@ -260,12 +301,15 @@ public sealed class AccountSyncCoordinatorTests
         var activator = new FakeVaultActivator();
         var sync = new FakeSyncStarter { Throw = new HttpRequestException("servidor fora") };
 
-        AccountActivation? result = await NewCoordinator(cache, activator, sync).TryActivateFromCacheAsync();
+        AccountSyncCoordinator coordinator = NewCoordinator(cache, activator, sync);
+        AccountActivation? result = await coordinator.TryActivateFromCacheAsync();
+        bool syncStarted = await coordinator.StartSyncAsync();
 
         // A conta abriu, a raiz foi trocada e o cofre migrou — apesar do sync ter falhado.
+        Assert.False(syncStarted);
         Assert.NotNull(result);
         Assert.Equal(SampleAmk(), Assert.Single(activator.ActivatedWith));
-        Assert.Equal(VaultWorkspace, Assert.Single(activator.Migrated));
+        Assert.Equal(VaultWorkspaces, activator.Migrated);
     }
 
     /// <summary>Mesma postura no pós-login: o sync falhar não desfaz um login que deu certo.</summary>
@@ -276,9 +320,12 @@ public sealed class AccountSyncCoordinatorTests
         var activator = new FakeVaultActivator();
         var sync = new FakeSyncStarter { Throw = new HttpRequestException("servidor fora") };
 
-        AccountActivation result = await NewCoordinator(cache, activator, sync)
-            .ActivateFromLoginAsync(NewSession());
+        AccountSyncCoordinator coordinator = NewCoordinator(cache, activator, sync);
+        AccountActivation result = await coordinator.ActivateFromLoginAsync(NewSession());
+        bool syncStarted = await coordinator.StartSyncAsync();
 
+        // O login vingou: cofre ativado, tokens no cofre, AMK cacheada. Só o sync ficou pra trás.
+        Assert.False(syncStarted);
         Assert.Equal(Email, result.Email);
         Assert.Equal(1, cache.SaveCount);
         Assert.NotNull(activator.Tokens.Current);
