@@ -1,4 +1,6 @@
 using System.Net;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -143,6 +145,78 @@ public sealed class CloudApiTests
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
     }
 
+    // ── /secrets sobre HTTP ───────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Secrets_Upsert_Then_Pull_OverHttp()
+    {
+        using var factory = new CloudApiFactory();
+        using var client = factory.CreateClient();
+
+        var (token, workspaceId, deviceId) = await RegisterAndAuthAsync(client);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        client.DefaultRequestHeaders.Add("X-Device-Id", deviceId);
+
+        var envelopeId = Guid.NewGuid().ToString();
+        var ciphertext = Convert.ToBase64String(Rand(120));
+
+        var upsert = await client.PostAsJsonAsync("/secrets", new
+        {
+            workspaceId,
+            envelope = new
+            {
+                id = envelopeId,
+                workspaceId,
+                ciphertext,
+                nonce = Convert.ToBase64String(Rand(12)),
+                tag = Convert.ToBase64String(Rand(16)),
+                wrappedCek = Convert.ToBase64String(Rand(60)),
+                cekNonce = Convert.ToBase64String(Rand(12)),
+                cekTag = Convert.ToBase64String(Rand(16)),
+                keyVersion = "wdk-v1",
+                version = 1,
+            },
+        });
+        Assert.Equal(HttpStatusCode.OK, upsert.StatusCode);
+
+        var pull = await client.GetAsync($"/secrets?workspaceId={workspaceId}&since=0");
+        Assert.Equal(HttpStatusCode.OK, pull.StatusCode);
+
+        var body = await pull.Content.ReadFromJsonAsync<JsonElement>();
+        var envelopes = body.GetProperty("envelopes");
+        Assert.Equal(1, envelopes.GetArrayLength());
+        // Blob volta byte a byte — o servidor não interpretou nada.
+        Assert.Equal(ciphertext, envelopes[0].GetProperty("ciphertext").GetString());
+        Assert.Equal(envelopeId, envelopes[0].GetProperty("id").GetString());
+    }
+
+    [Fact]
+    public async Task Secrets_Returns401_WithoutToken()
+    {
+        using var factory = new CloudApiFactory();
+        using var client = factory.CreateClient();
+
+        var resp = await client.GetAsync($"/secrets?workspaceId={Guid.NewGuid()}&since=0");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Secrets_Returns403_ForWorkspaceWithoutMembership()
+    {
+        using var factory = new CloudApiFactory();
+        using var client = factory.CreateClient();
+
+        var (token, _, deviceId) = await RegisterAndAuthAsync(client, "dono@test.local");
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        client.DefaultRequestHeaders.Add("X-Device-Id", deviceId);
+
+        // Workspace de outra conta (na prática: qualquer workspace sem membership).
+        var resp = await client.GetAsync($"/secrets?workspaceId={Guid.NewGuid()}&since=0");
+
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+    }
+
     // ── Rate limit ────────────────────────────────────────────────────────────
 
     [Fact]
@@ -160,5 +234,32 @@ public sealed class CloudApiTests
         }
 
         Assert.True(sawTooMany, "O /auth deveria devolver 429 depois do burst — rate limiter não está aplicado.");
+    }
+
+    // ── Helper ────────────────────────────────────────────────────────────────
+
+    private static async Task<(string Token, string WorkspaceId, string DeviceId)> RegisterAndAuthAsync(
+        HttpClient client, string email = "operador@test.local")
+    {
+        var deviceId = Guid.NewGuid().ToString();
+        var resp = await client.PostAsJsonAsync("/auth/register", new
+        {
+            email,
+            argon2Salt = Convert.ToBase64String(Rand(16)),
+            argon2Params = new { memoryKib = 65536, iterations = 3, parallelism = 1, outputBytes = 32 },
+            authHash = Convert.ToBase64String(Rand(32)),
+            wrappedAmkPwd = Convert.ToBase64String(Rand(60)),
+            wrappedAmkRec = Convert.ToBase64String(Rand(60)),
+            amkKeyVersion = 1,
+            deviceId,
+            deviceName = "Device A",
+            workspaceName = "Meu Workspace",
+        });
+        resp.EnsureSuccessStatusCode();
+
+        var json = await resp.Content.ReadFromJsonAsync<JsonElement>();
+        return (json.GetProperty("accessToken").GetString()!,
+                json.GetProperty("workspaceId").GetString()!,
+                deviceId);
     }
 }

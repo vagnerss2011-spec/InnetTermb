@@ -1,0 +1,337 @@
+using System.Security.Cryptography;
+using RemoteOps.Cloud.Rbac;
+using RemoteOps.Cloud.Secrets;
+using RemoteOps.Cloud.Sync;
+using RemoteOps.Contracts.Sync;
+using Xunit;
+
+namespace RemoteOps.UnitTests.Cloud;
+
+/// <summary>
+/// Testes do transporte de SecretEnvelope (T5): upsert/pull de blob OPACO + RBAC + monotonicidade.
+///
+/// LIMITAÇÃO CONHECIDA: sem infra de Postgres no repo, roda contra AppDbContext
+/// InMemory. O índice único (WorkspaceId, Cursor) — que é o que transforma uma
+/// corrida de upsert concorrente em 409 em vez de perda silenciosa de dado — NÃO
+/// é enforçado pelo provider InMemory, então esse caminho não é coberto aqui.
+/// </summary>
+public sealed class SecretsTransportTests
+{
+    private static byte[] Rand(int n) => RandomNumberGenerator.GetBytes(n);
+
+    private static SecretEnvelopeDto NewEnvelope(Guid id, Guid workspaceId, int version = 1) =>
+        new(
+            Id: id.ToString(),
+            WorkspaceId: workspaceId.ToString(),
+            Ciphertext: Convert.ToBase64String(Rand(120)),
+            Nonce: Convert.ToBase64String(Rand(12)),
+            Tag: Convert.ToBase64String(Rand(16)),
+            WrappedCek: Convert.ToBase64String(Rand(60)),
+            CekNonce: Convert.ToBase64String(Rand(12)),
+            CekTag: Convert.ToBase64String(Rand(16)),
+            KeyVersion: "wdk-v1",
+            Version: version);
+
+    // ── Round-trip do blob opaco ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task Upsert_Then_Pull_RoundTripsOpaqueBlob()
+    {
+        using var ctx = new CloudTestContext();
+        var (_, ws, user, _) = await ctx.SeedActiveUserAsync("Owner");
+        var permCtx = new PermissionContext(user.Id, ws.Id);
+
+        var dto = NewEnvelope(Guid.NewGuid(), ws.Id);
+        var upserted = await ctx.Secrets.UpsertAsync(ws.Id, dto, permCtx, default);
+        Assert.Equal("ok", upserted.Status);
+
+        var pull = await ctx.Secrets.PullAsync(ws.Id, 0, 200, permCtx, default);
+
+        var got = Assert.Single(pull.Envelopes);
+        // O servidor devolve exatamente o que recebeu — byte a byte, sem interpretar.
+        Assert.Equal(dto.Id, got.Id);
+        Assert.Equal(dto.Ciphertext, got.Ciphertext);
+        Assert.Equal(dto.Nonce, got.Nonce);
+        Assert.Equal(dto.Tag, got.Tag);
+        Assert.Equal(dto.WrappedCek, got.WrappedCek);
+        Assert.Equal(dto.CekNonce, got.CekNonce);
+        Assert.Equal(dto.CekTag, got.CekTag);
+        Assert.Equal(dto.KeyVersion, got.KeyVersion);
+        Assert.Equal(1, got.Version);
+        Assert.True(pull.NextCursor > 0);
+        Assert.False(pull.HasMore);
+    }
+
+    [Fact]
+    public async Task Upsert_UpdatesExistingEnvelope_InPlace()
+    {
+        using var ctx = new CloudTestContext();
+        var (_, ws, user, _) = await ctx.SeedActiveUserAsync("Owner");
+        var permCtx = new PermissionContext(user.Id, ws.Id);
+        var id = Guid.NewGuid();
+
+        await ctx.Secrets.UpsertAsync(ws.Id, NewEnvelope(id, ws.Id), permCtx, default);
+        var v2 = NewEnvelope(id, ws.Id, version: 2);
+        await ctx.Secrets.UpsertAsync(ws.Id, v2, permCtx, default);
+
+        var pull = await ctx.Secrets.PullAsync(ws.Id, 0, 200, permCtx, default);
+
+        // Upsert: 1 linha só, com o conteúdo novo.
+        var got = Assert.Single(pull.Envelopes);
+        Assert.Equal(2, got.Version);
+        Assert.Equal(v2.Ciphertext, got.Ciphertext);
+    }
+
+    // ── Monotonicidade do cursor ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task Cursor_IsMonotonic_AndUpdateAdvancesIt()
+    {
+        using var ctx = new CloudTestContext();
+        var (_, ws, user, _) = await ctx.SeedActiveUserAsync("Owner");
+        var permCtx = new PermissionContext(user.Id, ws.Id);
+
+        var idA = Guid.NewGuid();
+        var a1 = await ctx.Secrets.UpsertAsync(ws.Id, NewEnvelope(idA, ws.Id), permCtx, default);
+        var b1 = await ctx.Secrets.UpsertAsync(ws.Id, NewEnvelope(Guid.NewGuid(), ws.Id), permCtx, default);
+
+        Assert.True(b1.Cursor > a1.Cursor);
+
+        // Device novo baixa tudo.
+        var all = await ctx.Secrets.PullAsync(ws.Id, 0, 200, permCtx, default);
+        Assert.Equal(2, all.Envelopes.Count);
+        Assert.Equal(b1.Cursor, all.NextCursor);
+
+        // Nada novo desde o cursor atual.
+        var empty = await ctx.Secrets.PullAsync(ws.Id, all.NextCursor, 200, permCtx, default);
+        Assert.Empty(empty.Envelopes);
+        Assert.Equal(all.NextCursor, empty.NextCursor);
+
+        // Atualizar um envelope antigo tem que EMPURRAR o cursor pra frente, senão
+        // um device que já sincronizou nunca veria a rotação da senha.
+        var a2 = await ctx.Secrets.UpsertAsync(ws.Id, NewEnvelope(idA, ws.Id, version: 2), permCtx, default);
+        Assert.True(a2.Cursor > b1.Cursor);
+
+        var delta = await ctx.Secrets.PullAsync(ws.Id, all.NextCursor, 200, permCtx, default);
+        var only = Assert.Single(delta.Envelopes);
+        Assert.Equal(idA.ToString(), only.Id);
+        Assert.Equal(2, only.Version);
+    }
+
+    [Fact]
+    public async Task Pull_Paginates_AndReportsHasMore()
+    {
+        using var ctx = new CloudTestContext();
+        var (_, ws, user, _) = await ctx.SeedActiveUserAsync("Owner");
+        var permCtx = new PermissionContext(user.Id, ws.Id);
+
+        for (var i = 0; i < 5; i++)
+            await ctx.Secrets.UpsertAsync(ws.Id, NewEnvelope(Guid.NewGuid(), ws.Id), permCtx, default);
+
+        var page1 = await ctx.Secrets.PullAsync(ws.Id, 0, 2, permCtx, default);
+        Assert.Equal(2, page1.Envelopes.Count);
+        Assert.True(page1.HasMore);
+
+        var page2 = await ctx.Secrets.PullAsync(ws.Id, page1.NextCursor, 2, permCtx, default);
+        Assert.Equal(2, page2.Envelopes.Count);
+        Assert.True(page2.HasMore);
+
+        var page3 = await ctx.Secrets.PullAsync(ws.Id, page2.NextCursor, 2, permCtx, default);
+        Assert.Single(page3.Envelopes);
+        Assert.False(page3.HasMore);
+    }
+
+    // ── Versão monotônica por envelope ────────────────────────────────────────
+
+    [Fact]
+    public async Task Upsert_RejectsStaleVersion()
+    {
+        using var ctx = new CloudTestContext();
+        var (_, ws, user, _) = await ctx.SeedActiveUserAsync("Owner");
+        var permCtx = new PermissionContext(user.Id, ws.Id);
+        var id = Guid.NewGuid();
+
+        await ctx.Secrets.UpsertAsync(ws.Id, NewEnvelope(id, ws.Id, version: 5), permCtx, default);
+
+        // Device atrasado tenta sobrescrever com uma versão velha.
+        var stale = NewEnvelope(id, ws.Id, version: 4);
+        var result = await ctx.Secrets.UpsertAsync(ws.Id, stale, permCtx, default);
+
+        Assert.Equal("conflict", result.Status);
+        Assert.Equal(5, result.CurrentVersion);
+
+        // O conteúdo bom continua lá.
+        var pull = await ctx.Secrets.PullAsync(ws.Id, 0, 200, permCtx, default);
+        Assert.Equal(5, Assert.Single(pull.Envelopes).Version);
+    }
+
+    [Fact]
+    public async Task Upsert_RejectsSameVersion()
+    {
+        using var ctx = new CloudTestContext();
+        var (_, ws, user, _) = await ctx.SeedActiveUserAsync("Owner");
+        var permCtx = new PermissionContext(user.Id, ws.Id);
+        var id = Guid.NewGuid();
+
+        await ctx.Secrets.UpsertAsync(ws.Id, NewEnvelope(id, ws.Id, version: 1), permCtx, default);
+        var result = await ctx.Secrets.UpsertAsync(ws.Id, NewEnvelope(id, ws.Id, version: 1), permCtx, default);
+
+        Assert.Equal("conflict", result.Status);
+    }
+
+    // ── RBAC ──────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Pull_Denied_ForUserWithoutWorkspaceMembership()
+    {
+        using var ctx = new CloudTestContext();
+        var (_, ws, owner, _) = await ctx.SeedActiveUserAsync("Owner");
+        await ctx.Secrets.UpsertAsync(
+            ws.Id, NewEnvelope(Guid.NewGuid(), ws.Id), new PermissionContext(owner.Id, ws.Id), default);
+
+        // Usuário de OUTRO workspace tenta ler o cofre deste.
+        var (_, _, stranger, _) = await ctx.SeedActiveUserAsync("Owner");
+        var strangerCtx = new PermissionContext(stranger.Id, ws.Id);
+
+        var ex = await Assert.ThrowsAsync<RbacDeniedException>(
+            () => ctx.Secrets.PullAsync(ws.Id, 0, 200, strangerCtx, default));
+        Assert.Equal("membership.missing", ex.Message);
+    }
+
+    [Fact]
+    public async Task Upsert_Denied_ForUserWithoutWorkspaceMembership()
+    {
+        using var ctx = new CloudTestContext();
+        var (_, ws, _, _) = await ctx.SeedActiveUserAsync("Owner");
+        var (_, _, stranger, _) = await ctx.SeedActiveUserAsync("Owner");
+
+        await Assert.ThrowsAsync<RbacDeniedException>(
+            () => ctx.Secrets.UpsertAsync(
+                ws.Id, NewEnvelope(Guid.NewGuid(), ws.Id),
+                new PermissionContext(stranger.Id, ws.Id), default));
+
+        Assert.Empty(ctx.Db.SecretEnvelopes);
+    }
+
+    [Fact]
+    public async Task Upsert_Denied_ForReadOnlyRole()
+    {
+        using var ctx = new CloudTestContext();
+        var (_, ws, user, _) = await ctx.SeedActiveUserAsync("ReadOnly");
+
+        // ReadOnly tem sync.pull mas não sync.push.
+        await Assert.ThrowsAsync<RbacDeniedException>(
+            () => ctx.Secrets.UpsertAsync(
+                ws.Id, NewEnvelope(Guid.NewGuid(), ws.Id),
+                new PermissionContext(user.Id, ws.Id), default));
+    }
+
+    [Fact]
+    public async Task Pull_Allowed_ForOperatorRole()
+    {
+        using var ctx = new CloudTestContext();
+        var (_, ws, user, _) = await ctx.SeedActiveUserAsync("Operator");
+
+        // Operator tem credential.use — precisa baixar o cofre pra abrir sessão.
+        var pull = await ctx.Secrets.PullAsync(ws.Id, 0, 200, new PermissionContext(user.Id, ws.Id), default);
+        Assert.Empty(pull.Envelopes);
+    }
+
+    [Fact]
+    public async Task Pull_Denied_ForRevokedDevice()
+    {
+        using var ctx = new CloudTestContext();
+        var (_, ws, user, _) = await ctx.SeedActiveUserAsync("Owner");
+
+        var device = new RemoteOps.Cloud.Data.Entities.DeviceEntity
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            Name = "Laptop Roubado",
+            Status = "revoked",
+            RegisteredAt = DateTimeOffset.UtcNow,
+            RevokedAt = DateTimeOffset.UtcNow,
+        };
+        ctx.Db.Devices.Add(device);
+        await ctx.Db.SaveChangesAsync();
+
+        // Device revogado não pode baixar o cofre nem com token válido.
+        var ex = await Assert.ThrowsAsync<RbacDeniedException>(
+            () => ctx.Secrets.PullAsync(ws.Id, 0, 200,
+                new PermissionContext(user.Id, ws.Id, device.Id), default));
+        Assert.Equal("device.revoked", ex.Message);
+    }
+
+    // ── Isolamento entre workspaces ───────────────────────────────────────────
+
+    [Fact]
+    public async Task Upsert_Rejects_WhenEnvelopeBelongsToAnotherWorkspace()
+    {
+        using var ctx = new CloudTestContext();
+        var (_, wsA, user, _) = await ctx.SeedActiveUserAsync("Owner");
+        var (_, wsB, _, _) = await ctx.SeedActiveUserAsync("Owner");
+        var id = Guid.NewGuid();
+
+        await ctx.Secrets.UpsertAsync(
+            wsA.Id, NewEnvelope(id, wsA.Id), new PermissionContext(user.Id, wsA.Id), default);
+
+        // Owner do wsB dá membership pro user e tenta sequestrar o id do envelope do wsA.
+        ctx.Db.Memberships.Add(new RemoteOps.Cloud.Data.Entities.MembershipEntity
+        {
+            WorkspaceId = wsB.Id,
+            UserId = user.Id,
+            Role = "Owner",
+        });
+        await ctx.Db.SaveChangesAsync();
+
+        var hijack = NewEnvelope(id, wsB.Id, version: 99);
+        var result = await ctx.Secrets.UpsertAsync(
+            wsB.Id, hijack, new PermissionContext(user.Id, wsB.Id), default);
+
+        Assert.Equal("conflict", result.Status);
+
+        // O envelope do wsA continua intacto.
+        var stillA = ctx.Db.SecretEnvelopes.Single(e => e.Id == id);
+        Assert.Equal(wsA.Id, stillA.WorkspaceId);
+        Assert.Equal(1, stillA.Version);
+    }
+
+    [Fact]
+    public async Task Pull_OnlyReturnsEnvelopesOfRequestedWorkspace()
+    {
+        using var ctx = new CloudTestContext();
+        var (_, wsA, userA, _) = await ctx.SeedActiveUserAsync("Owner");
+        var (_, wsB, userB, _) = await ctx.SeedActiveUserAsync("Owner");
+
+        await ctx.Secrets.UpsertAsync(
+            wsA.Id, NewEnvelope(Guid.NewGuid(), wsA.Id), new PermissionContext(userA.Id, wsA.Id), default);
+        await ctx.Secrets.UpsertAsync(
+            wsB.Id, NewEnvelope(Guid.NewGuid(), wsB.Id), new PermissionContext(userB.Id, wsB.Id), default);
+
+        var pullA = await ctx.Secrets.PullAsync(wsA.Id, 0, 200, new PermissionContext(userA.Id, wsA.Id), default);
+        var onlyA = Assert.Single(pullA.Envelopes);
+        Assert.Equal(wsA.Id.ToString(), onlyA.WorkspaceId);
+    }
+
+    // ── O changelog continua sem segredo ──────────────────────────────────────
+
+    [Fact]
+    public async Task SyncPush_StillRejects_SecretEnvelopeInChangelog()
+    {
+        using var ctx = new CloudTestContext();
+        var (_, ws, user, _) = await ctx.SeedActiveUserAsync("Owner");
+
+        // O blob viaja por /secrets; o changelog de metadados segue recusando.
+        var result = await ctx.Sync.PushAsync(ws.Id, [new SyncChange
+        {
+            EntityType = "SecretEnvelope",
+            EntityId = Guid.NewGuid().ToString(),
+            Operation = "created",
+            BaseVersion = 0,
+            Patch = [],
+        }], new PermissionContext(user.Id, ws.Id), default);
+
+        Assert.Equal("conflict", result.Status);
+        Assert.Equal("secret-envelope.no-auto-merge", Assert.Single(result.Conflicts!).Reason);
+    }
+}

@@ -10,6 +10,7 @@ using RemoteOps.Cloud.Data;
 using RemoteOps.Cloud.Errors;
 using RemoteOps.Cloud.Hubs;
 using RemoteOps.Cloud.Rbac;
+using RemoteOps.Cloud.Secrets;
 using RemoteOps.Cloud.Sync;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -82,6 +83,7 @@ builder.Services.AddScoped<TokenService>();
 builder.Services.AddScoped<AccountService>();
 builder.Services.AddScoped<PermissionEvaluator>();
 builder.Services.AddScoped<SyncService>();
+builder.Services.AddScoped<SecretsService>();
 builder.Services.AddScoped<AuditService>();
 
 // ── Tratamento de erros ──────────────────────────────────────────────────────
@@ -111,6 +113,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "healthy" })).AllowAnonymo
 
 app.MapAuthEndpoints();
 app.MapSyncEndpoints();
+app.MapSecretsEndpoints();
 
 // ── SignalR Hub ───────────────────────────────────────────────────────────────
 app.MapHub<SyncHub>("/hubs/sync");

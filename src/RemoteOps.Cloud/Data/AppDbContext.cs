@@ -105,6 +105,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.HasIndex(x => x.WorkspaceId);
             e.Property(x => x.Algorithm).HasMaxLength(100).IsRequired();
             e.Property(x => x.KeyVersion).HasMaxLength(100).IsRequired();
+            // Cursor único por workspace: uma corrida entre dois upserts vira violação
+            // de unicidade (→ 409, cliente re-tenta) em vez de dois envelopes com o
+            // mesmo cursor, caso em que um pull `> since` perderia um deles em silêncio.
+            e.HasIndex(x => new { x.WorkspaceId, x.Cursor }).IsUnique();
         });
 
         model.Entity<ChangelogEntryEntity>(e =>

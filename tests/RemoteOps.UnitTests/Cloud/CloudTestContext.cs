@@ -8,6 +8,7 @@ using RemoteOps.Cloud.Data;
 using RemoteOps.Cloud.Data.Entities;
 using RemoteOps.Cloud.Hubs;
 using RemoteOps.Cloud.Rbac;
+using RemoteOps.Cloud.Secrets;
 using RemoteOps.Cloud.Sync;
 
 namespace RemoteOps.UnitTests.Cloud;
@@ -24,6 +25,7 @@ internal sealed class CloudTestContext : IDisposable
     public SyncService Sync { get; }
     public TokenService Tokens { get; }
     public AccountService Accounts { get; }
+    public SecretsService Secrets { get; }
 
     private static int _counter;
 
@@ -55,6 +57,7 @@ internal sealed class CloudTestContext : IDisposable
         var config = TestConfig();
         Tokens = new TokenService(Db, config, NullLogger<TokenService>.Instance);
         Accounts = new AccountService(Db, Tokens, config, NullLogger<AccountService>.Instance);
+        Secrets = new SecretsService(Db, Rbac, Audit, NullLogger<SecretsService>.Instance);
     }
 
     // ── Helpers de seed ────────────────────────────────────────────────────
