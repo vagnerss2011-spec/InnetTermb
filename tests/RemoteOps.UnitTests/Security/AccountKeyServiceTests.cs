@@ -95,4 +95,79 @@ public class AccountKeyServiceTests
         byte[] raw2 = RecoveryKeyCodec.Parse(k.ToLowerInvariant().Replace("-", " "));
         Assert.Equal(raw, raw2);
     }
+
+    // ── FIX A (higiene LOW #3): overloads char[] não podem mudar a derivação ──
+
+    /// <summary>
+    /// PROVA de que o overload <c>char[]</c> (o que a UI usa) deriva EXATAMENTE a mesma MasterKey
+    /// (AuthHash + KEK) que o overload <c>string</c> (só-teste). Se divergissem, um device registrado
+    /// por um caminho não abriria o cofre pelo outro. A senha inclui não-ASCII e um emoji (par
+    /// substituto) pra garantir que a conversão char[]→UTF-8 casa byte a byte com string→UTF-8.
+    /// </summary>
+    [Fact]
+    public void DeriveFromPassword_CharArray_ProducesSameKeyAsString()
+    {
+        var svc = new AccountKeyService();
+        byte[] salt = RandomNumberGenerator.GetBytes(16);
+        const string pwd = "s3nh4-çãØ-🔒-forte"; // pragma: allowlist secret
+
+        AccountKeyMaterial fromString = svc.DeriveFromPassword(pwd, salt, Argon2Params.Default);
+        AccountKeyMaterial fromChars = svc.DeriveFromPassword(pwd.ToCharArray(), salt, Argon2Params.Default);
+
+        Assert.Equal(fromString.AuthHash, fromChars.AuthHash);
+        Assert.Equal(fromString.Kek, fromChars.Kek);
+    }
+
+    /// <summary>
+    /// O serviço NÃO pode zerar o <c>char[]</c> do chamador: o login deriva duas vezes (auth e depois
+    /// unwrap) com o MESMO buffer, e quem zera é a UI, uma vez, no fim. Se o serviço zerasse, a 2ª
+    /// derivação usaria uma senha vazia e o cofre não abriria.
+    /// </summary>
+    [Fact]
+    public void DeriveFromPassword_CharArray_DoesNotMutateCallerBuffer()
+    {
+        var svc = new AccountKeyService();
+        byte[] salt = RandomNumberGenerator.GetBytes(16);
+        char[] pwd = "s3nh4-mto-forte!".ToCharArray(); // pragma: allowlist secret
+        char[] original = (char[])pwd.Clone();
+
+        svc.DeriveFromPassword(pwd, salt, Argon2Params.Default);
+
+        Assert.Equal(original, pwd);
+    }
+
+    /// <summary>
+    /// Fim a fim pelo caminho char[]: <c>Enroll(char[])</c> gera a AMK e <c>UnwrapAmkWithPassword</c>
+    /// a recupera — e o overload string (só-teste) recupera a MESMA AMK, provando que o caminho da UI
+    /// é interoperável com o caminho legado dos testes (a derivação não mudou).
+    /// </summary>
+    [Fact]
+    public void Enroll_CharArray_RoundTrips_AndIsCrossCompatibleWithString()
+    {
+        var svc = new AccountKeyService();
+        const string pwd = "s3nh4-mto-forte!"; // pragma: allowlist secret
+
+        AccountEnrollment enroll = svc.Enroll(pwd.ToCharArray());
+
+        byte[] amkChars = svc.UnwrapAmkWithPassword(
+            pwd.ToCharArray(), enroll.Argon2Salt, enroll.Params, enroll.WrappedAmkPwd);
+        Assert.Equal(enroll.Amk, amkChars);
+
+        byte[] amkString = svc.UnwrapAmkWithPassword(
+            pwd, enroll.Argon2Salt, enroll.Params, enroll.WrappedAmkPwd);
+        Assert.Equal(enroll.Amk, amkString);
+    }
+
+    /// <summary>Troca de senha pelo overload char[] mantém a mesma AMK (segredos intactos).</summary>
+    [Fact]
+    public void RewrapForNewPassword_CharArray_KeepsSameAmk()
+    {
+        var svc = new AccountKeyService();
+        AccountEnrollment enroll = svc.Enroll("senha-antiga".ToCharArray());
+        (byte[] salt, Argon2Params p, byte[] wrapped, byte[] _) =
+            svc.RewrapForNewPassword(enroll.Amk, "senha-nova".ToCharArray());
+
+        byte[] amk = svc.UnwrapAmkWithPassword("senha-nova".ToCharArray(), salt, p, wrapped);
+        Assert.Equal(enroll.Amk, amk);
+    }
 }

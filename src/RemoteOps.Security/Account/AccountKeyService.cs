@@ -25,10 +25,101 @@ public sealed class AccountKeyService
     private const string AadPwd = "amk|pwd|v1";
     private const string AadRec = "amk|rec|v1";
 
-    /// <summary>Deriva (AuthHash, KEK) da senha. Zera a MasterKey intermediária.</summary>
+    // ── Higiene de senha (LOW #3): a UI entra pelos overloads char[]. Cada um converte o char[] pra
+    //    um buffer UTF-8 PRÓPRIO e o zera no finally (inclusive em exceção); o char[] do chamador NÃO
+    //    é tocado (o login deriva 2x com o mesmo buffer, e quem zera é a UI, uma vez, no fim). Os
+    //    overloads string são SÓ-TESTE: string é imutável e não pode ser zerada — mesmo assim eles
+    //    também zeram o buffer UTF-8 intermediário, porque isso não custa nada.
+
+    /// <summary>Deriva (AuthHash, KEK) da senha (char[]). Zera a MasterKey e o buffer UTF-8 intermediários.</summary>
+    public AccountKeyMaterial DeriveFromPassword(char[] password, byte[] salt, Argon2Params p)
+    {
+        byte[] passwordBytes = Encoding.UTF8.GetBytes(password);
+        try
+        {
+            return DeriveFromPasswordBytes(passwordBytes, salt, p);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(passwordBytes);
+        }
+    }
+
+    /// <summary>Só-teste: overload string (imutável, não-zerável). A UI usa o overload char[].</summary>
     public AccountKeyMaterial DeriveFromPassword(string password, byte[] salt, Argon2Params p)
     {
-        byte[] master = Argon2(password, salt, p);
+        byte[] passwordBytes = Encoding.UTF8.GetBytes(password);
+        try
+        {
+            return DeriveFromPasswordBytes(passwordBytes, salt, p);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(passwordBytes);
+        }
+    }
+
+    /// <summary>Cria uma conta nova: gera AMK + salt + chave de recuperação e monta os dois escrows.</summary>
+    public AccountEnrollment Enroll(char[] password)
+    {
+        byte[] salt = RandomNumberGenerator.GetBytes(SaltSize);
+        Argon2Params p = Argon2Params.Default;
+        return EnrollWithMaterial(DeriveFromPassword(password, salt, p), salt, p);
+    }
+
+    /// <summary>Só-teste: overload string (imutável, não-zerável). A UI usa o overload char[].</summary>
+    public AccountEnrollment Enroll(string password)
+    {
+        byte[] salt = RandomNumberGenerator.GetBytes(SaltSize);
+        Argon2Params p = Argon2Params.Default;
+        return EnrollWithMaterial(DeriveFromPassword(password, salt, p), salt, p);
+    }
+
+    /// <summary>Device novo: recupera a AMK usando só a senha (char[]) + o escrow por senha. Lança se a senha estiver errada.</summary>
+    public byte[] UnwrapAmkWithPassword(char[] password, byte[] salt, Argon2Params p, byte[] wrappedAmkPwd)
+        => UnwrapAmkWithMaterial(DeriveFromPassword(password, salt, p), wrappedAmkPwd);
+
+    /// <summary>Só-teste: overload string (imutável, não-zerável). A UI usa o overload char[].</summary>
+    public byte[] UnwrapAmkWithPassword(string password, byte[] salt, Argon2Params p, byte[] wrappedAmkPwd)
+        => UnwrapAmkWithMaterial(DeriveFromPassword(password, salt, p), wrappedAmkPwd);
+
+    /// <summary>Recupera a AMK pela chave de recuperação (segundo escrow). Lança se a chave estiver errada.</summary>
+    public byte[] UnwrapAmkWithRecoveryKey(string recoveryKey, byte[] wrappedAmkRec)
+    {
+        byte[] recKey = DeriveRecoveryWrapKey(recoveryKey);
+        try
+        {
+            return UnwrapKey(wrappedAmkRec, recKey, AadRec);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(recKey);
+        }
+    }
+
+    /// <summary>Troca de senha: re-embrulha a MESMA AMK sob a nova senha (char[]; segredos intactos).</summary>
+    public (byte[] Salt, Argon2Params Params, byte[] WrappedAmkPwd, byte[] AuthHash) RewrapForNewPassword(
+        byte[] amk, char[] newPassword)
+    {
+        byte[] salt = RandomNumberGenerator.GetBytes(SaltSize);
+        Argon2Params p = Argon2Params.Default;
+        return RewrapWithMaterial(DeriveFromPassword(newPassword, salt, p), amk, salt, p);
+    }
+
+    /// <summary>Só-teste: overload string (imutável, não-zerável). A UI usa o overload char[].</summary>
+    public (byte[] Salt, Argon2Params Params, byte[] WrappedAmkPwd, byte[] AuthHash) RewrapForNewPassword(
+        byte[] amk, string newPassword)
+    {
+        byte[] salt = RandomNumberGenerator.GetBytes(SaltSize);
+        Argon2Params p = Argon2Params.Default;
+        return RewrapWithMaterial(DeriveFromPassword(newPassword, salt, p), amk, salt, p);
+    }
+
+    // ── Núcleo compartilhado pelos overloads char[]/string: a senha já virou (AuthHash, KEK) ──
+
+    private AccountKeyMaterial DeriveFromPasswordBytes(byte[] passwordBytes, byte[] salt, Argon2Params p)
+    {
+        byte[] master = Argon2(passwordBytes, salt, p);
         try
         {
             byte[] authHash = Hkdf(master, AuthInfo);
@@ -41,12 +132,8 @@ public sealed class AccountKeyService
         }
     }
 
-    /// <summary>Cria uma conta nova: gera AMK + salt + chave de recuperação e monta os dois escrows.</summary>
-    public AccountEnrollment Enroll(string password)
+    private static AccountEnrollment EnrollWithMaterial(AccountKeyMaterial material, byte[] salt, Argon2Params p)
     {
-        byte[] salt = RandomNumberGenerator.GetBytes(SaltSize);
-        Argon2Params p = Argon2Params.Default;
-        AccountKeyMaterial material = DeriveFromPassword(password, salt, p);
         byte[] amk = RandomNumberGenerator.GetBytes(KeySize);
         string recovery = RecoveryKeyCodec.Generate();
         byte[] recKey = DeriveRecoveryWrapKey(recovery);
@@ -63,10 +150,8 @@ public sealed class AccountKeyService
         }
     }
 
-    /// <summary>Device novo: recupera a AMK usando só a senha + o escrow por senha. Lança se a senha estiver errada.</summary>
-    public byte[] UnwrapAmkWithPassword(string password, byte[] salt, Argon2Params p, byte[] wrappedAmkPwd)
+    private static byte[] UnwrapAmkWithMaterial(AccountKeyMaterial material, byte[] wrappedAmkPwd)
     {
-        AccountKeyMaterial material = DeriveFromPassword(password, salt, p);
         try
         {
             return UnwrapKey(wrappedAmkPwd, material.Kek, AadPwd);
@@ -77,27 +162,9 @@ public sealed class AccountKeyService
         }
     }
 
-    /// <summary>Recupera a AMK pela chave de recuperação (segundo escrow). Lança se a chave estiver errada.</summary>
-    public byte[] UnwrapAmkWithRecoveryKey(string recoveryKey, byte[] wrappedAmkRec)
+    private static (byte[] Salt, Argon2Params Params, byte[] WrappedAmkPwd, byte[] AuthHash) RewrapWithMaterial(
+        AccountKeyMaterial material, byte[] amk, byte[] salt, Argon2Params p)
     {
-        byte[] recKey = DeriveRecoveryWrapKey(recoveryKey);
-        try
-        {
-            return UnwrapKey(wrappedAmkRec, recKey, AadRec);
-        }
-        finally
-        {
-            CryptographicOperations.ZeroMemory(recKey);
-        }
-    }
-
-    /// <summary>Troca de senha: re-embrulha a MESMA AMK sob a nova senha (segredos intactos).</summary>
-    public (byte[] Salt, Argon2Params Params, byte[] WrappedAmkPwd, byte[] AuthHash) RewrapForNewPassword(
-        byte[] amk, string newPassword)
-    {
-        byte[] salt = RandomNumberGenerator.GetBytes(SaltSize);
-        Argon2Params p = Argon2Params.Default;
-        AccountKeyMaterial material = DeriveFromPassword(newPassword, salt, p);
         try
         {
             byte[] wrapped = WrapKey(amk, material.Kek, AadPwd);
@@ -143,9 +210,9 @@ public sealed class AccountKeyService
         return plaintext;
     }
 
-    private static byte[] Argon2(string password, byte[] salt, Argon2Params p)
+    private static byte[] Argon2(byte[] passwordBytes, byte[] salt, Argon2Params p)
     {
-        var argon = new Argon2id(Encoding.UTF8.GetBytes(password))
+        var argon = new Argon2id(passwordBytes)
         {
             Salt = salt,
             MemorySize = p.MemoryKib,
