@@ -183,6 +183,12 @@ public partial class App : Application
             // A partir daqui, uma 2ª instância que tentar abrir vai só trazer esta janela pra frente.
             _singleInstance.ListenForActivation(() => Dispatcher.Invoke(BringMainWindowToFront));
 
+            // Flush-ao-fechar (Fase 2, item A): logoff/shutdown do Windows encerra o app sem passar
+            // por um fechamento "normal" de janela — SessionEnding é a única chance de drenar o outbox
+            // antes de o processo morrer. O Alt+F4/fechar-janela cai no OnExit (mais abaixo). Os dois
+            // chamam o MESMO flush, guardado pra rodar uma vez só.
+            SessionEnding += OnSessionEnding;
+
             // Cloud sync (ADR-013) atrás da feature flag cloud.sync.enabled (default OFF).
             // OFF (ou config incompleta) → app idêntico ao atual: offline-first, sem rede.
             //
@@ -290,8 +296,54 @@ public partial class App : Application
         return true;
     }
 
+    // Teto do flush-ao-fechar: encurta a janela de perda dos últimos segundos SEM travar o fechamento
+    // se a rede estiver fora. O outbox é durável — o que não subir agora sobe no próximo boot.
+    private static readonly TimeSpan FlushOnCloseTimeout = TimeSpan.FromSeconds(4);
+    private bool _outboxFlushed;
+
+    private void OnSessionEnding(object sender, SessionEndingCancelEventArgs e)
+    {
+        // Logoff/shutdown do Windows: última chance de subir o pendente antes de o processo morrer.
+        FlushOutboxOnClose();
+    }
+
+    /// <summary>
+    /// Drena o outbox uma vez, no fechamento, com teto de tempo (Fase 2, item A). Roda na UI thread,
+    /// mas o flush NÃO toca o Dispatcher (ver <c>SyncOrchestrator.FlushOutboxAsync</c>), então bloquear
+    /// aqui não gera deadlock; e o próprio flush respeita o timeout. Best-effort e idempotente: chamado
+    /// por <see cref="OnSessionEnding"/> E por <see cref="OnExit"/>, mas só o primeiro efetivamente roda.
+    /// </summary>
+    private void FlushOutboxOnClose()
+    {
+        if (_outboxFlushed)
+        {
+            return;
+        }
+
+        _outboxFlushed = true;
+
+        SyncSession? session = _syncSession;
+        if (session is null)
+        {
+            return; // sem sync ativo (offline-first): nada a drenar.
+        }
+
+        try
+        {
+            session.FlushOutboxAsync(FlushOnCloseTimeout).GetAwaiter().GetResult();
+        }
+        catch (Exception)
+        {
+            // best-effort: rede fora no fechamento é rotina, não erro.
+        }
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
+        // Flush final do outbox ANTES de descartar a sessão (Fase 2, item A). Se o SessionEnding já
+        // rodou (logoff), a guarda evita o segundo flush — nada de esperar o timeout duas vezes.
+        FlushOutboxOnClose();
+
         // Para o timer do debounce antes de derrubar a sessão: um Signal em voo não deve tentar
         // reconciliar sobre uma VM/janela já em processo de encerramento.
         _syncReload?.Dispose();

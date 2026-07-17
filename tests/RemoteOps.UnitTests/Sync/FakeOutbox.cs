@@ -15,9 +15,17 @@ internal sealed class FakeOutbox : ISyncClient
 
     public long CurrentCursor => _cursor;
 
+    public event Action? LocalChangePushed;
+
     public Task PushAsync(IEnumerable<SyncChange> changes, CancellationToken ct = default)
     {
+        int before = _items.Count;
         _items.AddRange(changes);
+        if (_items.Count > before)
+        {
+            LocalChangePushed?.Invoke();
+        }
+
         return Task.CompletedTask;
     }
 

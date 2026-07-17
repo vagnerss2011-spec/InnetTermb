@@ -12,13 +12,24 @@ internal sealed class FakeCloudSyncApi : ICloudSyncApi
 
     public Func<PushRequest, PushResult>? PushHandler { get; set; }
 
+    /// <summary>
+    /// Handler ASSÍNCRONO do push, pra simular uma rede que PENDURA (respeitando o token de cancelamento):
+    /// usado pelo teste do flush no fechamento pra provar que o timeout não trava. Tem precedência.
+    /// </summary>
+    public Func<PushRequest, CancellationToken, Task<PushResult>>? PushAsyncHandler { get; set; }
+
     public List<(string Workspace, long Cursor, int PageSize)> Pulls { get; } = [];
 
     public Queue<PullResponse> PullResponses { get; } = new();
 
-    public Task<PushResult> PushAsync(PushRequest request, CancellationToken ct = default)
+    public async Task<PushResult> PushAsync(PushRequest request, CancellationToken ct = default)
     {
         Pushes.Add(request);
+
+        if (PushAsyncHandler is not null)
+        {
+            return await PushAsyncHandler(request, ct);
+        }
 
         PushResult result;
         if (PushHandler is not null)
@@ -34,7 +45,7 @@ internal sealed class FakeCloudSyncApi : ICloudSyncApi
             result = new PushResult("ok", null);
         }
 
-        return Task.FromResult(result);
+        return result;
     }
 
     public Task<PullResponse> PullAsync(

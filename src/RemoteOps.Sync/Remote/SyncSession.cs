@@ -1,9 +1,13 @@
+using System.Threading;
+
 namespace RemoteOps.Sync.Remote;
 
 /// <summary>
 /// Coordena o sync de um workspace atrás da feature flag <c>cloud.sync.enabled</c>: liga o canal de
-/// hints (<see cref="ISyncHintChannel"/>) ao <see cref="SyncOrchestrator"/> (hint → pull incremental)
-/// e roda um laço de fundo por intervalo. Construído e iniciado pelo Desktop apenas com a flag ON.
+/// hints (<see cref="ISyncHintChannel"/>) ao <see cref="SyncOrchestrator"/> (hint → pull incremental),
+/// roda um laço de fundo por intervalo e — Fase 2, item A — dispara um sync incremental logo APÓS uma
+/// edição local (push-ao-mudar), com debounce pra agrupar a rajada. Construído e iniciado pelo Desktop
+/// apenas com a flag ON.
 /// </summary>
 public sealed class SyncSession : IAsyncDisposable
 {
@@ -12,17 +16,42 @@ public sealed class SyncSession : IAsyncDisposable
     private readonly string _workspaceId;
     private readonly TimeSpan _interval;
 
+    // ── Push-ao-mudar (Fase 2, item A) ──────────────────────────────────────────────────────
+    // Uma edição local grava no outbox e levanta LocalChangePushed; em vez de sincronizar na hora
+    // (rajada de edições = N ciclos), rearma um timer e só sincroniza quando os sinais PARAM por
+    // _pushDebounce. Assim uma sequência de edições vira UM sync incremental. null = sem gatilho
+    // (caminho legado/env-var sem a fonte de mudanças ligada).
+    private readonly ISyncClient? _localChanges;
+    private readonly TimeSpan _pushDebounce;
+    private readonly Timer? _pushTimer;
+    private readonly object _pushGate = new();
+
     private CancellationTokenSource? _cts;
     private Task? _loop;
+    private bool _disposed;
 
     public SyncSession(
-        SyncOrchestrator orchestrator, ISyncHintChannel hints, string workspaceId, TimeSpan interval)
+        SyncOrchestrator orchestrator,
+        ISyncHintChannel hints,
+        string workspaceId,
+        TimeSpan interval,
+        ISyncClient? localChanges = null,
+        TimeSpan? pushDebounce = null)
     {
         _orchestrator = orchestrator;
         _hints = hints;
         _workspaceId = workspaceId;
         _interval = interval;
+        _localChanges = localChanges;
+        _pushDebounce = pushDebounce ?? TimeSpan.FromSeconds(1.5);
         _hints.WorkspaceChanged += OnHintAsync;
+
+        if (_localChanges is not null)
+        {
+            // Timer parado; cada LocalChangePushed o (re)arma pra disparar uma vez após a janela.
+            _pushTimer = new Timer(_ => OnPushDebounceElapsed(), state: null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            _localChanges.LocalChangePushed += OnLocalChangePushed;
+        }
     }
 
     public SyncOrchestrator Orchestrator => _orchestrator;
@@ -42,6 +71,111 @@ public sealed class SyncSession : IAsyncDisposable
         catch (Exception)
         {
             // Sem hints em tempo real; o laço por intervalo ainda sincroniza.
+        }
+    }
+
+    /// <summary>
+    /// Flush final do outbox no fechamento (Fase 2, item A — o "Alt+F4"), LIMITADO por
+    /// <paramref name="timeout"/>: drena só o push (<see cref="SyncOrchestrator.FlushOutboxAsync"/>) e
+    /// nunca deixa o fechamento pendurado se a rede estiver fora. Best-effort — o que não subir sobe no
+    /// próximo boot (outbox durável). Seguro chamar da UI thread: o flush não toca o Dispatcher.
+    ///
+    /// <para>A janela é limitada por dois mecanismos, de propósito: um CTS que cancela o flush (a rede
+    /// honra o token) E um <see cref="Task.WhenAny(Task, Task)"/> contra um <see cref="Task.Delay(TimeSpan)"/>
+    /// — assim, mesmo que uma chamada de rede ignore o cancelamento, o método RETORNA no timeout (o app
+    /// segue encerrando; a task pendente morre com o processo).</para>
+    /// </summary>
+    public async Task FlushOutboxAsync(TimeSpan timeout)
+    {
+        using var cts = new CancellationTokenSource(timeout);
+        Task flush = _orchestrator.FlushOutboxAsync(cts.Token);
+        Task first = await Task.WhenAny(flush, Task.Delay(timeout));
+        if (!ReferenceEquals(first, flush))
+        {
+            // Timeout do teto: para de esperar (o app está fechando). Cancela o flush em voo pra ele
+            // não segurar a conexão além do necessário; a exceção de cancelamento é engolida.
+            cts.Cancel();
+            return;
+        }
+
+        // Observa a exceção do flush (não deve lançar — FlushOutboxAsync já engole tudo menos o cancel).
+        try
+        {
+            await flush;
+        }
+        catch (Exception)
+        {
+            // best-effort no fechamento.
+        }
+    }
+
+    private void OnLocalChangePushed()
+    {
+        lock (_pushGate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            // (Re)arma o debounce: dispara uma vez após _pushDebounce sem novos sinais.
+            _pushTimer?.Change(_pushDebounce, Timeout.InfiniteTimeSpan);
+        }
+    }
+
+    private void OnPushDebounceElapsed()
+    {
+        lock (_pushGate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+        }
+
+        // Fora do lock: o ciclo pode demorar (rede). Fire-and-forget guardado — um push-ao-mudar que
+        // falha nunca pode virar exceção não observada nem travar nada; o próximo tick/sinal tenta de novo.
+        _ = RunPushSyncAsync();
+    }
+
+    private async Task RunPushSyncAsync()
+    {
+        // Mesma captura defensiva do CTS que OnHintAsync: um sinal em voo pode chegar concorrente ao
+        // DisposeAsync, que descarta o _cts. _cts == null = ainda não iniciado (sync com token None,
+        // best-effort); getter que lança ObjectDisposedException = em shutdown → ignora.
+        CancellationTokenSource? cts = _cts;
+        CancellationToken token;
+        if (cts is null)
+        {
+            token = CancellationToken.None;
+        }
+        else
+        {
+            try
+            {
+                token = cts.Token;
+            }
+            catch (ObjectDisposedException)
+            {
+                return;
+            }
+        }
+
+        try
+        {
+            await _orchestrator.SyncOnceAsync(token);
+        }
+        catch (ObjectDisposedException)
+        {
+            // Sessão sendo descartada concorrentemente — best-effort, ignora.
+        }
+        catch (OperationCanceledException)
+        {
+            // Shutdown — esperado.
+        }
+        catch (Exception)
+        {
+            // SyncOnceAsync já não relança (fica em Error); guarda extra contra qualquer surpresa.
         }
     }
 
@@ -107,6 +241,20 @@ public sealed class SyncSession : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        // Fecha a fonte de push-ao-mudar primeiro: remove o handler e para o timer para que nenhum
+        // OnPushDebounceElapsed novo dispare um SyncOnceAsync sobre um _cts em processo de descarte.
+        lock (_pushGate)
+        {
+            _disposed = true;
+        }
+
+        if (_localChanges is not null)
+        {
+            _localChanges.LocalChangePushed -= OnLocalChangePushed;
+        }
+
+        _pushTimer?.Dispose();
+
         // Ordem importa: primeiro desliga a fonte de hints (remove o handler e fecha a conexão
         // SignalR) para que nenhum OnHintAsync novo seja disparado; só então cancela e descarta o
         // _cts. Isso fecha a janela em que um hint em voo leria um CTS já descartado.
