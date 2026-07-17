@@ -1,11 +1,14 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using RemoteOps.Cloud.Audit;
+using RemoteOps.Cloud.Auth;
 using RemoteOps.Cloud.Data;
 using RemoteOps.Cloud.Data.Entities;
 using RemoteOps.Cloud.Hubs;
 using RemoteOps.Cloud.Rbac;
+using RemoteOps.Cloud.Secrets;
 using RemoteOps.Cloud.Sync;
 
 namespace RemoteOps.UnitTests.Cloud;
@@ -20,8 +23,22 @@ internal sealed class CloudTestContext : IDisposable
     public PermissionEvaluator Rbac { get; }
     public AuditService Audit { get; }
     public SyncService Sync { get; }
+    public TokenService Tokens { get; }
+    public AccountService Accounts { get; }
+    public SecretsService Secrets { get; }
 
     private static int _counter;
+
+    public static IConfiguration TestConfig() =>
+        new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Jwt:SigningKey"] = "remoteops-test-signing-key-32bytes!!",
+                ["Jwt:Issuer"] = "remoteops-test",
+                ["Jwt:Audience"] = "remoteops-test",
+                ["Auth:KdfDecoyKeyBase64"] = Convert.ToBase64String(new byte[32]),
+            })
+            .Build();
 
     public CloudTestContext()
     {
@@ -36,6 +53,11 @@ internal sealed class CloudTestContext : IDisposable
 
         var nullHub = new NullHubContext();
         Sync = new SyncService(Db, Rbac, Audit, nullHub, NullLogger<SyncService>.Instance);
+
+        var config = TestConfig();
+        Tokens = new TokenService(Db, config, NullLogger<TokenService>.Instance);
+        Accounts = new AccountService(Db, Tokens, config, NullLogger<AccountService>.Instance);
+        Secrets = new SecretsService(Db, Rbac, Audit, NullLogger<SecretsService>.Instance);
     }
 
     // ── Helpers de seed ────────────────────────────────────────────────────
