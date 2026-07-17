@@ -14,10 +14,24 @@ public partial class SettingsWindow : Window
         InitializeComponent();
         DataContext = viewModel;
         viewModel.Saved += (_, _) => Close();
+        viewModel.MfaSetupRequested += OnMfaSetupRequested;
         if (initialTab is not null)
         {
             SelectTabByHeader(initialTab);
         }
+    }
+
+    /// <summary>Abre a janela de 2FA (modal). O IMfaApi autenticado vem do VM (null nunca chega aqui:
+    /// o comando só dispara quando CanManageMfa é true).</summary>
+    private void OnMfaSetupRequested(object? sender, EventArgs e)
+    {
+        if (Vm.MfaApi is not { } mfaApi)
+        {
+            return;
+        }
+
+        var window = new MfaEnrollmentWindow(new MfaEnrollmentViewModel(mfaApi)) { Owner = this };
+        window.ShowDialog();
     }
 
     // Seleciona a aba pelo texto do Header (ex.: abrir direto em "Atualização" via o menu do avatar).

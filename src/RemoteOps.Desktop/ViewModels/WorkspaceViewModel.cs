@@ -1,8 +1,10 @@
+using System;
 using System.Threading.Tasks;
 using RemoteOps.Desktop.Changelog;
 using RemoteOps.Desktop.Infrastructure;
 using RemoteOps.Desktop.Reporting;
 using RemoteOps.Desktop.Update;
+using RemoteOps.Sync.Remote;
 
 namespace RemoteOps.Desktop.ViewModels;
 
@@ -33,6 +35,13 @@ public sealed class WorkspaceViewModel : BaseViewModel
         _bugReportComposer = bugReportComposer;
     }
 
+    /// <summary>
+    /// Fábrica LAZY do cliente autenticado de 2FA. O App a atribui DEPOIS de ativar a conta (quando há
+    /// tokens); fica null em modo local. É lazy porque este VM é um singleton do DI, resolvido no
+    /// startup ANTES de a conta existir — ler a fábrica só ao abrir Configurações evita a ordem.
+    /// </summary>
+    public Func<IMfaApi?>? MfaApiFactory { get; set; }
+
     public BrowserViewModel Browser { get; }
     public TabsViewModel Tabs { get; }
 
@@ -55,7 +64,8 @@ public sealed class WorkspaceViewModel : BaseViewModel
         ISettingsStore store = _settingsStore ?? new JsonSettingsStore();
         ChangelogViewModel? changelog = _changelogSource is null ? null : new ChangelogViewModel(_changelogSource, store);
         BugReportViewModel? bugReport = _bugReportComposer is null ? null : new BugReportViewModel(_bugReportComposer);
-        return new SettingsViewModel(store, _updateService, changelog, bugReport);
+        IMfaApi? mfaApi = MfaApiFactory?.Invoke();
+        return new SettingsViewModel(store, _updateService, changelog, bugReport, mfaApi);
     }
 
     public string AppVersionText =>

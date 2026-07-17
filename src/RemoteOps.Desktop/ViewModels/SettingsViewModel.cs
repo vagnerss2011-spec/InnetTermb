@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using RemoteOps.Desktop.Infrastructure;
 using RemoteOps.Desktop.Update;
+using RemoteOps.Sync.Remote;
 
 namespace RemoteOps.Desktop.ViewModels;
 
@@ -10,6 +11,7 @@ public sealed class SettingsViewModel : BaseViewModel
 {
     private readonly ISettingsStore _store;
     private readonly IUpdateService? _updateService;
+    private readonly IMfaApi? _mfaApi;
     private AppSettings _settings;
     private bool _rdpEnabled;
     private bool _ndeskEnabled;
@@ -22,10 +24,12 @@ public sealed class SettingsViewModel : BaseViewModel
         ISettingsStore store,
         IUpdateService? updateService = null,
         ChangelogViewModel? changelog = null,
-        BugReportViewModel? bugReport = null)
+        BugReportViewModel? bugReport = null,
+        IMfaApi? mfaApi = null)
     {
         _store = store;
         _updateService = updateService;
+        _mfaApi = mfaApi;
         Changelog = changelog;
         BugReport = bugReport;
         _settings = store.Load();
@@ -41,6 +45,11 @@ public sealed class SettingsViewModel : BaseViewModel
         ApplyUpdateCommand = new RelayCommand(
             () => _ = ApplyUpdateAsync(),
             () => _updateService != null && UpdateAvailable);
+        // Só habilita "verificação em duas etapas" quando há conta na nuvem ativa (IMfaApi injetado).
+        // Sem conta (modo local puro), o botão fica oculto/desabilitado.
+        ManageMfaCommand = new RelayCommand(
+            () => MfaSetupRequested?.Invoke(this, EventArgs.Empty),
+            () => _mfaApi != null);
     }
 
     /// <summary>True após um check que encontrou versão nova (habilita "Baixar e instalar").</summary>
@@ -78,6 +87,16 @@ public sealed class SettingsViewModel : BaseViewModel
     public RelayCommand SaveCommand { get; }
     public RelayCommand CheckForUpdatesCommand { get; }
     public RelayCommand ApplyUpdateCommand { get; }
+    public RelayCommand ManageMfaCommand { get; }
+
+    /// <summary>True quando há conta na nuvem ativa: habilita a seção de verificação em duas etapas.</summary>
+    public bool CanManageMfa => _mfaApi != null;
+
+    /// <summary>Cliente autenticado de 2FA — a janela de setup o usa pra montar seu VM. Null sem conta.</summary>
+    public IMfaApi? MfaApi => _mfaApi;
+
+    /// <summary>Pedido pra abrir a janela de 2FA (o code-behind das Configurações a abre).</summary>
+    public event EventHandler? MfaSetupRequested;
 
     /// <summary>Disparado após persistir; a janela fecha e avisa "requer reinício" se necessário.</summary>
     public event EventHandler? Saved;
