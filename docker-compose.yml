@@ -49,10 +49,14 @@ services:
       # derivada da chave do JWT (ver AccountService.DecoyKey).
       Auth__KdfDecoyKeyBase64: ${AUTH_KDF_DECOY_KEY_BASE64:-}
       ASPNETCORE_ENVIRONMENT: Production
-      # Sem isto, atrás do Caddy TODA request chega com o IP do container do proxy:
-      # o rate limit do /auth (particionado por IP) viraria um balde único e global
-      # de 20 req/min para o mundo inteiro. Ver runbook §Troubleshooting.
-      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+      # X-Forwarded-For: a API já aplica o UseForwardedHeaders no Program.cs (antes do
+      # rate-limiter), confiando SÓ nas faixas das bridges do Docker — sem isso, atrás do
+      # Caddy toda request chegaria com o IP do proxy e o rate limit do /auth (por IP)
+      # viraria um balde global. NÃO defina ASPNETCORE_FORWARDEDHEADERS_ENABLED aqui: ele
+      # ligaria um SEGUNDO middleware e o header seria processado duas vezes. Se a sua
+      # bridge usar outra sub-rede, ajuste TRUSTED_PROXY_CIDR (lista CIDR separada por
+      # vírgula). Vazio = default 172.16.0.0/12 + 10.0.0.0/8. Ver runbook §Troubleshooting.
+      TRUSTED_PROXY_CIDR: ${TRUSTED_PROXY_CIDR:-}
     # Sem `ports:`: quem fala com a internet é o Caddy, sempre em HTTPS.
     # O healthcheck da API vem do HEALTHCHECK do Dockerfile (curl em /health) e
     # aparece no `docker compose ps` — não precisa ser redeclarado aqui.

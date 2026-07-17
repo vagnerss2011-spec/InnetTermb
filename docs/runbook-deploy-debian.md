@@ -247,7 +247,7 @@ docker compose down -v
 | `Jwt__SecretKeyBase64 não é base64 válido` | valor com aspas, espaço ou quebra de linha no `.env` | O valor vai **sem aspas**, numa linha só |
 | Certificado não sai; log do Caddy fala em ACME/timeout | DNS não aponta pra cá, ou porta 80 fechada | `dig +short <host>` e confira o firewall; a 80 é obrigatória pro desafio |
 | `curl https://...` dá 502 | a API ainda está subindo/migrando, ou caiu | `docker compose ps` (a API tem healthcheck) e `docker compose logs api` |
-| Login/registro devolvendo **429** cedo demais | rate limit do `/auth` particiona por IP; se todos chegarem com o IP do proxy, o balde vira global | Confirme `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` na `api` e o `header_up X-Forwarded-For` no `deploy/Caddyfile` |
+| Login/registro devolvendo **429** cedo demais, ou logs mostrando sempre o mesmo IP (o do Caddy) | rate limit do `/auth` particiona por IP; se a API não confiar no proxy, todos chegam com o IP da bridge e o balde vira global | A API confia nas faixas das bridges do Docker por padrão. Rode `docker network inspect remoteops-cloud_default` e veja a sub-rede (`IPAM.Config.Subnet`); se não estiver em `172.16.0.0/12` nem `10.0.0.0/8`, defina `TRUSTED_PROXY_CIDR` no `.env` com ela. Confirme também o `header_up X-Forwarded-For` no `deploy/Caddyfile`. **Não** ligue `ASPNETCORE_FORWARDEDHEADERS_ENABLED` (processaria o header 2x) |
 | `docker compose up` reclama de variável não definida | é de propósito: `${VAR:?...}` aborta em vez de subir com default fraco | Preencha a variável que a mensagem citou no `.env` |
 
 Log da API sem segredo por design (senha, token e AuthHash nunca são logados) —

@@ -75,9 +75,16 @@ mostra o id; não insere nada.
 - **Dockerfile builda o projeto, não a solution** (`RemoteOps.Desktop` é WPF e não
   restaura em Linux): um projeto novo que a API venha a referenciar precisa ser
   copiado explicitamente no Dockerfile.
-- **Rate limit do `/auth` passa a depender de `X-Forwarded-For`**: exige
-  `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` **e** o Caddy sobrescrevendo o header.
-  Configuração errada degrada silenciosamente (balde global, ou spoofável).
+- **Rate limit do `/auth` depende do IP do cliente atrás do proxy.** A API confia no
+  `X-Forwarded-For` do Caddy via `UseForwardedHeaders` explícito no `Program.cs` (antes
+  do rate-limiter), com `ForwardedHeadersSetup` confiando SÓ nas faixas das bridges do
+  Docker (`172.16.0.0/12` + `10.0.0.0/8`, override por `TRUSTED_PROXY_CIDR`) e `ForwardLimit=1`.
+  Fora dessas faixas o header é ignorado (anti-spoof). **Correção de revisão adversarial:**
+  a abordagem anterior (`ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` sem configurar a confiança)
+  degradava silenciosamente — o default do middleware só confia em loopback, e o Caddy nunca
+  é loopback na bridge do Compose, então o header era IGNORADO e o rate limit virava um balde
+  GLOBAL de 20/min (DoS de toda a auth) com os logs de IP registrando só o proxy. Não ligue
+  aquela env var junto com o middleware explícito: processaria o header duas vezes.
 - Backup/restore continua manual (Fase 5), documentado no runbook.
 
 ## Alternativas consideradas

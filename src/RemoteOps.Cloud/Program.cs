@@ -54,6 +54,13 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
+// ── Proxy confiável (X-Forwarded-For) ────────────────────────────────────────
+// Atrás do Caddy, sem isto o RemoteIpAddress seria sempre o IP do proxy: o rate limit
+// por IP viraria um balde global e os logs registrariam só o Caddy. Configura em quais
+// faixas confiar (default = bridges do Docker; override por TRUSTED_PROXY_CIDR). O
+// middleware é aplicado ANTES do rate-limiter no pipeline (ver app.UseForwardedHeaders).
+ForwardedHeadersSetup.Configure(builder.Services, builder.Configuration);
+
 // ── Rate limit do /auth ──────────────────────────────────────────────────────
 // Freia força-bruta de AuthHash e enumeração via /auth/kdf. Particionado por IP:
 // o /auth/kdf é anônimo, então não há identidade melhor antes do login.
@@ -108,6 +115,10 @@ using (var scope = app.Services.CreateScope())
 }
 
 // ── Middlewares ──────────────────────────────────────────────────────────────
+// PRIMEIRO de tudo: reescreve o RemoteIpAddress a partir do X-Forwarded-For do proxy
+// confiável. Tem que rodar ANTES do rate-limiter (que particiona por IP) e antes de
+// qualquer log de IP — senão todos veriam o IP do Caddy, não o do cliente.
+app.UseForwardedHeaders();
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseExceptionHandler();
 app.UseRateLimiter();
