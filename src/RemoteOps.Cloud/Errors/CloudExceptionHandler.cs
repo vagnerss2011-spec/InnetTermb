@@ -18,6 +18,9 @@ public sealed class CloudExceptionHandler(ILogger<CloudExceptionHandler> logger)
         var (status, title) = exception switch
         {
             RbacDeniedException => (403, "Acesso negado"),
+            // Query/body malformado é culpa do cliente: sem isto o binding do minimal
+            // API (ex.: parâmetro obrigatório ausente) virava 500 e escondia o motivo.
+            BadHttpRequestException => (400, "Requisição inválida"),
             ArgumentException or FormatException => (400, "Requisição inválida"),
             _ => (500, "Erro interno"),
         };

@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using RemoteOps.Cloud.Configuration;
 using RemoteOps.Cloud.Data;
 using RemoteOps.Cloud.Data.Entities;
 
@@ -15,15 +16,30 @@ public sealed class TokenService(AppDbContext db, IConfiguration config, ILogger
     private static readonly TimeSpan AccessTokenLifetime = TimeSpan.FromMinutes(15);
     private static readonly TimeSpan RefreshTokenLifetime = TimeSpan.FromDays(30);
 
+    // PBKDF2 de um valor fixo, calculado UMA vez no carregamento do tipo. Serve de alvo
+    // "decoy": o login de e-mail inexistente (ou de tipo de prova incompatível) verifica
+    // contra ele para gastar o MESMO PBKDF2 e não vazar a existência da conta por timing.
+    private static readonly string DummyAuthHashHash = PasswordHasher.Hash("remoteops:login-timing-decoy:v1");
+
+    // Seam de teste: por padrão é o PBKDF2 real. Um teste injeta um contador POR INSTÂNCIA
+    // (sem estado global → sem flake com a paralelização do xUnit) para provar que login de
+    // e-mail existente e inexistente invocam o hasher o MESMO número de vezes.
+    internal Func<string, string?, bool> ProofVerifier { get; init; } = PasswordHasher.Verify;
+
     public async Task<LoginResponse?> LoginAsync(LoginRequest req, string ipAddress, CancellationToken ct)
     {
+        var email = EmailNormalizer.Normalize(req.Email);
         var user = await db.Users
-            .FirstOrDefaultAsync(u => u.Email == req.Email && u.Status == "active", ct);
+            .FirstOrDefaultAsync(u => u.Email == email && u.Status == "active", ct);
 
-        if (user is null || !VerifyPassword(req.Password, user.PasswordHash))
+        // Roda SEMPRE (mesmo com user null) para gastar o PBKDF2 e não vazar a existência
+        // da conta por timing. Avaliado ANTES do short-circuit de propósito — trocar a
+        // ordem reabriria o oráculo de enumeração.
+        var proofValid = VerifyProof(req, user);
+        if (user is null || !proofValid)
         {
             logger.LogWarning("Login failed for email hash {EmailHash} from {Ip}",
-                HashForLog(req.Email), ipAddress);
+                HashForLog(email), ipAddress);
             return null;
         }
 
@@ -34,11 +50,127 @@ public sealed class TokenService(AppDbContext db, IConfiguration config, ILogger
             return null;
         }
 
-        var (accessToken, expiresAt) = IssueAccessToken(user);
-        var refreshToken = await IssueRefreshTokenAsync(user.Id, device.Id, ct);
-
         logger.LogInformation("Login ok for user {UserId} device {DeviceId}", user.Id, device.Id);
-        return new LoginResponse(accessToken, refreshToken, expiresAt);
+        return await IssueSessionAsync(user, device.Id, ct);
+    }
+
+    /// <summary>
+    /// Emite a sessão (tokens + escrow da AMK + workspaces). Compartilhado entre
+    /// login e registro para que os dois devolvam exatamente o mesmo formato.
+    /// </summary>
+    internal async Task<LoginResponse> IssueSessionAsync(UserEntity user, Guid deviceId, CancellationToken ct)
+    {
+        var tenantId = await ResolveUserTenantAsync(user.Id, ct);
+        var (accessToken, expiresAt) = IssueAccessToken(user, tenantId);
+        var refreshToken = await IssueRefreshTokenAsync(user.Id, deviceId, ct);
+        var workspaces = await LoadWorkspacesAsync(user.Id, ct);
+
+        return new LoginResponse(
+            accessToken,
+            refreshToken,
+            expiresAt,
+            // Escrow: cifrado com a KEK, que só existe no device. Devolver isto ao
+            // cliente é seguro por construção — sem a senha não abre.
+            user.WrappedAmkPwd is not null ? Convert.ToBase64String(user.WrappedAmkPwd) : null,
+            user.WrappedAmkPwd is not null ? user.AmkKeyVersion : null,
+            workspaces);
+    }
+
+    internal async Task<IReadOnlyList<WorkspaceSummary>> LoadWorkspacesAsync(Guid userId, CancellationToken ct)
+        => await db.Memberships
+            .AsNoTracking()
+            .Where(m => m.UserId == userId && m.Workspace.Status == "active")
+            .Select(m => new WorkspaceSummary(
+                m.WorkspaceId.ToString(), m.Workspace.Name, m.Role))
+            .ToListAsync(ct);
+
+    /// <summary>
+    /// Tenant do usuário para o claim <c>tenant_id</c> (ativa a guarda cross-tenant do
+    /// PermissionEvaluator). Hoje um usuário pertence a exatamente um tenant: o membership só
+    /// é criado no /auth/register, junto com o tenant. Por robustez futura, só devolve valor
+    /// quando o tenant é ÚNICO — se um dia o usuário pertencer a workspaces de tenants
+    /// diferentes, devolve null (claim omitido → guarda inerte, sem NEGAR acesso legítimo) em
+    /// vez de cravar um tenant arbitrário. Membership continua protegendo em qualquer caso.
+    /// </summary>
+    internal async Task<Guid?> ResolveUserTenantAsync(Guid userId, CancellationToken ct)
+    {
+        var tenantIds = await db.Memberships
+            .AsNoTracking()
+            .Where(m => m.UserId == userId && m.Workspace.Status == "active")
+            .Select(m => m.Workspace.TenantId)
+            .Distinct()
+            .Take(2)
+            .ToListAsync(ct);
+
+        return tenantIds.Count == 1 ? tenantIds[0] : null;
+    }
+
+    internal async Task<DeviceEntity> EnsureDeviceAsync(
+        Guid userId, string deviceIdStr, string deviceName, CancellationToken ct)
+    {
+        if (!Guid.TryParse(deviceIdStr, out var deviceId))
+            deviceId = Guid.NewGuid();
+
+        var device = await db.Devices.FirstOrDefaultAsync(d => d.Id == deviceId && d.UserId == userId, ct);
+        if (device is not null) return device;
+
+        device = new DeviceEntity
+        {
+            Id = deviceId,
+            UserId = userId,
+            Name = deviceName,
+            Status = "active",
+            RegisteredAt = DateTimeOffset.UtcNow,
+        };
+        db.Devices.Add(device);
+        await db.SaveChangesAsync(ct);
+        return device;
+    }
+
+    /// <summary>
+    /// Valida a prova de identidade. Conta E2EE só aceita AuthHash; conta legada só
+    /// aceita senha. Nunca os dois — senão o caminho legado viraria bypass do E2EE.
+    ///
+    /// Roda SEMPRE exatamente um PBKDF2 (real ou decoy), inclusive com <paramref name="user"/>
+    /// nulo: sem isso, e-mail inexistente respondia em sub-ms e existente em dezenas de ms,
+    /// vazando a existência da conta por timing e furando a anti-enumeração do /auth/kdf.
+    /// </summary>
+    private bool VerifyProof(LoginRequest req, UserEntity? user)
+    {
+        var hasAuthHash = !string.IsNullOrEmpty(req.AuthHash);
+        var hasPassword = !string.IsNullOrEmpty(req.Password);
+
+        // Escolhe a prova enviada e o hash-alvo correspondente. Sem alvo (conta inexistente,
+        // tipo de prova incompatível com a conta, ou requisição malformada com ambas/nenhuma
+        // prova) o alvo é null e caímos no decoy — nunca em short-circuit.
+        string proof;
+        string? targetHash;
+        if (hasAuthHash == hasPassword)
+        {
+            // Ambas ou nenhuma prova: o endpoint já barra com 400, mas se chamado direto
+            // ainda pagamos o custo para não abrir um oráculo lateral.
+            proof = req.AuthHash ?? req.Password ?? string.Empty;
+            targetHash = null;
+        }
+        else if (hasAuthHash)
+        {
+            proof = req.AuthHash!;
+            targetHash = user?.AuthHashHash;
+        }
+        else
+        {
+            proof = req.Password!;
+            targetHash = user?.PasswordHash;
+        }
+
+        if (targetHash is null)
+        {
+            // Gasta um PBKDF2 no decoy e descarta o resultado (nunca autentica).
+            _ = ProofVerifier(proof, DummyAuthHashHash);
+            return false;
+        }
+
+        return ProofVerifier(proof, targetHash);
     }
 
     public async Task<RefreshResponse?> RefreshAsync(RefreshRequest req, string ipAddress, CancellationToken ct)
@@ -74,7 +206,8 @@ public sealed class TokenService(AppDbContext db, IConfiguration config, ILogger
         // Rotate refresh token (revoke old, issue new)
         stored.RevokedAt = DateTimeOffset.UtcNow;
         var newRefresh = await IssueRefreshTokenAsync(stored.UserId, stored.DeviceId, ct);
-        var (accessToken, expiresAt) = IssueAccessToken(stored.User);
+        var tenantId = await ResolveUserTenantAsync(stored.UserId, ct);
+        var (accessToken, expiresAt) = IssueAccessToken(stored.User, tenantId);
 
         logger.LogInformation("Token refreshed for user {UserId} device {DeviceId}", stored.UserId, stored.DeviceId);
         return new RefreshResponse(accessToken, newRefresh, expiresAt);
@@ -92,17 +225,22 @@ public sealed class TokenService(AppDbContext db, IConfiguration config, ILogger
         return true;
     }
 
-    private (string Token, DateTimeOffset ExpiresAt) IssueAccessToken(UserEntity user)
+    private (string Token, DateTimeOffset ExpiresAt) IssueAccessToken(UserEntity user, Guid? tenantId)
     {
         var key = GetSigningKey();
         var expires = DateTimeOffset.UtcNow.Add(AccessTokenLifetime);
-        var claims = new[]
+        var claims = new List<Claim>
         {
-            new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
-            new Claim(JwtRegisteredClaimNames.Email, user.Email),
-            new Claim("display_name", user.DisplayName),
-            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+            new(JwtRegisteredClaimNames.Email, user.Email),
+            new("display_name", user.DisplayName),
+            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
         };
+
+        // tenant_id ativa a guarda cross-tenant do PermissionEvaluator (defense-in-depth).
+        // Emitido só quando o tenant do usuário é único e resolvível (ver ResolveUserTenantAsync).
+        if (tenantId.HasValue)
+            claims.Add(new Claim("tenant_id", tenantId.Value.ToString()));
 
         var descriptor = new SecurityTokenDescriptor
         {
@@ -135,36 +273,8 @@ public sealed class TokenService(AppDbContext db, IConfiguration config, ILogger
         return rawToken;
     }
 
-    private async Task<DeviceEntity> EnsureDeviceAsync(Guid userId, string deviceIdStr, string deviceName, CancellationToken ct)
-    {
-        if (!Guid.TryParse(deviceIdStr, out var deviceId))
-            deviceId = Guid.NewGuid();
-
-        var device = await db.Devices.FirstOrDefaultAsync(d => d.Id == deviceId && d.UserId == userId, ct);
-        if (device is not null) return device;
-
-        device = new DeviceEntity
-        {
-            Id = deviceId,
-            UserId = userId,
-            Name = deviceName,
-            Status = "active",
-            RegisteredAt = DateTimeOffset.UtcNow,
-        };
-        db.Devices.Add(device);
-        await db.SaveChangesAsync(ct);
-        return device;
-    }
-
     private SymmetricSecurityKey GetSigningKey()
-    {
-        var keyStr = config["Jwt:SigningKey"]
-            ?? throw new InvalidOperationException("Jwt:SigningKey não configurada. Use variável de ambiente.");
-        return new SymmetricSecurityKey(Encoding.UTF8.GetBytes(keyStr));
-    }
-
-    private static bool VerifyPassword(string password, string hash)
-        => BCryptNet.Verify(password, hash);
+        => new(DeploymentConfig.ResolveJwtSigningKey(config));
 
     private static string HashToken(string token)
     {
@@ -176,34 +286,5 @@ public sealed class TokenService(AppDbContext db, IConfiguration config, ILogger
     {
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value));
         return Convert.ToHexString(bytes)[..8].ToLowerInvariant();
-    }
-}
-
-// PBKDF2-SHA256 (OWASP 2023: 310 000 iterations). Hash format: "v1:salt_b64:hash_b64"
-file static class BCryptNet
-{
-    private const int Iterations = 310_000;
-    private const int HashLength = 32;
-
-    public static bool Verify(string password, string hash)
-    {
-        if (string.IsNullOrEmpty(hash)) return false;
-        var parts = hash.Split(':');
-        if (parts.Length != 3 || parts[0] != "v1") return false;
-        var salt = Convert.FromBase64String(parts[1]);
-        var expected = Convert.FromBase64String(parts[2]);
-        var actual = Rfc2898DeriveBytes.Pbkdf2(
-            Encoding.UTF8.GetBytes(password), salt,
-            Iterations, HashAlgorithmName.SHA256, HashLength);
-        return CryptographicOperations.FixedTimeEquals(actual, expected);
-    }
-
-    public static string HashPassword(string password)
-    {
-        var salt = RandomNumberGenerator.GetBytes(16);
-        var hash = Rfc2898DeriveBytes.Pbkdf2(
-            Encoding.UTF8.GetBytes(password), salt,
-            Iterations, HashAlgorithmName.SHA256, HashLength);
-        return $"v1:{Convert.ToBase64String(salt)}:{Convert.ToBase64String(hash)}";
     }
 }

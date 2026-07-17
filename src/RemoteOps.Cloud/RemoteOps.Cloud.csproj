@@ -15,4 +15,11 @@
   <ItemGroup>
     <ProjectReference Include="..\RemoteOps.Contracts\RemoteOps.Contracts.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Seam de teste do TokenService.ProofVerifier (prova estrutural da equalização de
+         timing do /auth/login, sem estado global). Mesmo padrão do RemoteOps.Sync. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>RemoteOps.UnitTests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
 </Project>
