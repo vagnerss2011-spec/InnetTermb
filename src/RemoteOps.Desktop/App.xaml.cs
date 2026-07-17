@@ -17,6 +17,7 @@ using RemoteOps.Security.Storage;
 using RemoteOps.Security.Vault;
 using RemoteOps.Sync;
 using RemoteOps.Sync.Remote;
+using RemoteOps.Sync.Storage;
 using Velopack;
 
 namespace RemoteOps.Desktop;
@@ -32,6 +33,7 @@ public partial class App : Application
     private VaultRootActivator? _accountActivator;
     private SyncStartContext? _syncContext;
     private AccountConfig? _accountConfig;
+    private IntegrityReport? _integrityReport;
 
     public App()
     {
@@ -138,6 +140,13 @@ public partial class App : Application
             // abrir o banco com a raiz antiga e migrar em seguida deixaria a chave ilegível.
             var syncFactory = new LocalSyncClientFactory(vault, dataDir);
             WorkspaceContext ctx = await syncFactory.OpenWorkspaceAsync(AppRuntime.DbWorkspace);
+
+            // Validação de integridade na reabertura (Fase 2, item C): ANTES de confiar no cofre/outbox,
+            // roda quick_check + recuperação do WAL + consistência dos cursores. Fail-open — nunca trava
+            // o boot; recupera o que der, sinaliza o grave. O resultado vai pros Logs quando a UI subir.
+            _integrityReport = await TryValidateIntegrityAsync(
+                ctx, syncFactory.DbPath(AppRuntime.DbWorkspace));
+
             ILocalStore store = new SqlCipherLocalStore(ctx);
 
             // Composition root (ADR-011): injeta o vault de produção + store SQLCipher
@@ -179,6 +188,10 @@ public partial class App : Application
             // Janela principal no ar: devolve o comportamento normal — fechar a MainWindow encerra
             // o app (era o default antes do startup mexer nisso pela janela de conta).
             ShutdownMode = ShutdownMode.OnLastWindowClose;
+
+            // Só agora leva o resultado da integridade (item C) ao operador: a janela já está no ar, o
+            // Logs existe. Emitir ANTES bloquearia a abertura; aqui o app já abriu (boot nunca trava).
+            SurfaceIntegrityReport();
 
             // A partir daqui, uma 2ª instância que tentar abrir vai só trazer esta janela pra frente.
             _singleInstance.ListenForActivation(() => Dispatcher.Invoke(BringMainWindowToFront));
@@ -294,6 +307,52 @@ public partial class App : Application
 
         await updateService.ApplyUpdateAsync(check);
         return true;
+    }
+
+    /// <summary>
+    /// Roda a validação de integridade da reabertura (Fase 2, item C) sem nunca deixar o boot travar.
+    /// O próprio <see cref="StartupIntegrityValidator"/> é fail-open; este try/catch é a cinta de
+    /// segurança extra (ex.: falha ao instanciar). Devolve <c>null</c> = "não deu pra verificar",
+    /// tratado como silêncio — a ausência de checagem nunca pode impedir o app de abrir.
+    /// </summary>
+    private static async Task<IntegrityReport?> TryValidateIntegrityAsync(WorkspaceContext ctx, string dbPath)
+    {
+        try
+        {
+            return await new StartupIntegrityValidator().ValidateAndRecoverAsync(ctx, dbPath);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Leva o resultado da integridade ao operador: sempre loga (painel de Logs), e mostra um aviso
+    /// modal SÓ quando é grave (<see cref="IntegrityReport.ShouldWarnOperator"/>). Roda depois da
+    /// janela abrir — o boot já terminou, então nada aqui o trava.
+    /// </summary>
+    private void SurfaceIntegrityReport()
+    {
+        if (_integrityReport is not { } report)
+        {
+            return;
+        }
+
+        IUiLogSink? log = _serviceProvider?.GetService<IUiLogSink>();
+        foreach (string message in report.Messages)
+        {
+            log?.Emit($"[integridade] {message}");
+        }
+
+        if (report.ShouldWarnOperator)
+        {
+            MessageBox.Show(
+                string.Join("\n\n", report.Messages),
+                "RemoteOps — Verificação de integridade",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
     }
 
     // Teto do flush-ao-fechar: encurta a janela de perda dos últimos segundos SEM travar o fechamento
