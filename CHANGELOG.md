@@ -2,6 +2,14 @@
 
 Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.com/) e versionamento SemVer interno.
 
+## [Não lançado] - cloud-security-review
+
+### Segurança
+
+- **(HIGH) `X-Forwarded-For` confiável só de proxies conhecidos.** Corrige o mecanismo de `[0.8.0-cloud-deploy]`: `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` sozinho não bastava — o `ForwardedHeadersOptions` padrão confia só em loopback, e o Caddy nunca é loopback na bridge do Compose, então o `X-Forwarded-For` era IGNORADO. O `RemoteIpAddress` ficava preso no IP do Caddy: o rate limit do `/auth` (por IP) virava um balde GLOBAL de 20/min (DoS de toda a auth) e os logs registravam só o proxy. `ForwardedHeadersSetup` passa a confiar nas faixas das bridges do Docker (`172.16.0.0/12` + `10.0.0.0/8`, override por `TRUSTED_PROXY_CIDR`), com `ForwardLimit=1` e sem o loopback default; `UseForwardedHeaders` roda como primeiro middleware (antes do rate-limiter). Fora das faixas o header é ignorado (anti-spoof). Removido `ASPNETCORE_FORWARDEDHEADERS_ENABLED` do compose.
+- **(MEDIUM) Anti-enumeração por timing no `/auth/login`.** `LoginAsync` fazia short-circuit: e-mail inexistente não rodava PBKDF2 (sub-ms) e existente rodava 310k iterações (dezenas de ms), vazando a existência da conta por tempo. Agora roda SEMPRE exatamente um PBKDF2 — conta inexistente/tipo de prova incompatível verifica contra um decoy pré-computado, igualando o custo. Prova estrutural nos testes (contagem de invocações por instância).
+- **(LOW, defense-in-depth) Claim `tenant_id` no access token.** A guarda cross-tenant do `PermissionEvaluator` era código morto (nenhum `tenant_id` era emitido → sempre nula). Agora o token carrega `tenant_id` (tenant único do usuário) e o `ToPermissionContext` o popula. Token sem a claim não nega acesso (compat); membership continua protegendo.
+
 ## [0.8.0-cloud-deploy] - 2026-07-16
 
 ### Adicionado
@@ -19,7 +27,7 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 - Nenhum segredo versionado: `.env` no `.gitignore` e `.env.example` com campos vazios + o comando que gera cada valor. `.dockerignore` impede que o `.env` do operador entre na imagem.
 - Postgres e API não publicam porta no host — só o Caddy fala com a internet, sempre em HTTPS (HSTS habilitado). Runtime da API roda como usuário não-root.
 - Piso de 32 bytes (256 bits) na chave HMAC-SHA256 do JWT; mensagens de erro de configuração nunca incluem o valor da chave (vão para o log do container).
-- `ASPNETCORE_FORWARDEDHEADERS_ENABLED` + `header_up X-Forwarded-For {remote_host}` no Caddy: sem os dois, o rate limit do `/auth` enxergaria só o IP do proxy (balde único global) ou aceitaria o header do cliente (balde escolhido pelo atacante) — nos dois casos o freio de força-bruta do AuthHash seria inútil.
+- `ASPNETCORE_FORWARDEDHEADERS_ENABLED` + `header_up X-Forwarded-For {remote_host}` no Caddy: sem os dois, o rate limit do `/auth` enxergaria só o IP do proxy (balde único global) ou aceitaria o header do cliente (balde escolhido pelo atacante) — nos dois casos o freio de força-bruta do AuthHash seria inútil. **(Corrigido em [Não lançado]: só a env var não bastava — o default confia apenas em loopback e o header era ignorado; ver `ForwardedHeadersSetup`.)**
 
 ### Pendências conhecidas
 
