@@ -17,7 +17,7 @@ public class AccountKeyServiceTests
     public void SecondDevice_WithPasswordOnly_RecoversSameAmk_AndDecryptsSecret()
     {
         var svc = new AccountKeyService();
-        const string pwd = "s3nh4-mto-forte!";
+        const string pwd = "s3nh4-mto-forte!"; // pragma: allowlist secret
 
         // Device A: cria a conta e sela uma "senha de equipamento" sob a AMK.
         AccountEnrollment enroll = svc.Enroll(pwd);

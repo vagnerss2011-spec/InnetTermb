@@ -250,7 +250,7 @@ public sealed class AccountViewModelTests
         vm.SwitchToRegisterCommand.Execute(null);
         vm.Email = "op@innet.tec.br";
         vm.WorkspaceName = "NOC";
-        char[] password = "senha-forte-123".ToCharArray();
+        char[] password = "senha-forte-123".ToCharArray(); // pragma: allowlist secret
         char[] confirm = "senha-forte-123".ToCharArray();
 
         await vm.SubmitAsync(password, confirm);
@@ -265,7 +265,7 @@ public sealed class AccountViewModelTests
         var auth = new FakeAuthenticator { Throw = new CloudSyncException(HttpStatusCode.Unauthorized) };
         var vm = NewVm(auth);
         vm.Email = "op@innet.tec.br";
-        char[] password = "senha-forte-123".ToCharArray();
+        char[] password = "senha-forte-123".ToCharArray(); // pragma: allowlist secret
 
         await vm.SubmitAsync(password, null);
 
@@ -279,7 +279,7 @@ public sealed class AccountViewModelTests
     {
         var vm = NewVm(new FakeAuthenticator());
         vm.Email = "invalido";
-        char[] password = "senha-forte-123".ToCharArray();
+        char[] password = "senha-forte-123".ToCharArray(); // pragma: allowlist secret
 
         await vm.SubmitAsync(password, null);
 

@@ -95,7 +95,7 @@ public sealed class DeviceToDeviceSecretSyncTests
         (string Cred, string Secret, string Type)[] data =
         [
             ("cred-senha", "s3nh@-do-switch", "password"),
-            ("cred-chave", "-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END-----", "privateKey"),
+            ("cred-chave", "-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END-----", "privateKey"), // pragma: allowlist secret
             ("cred-pass", "passphrase-da-chave-çãó", "privateKeyPassphrase"),
             ("cred-longo", new string('x', 512), "password"),
         ];

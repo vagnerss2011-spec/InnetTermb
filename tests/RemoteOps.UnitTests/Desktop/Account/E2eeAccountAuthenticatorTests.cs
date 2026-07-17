@@ -23,7 +23,7 @@ namespace RemoteOps.UnitTests.Desktop.Account;
 /// </summary>
 public sealed class E2eeAccountAuthenticatorTests
 {
-    private const string Password = "senha-forte-123";
+    private const string Password = "senha-forte-123"; // pragma: allowlist secret
     private static readonly Guid DeviceA = Guid.Parse("11111111-1111-1111-1111-111111111111");
     private static readonly Guid DeviceB = Guid.Parse("22222222-2222-2222-2222-222222222222");
 
