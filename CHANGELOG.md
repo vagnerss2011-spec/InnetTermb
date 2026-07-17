@@ -32,6 +32,20 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ### Corrigido
 
+- **Cloud sync (Fase 2) — a lista de hosts não recarregava quando o sync baixava dados novos:**
+  no 1º launch do device B a lista aparecia **VAZIA** (os dados chegavam ao banco segundos depois
+  e só apareciam no relaunch). O `HostsViewModel.LoadAsync()` rodava uma vez no `MainWindow.Loaded`
+  e nada mandava recarregar quando um pull materializava os hosts. Agora o `SyncOrchestrator`
+  levanta o evento `ChangesApplied` **apenas** quando um pull grava de fato nas tabelas locais que
+  a UI lê (o applier passou a devolver as linhas afetadas; ciclo no-op não dispara nada). O App
+  consome esse sinal com **debounce** de 300 ms (`DebouncedAction` — agrupa os vários lotes de um
+  pull grande) e o marshala para o Dispatcher, chamando `HostsViewModel.ReconcileFromStoreAsync()`:
+  uma recarga **incremental** que re-busca do store e reconcilia as coleções **por id** (adiciona
+  novos, remove sumidos, atualiza mudados) preservando a **instância** — logo a seleção do host, o
+  grupo aberto e o chip de filtro ativo sobrevivem à recarga (um `LoadAsync` cru os destruiria).
+  Offline-first intacto: sem conta/sync o comportamento é bit a bit o de antes. Coberto por testes
+  de VM, de orquestrador (fakes), device↔device (applier + SQLCipher reais) e um render STA que
+  reconcilia sobre um `DataGrid` vivo sem quebrar o binding.
 - **NDesk Broker — `JoinSession`/`EndSession` do hub liam só o claim `sub`**, mas o middleware
   JWT mapeia `sub` para `ClaimTypes.NameIdentifier` (`MapInboundClaims=true`) — com um JWT real
   o operador era **sempre recusado** no signaling. Passa a ler `NameIdentifier` (com `sub` de

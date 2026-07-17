@@ -78,16 +78,21 @@ public sealed class LocalEntitiesChangeApplier : IRemoteChangeApplier
         _workspace = workspace;
     }
 
-    public async Task ApplyAsync(IReadOnlyList<SyncChange> changes, CancellationToken ct = default)
+    public async Task<int> ApplyAsync(IReadOnlyList<SyncChange> changes, CancellationToken ct = default)
     {
         if (changes.Count == 0)
         {
-            return;
+            return 0;
         }
 
         using SqliteConnection conn = await _workspace.OpenConnectionAsync(ct);
         await LocalSchema.EnsureAsync(conn, ct);
         await EnsureQuarantineAsync(conn, ct);
+
+        // Soma as linhas REALMENTE gravadas nas tabelas que a UI lê. A quarentena (tipo desconhecido)
+        // NÃO conta de propósito: ninguém a renderiza, então gravar ali não é motivo pra recarregar a
+        // lista. É esse total que o orquestrador usa pra decidir se avisa a UI (Fase 2).
+        int affected = 0;
 
         foreach (SyncChange change in changes)
         {
@@ -106,14 +111,9 @@ public sealed class LocalEntitiesChangeApplier : IRemoteChangeApplier
 
             if (known)
             {
-                if (deleted)
-                {
-                    await DeleteAsync(conn, map!, change, ct);
-                }
-                else
-                {
-                    await UpsertAsync(conn, map!, change, ct);
-                }
+                affected += deleted
+                    ? await DeleteAsync(conn, map!, change, ct)
+                    : await UpsertAsync(conn, map!, change, ct);
             }
             else if (deleted)
             {
@@ -124,6 +124,8 @@ public sealed class LocalEntitiesChangeApplier : IRemoteChangeApplier
                 await QuarantineUpsertAsync(conn, change, ct);
             }
         }
+
+        return affected;
     }
 
     // ── Tabelas reais ─────────────────────────────────────────────────────────────────────
@@ -139,7 +141,8 @@ public sealed class LocalEntitiesChangeApplier : IRemoteChangeApplier
     /// entram apenas no INSERT (a linha nova precisa satisfazer os NOT NULL) e por isso NÃO aparecem
     /// no SET — senão um patch de rename zeraria o workspace da linha existente.</para>
     /// </summary>
-    private static async Task UpsertAsync(
+    /// <returns>Linhas gravadas (1 no insert/update efetivo; 0 quando a guarda de versão barra o UPDATE).</returns>
+    private static async Task<int> UpsertAsync(
         SqliteConnection conn, TableMap map, SyncChange change, CancellationToken ct)
     {
         string id = NormalizeId(change.EntityId);
@@ -196,7 +199,10 @@ public sealed class LocalEntitiesChangeApplier : IRemoteChangeApplier
             cmd.Parameters.AddWithValue($"${column}", value);
         }
 
-        await cmd.ExecuteNonQueryAsync(ct);
+        // ExecuteNonQuery devolve as linhas afetadas: 1 num INSERT ou num UPDATE que passou pela
+        // guarda `excluded.version >= version`; 0 quando a versão recebida é mais antiga (no-op) —
+        // exatamente o "não mudou nada" que evita o reload à toa.
+        return await cmd.ExecuteNonQueryAsync(ct);
     }
 
     /// <summary>
@@ -205,10 +211,12 @@ public sealed class LocalEntitiesChangeApplier : IRemoteChangeApplier
     /// "perdesse" pra uma versão local mais nova ressuscitaria o host apagado. Host fantasma é pior
     /// que host ausente: o operador tentaria conectar nele.
     /// </summary>
-    private static async Task DeleteAsync(
+    /// <returns>Linhas apagadas (ativo + endpoints em cascata); 0 se o id não existia localmente.</returns>
+    private static async Task<int> DeleteAsync(
         SqliteConnection conn, TableMap map, SyncChange change, CancellationToken ct)
     {
         string id = NormalizeId(change.EntityId);
+        int affected = 0;
 
         using SqliteTransaction tx = conn.BeginTransaction();
 
@@ -221,7 +229,7 @@ public sealed class LocalEntitiesChangeApplier : IRemoteChangeApplier
             epCmd.Transaction = tx;
             epCmd.CommandText = "DELETE FROM endpoints WHERE asset_id = $id";
             epCmd.Parameters.AddWithValue("$id", id);
-            await epCmd.ExecuteNonQueryAsync(ct);
+            affected += await epCmd.ExecuteNonQueryAsync(ct);
         }
 
         using (SqliteCommand cmd = conn.CreateCommand())
@@ -229,10 +237,11 @@ public sealed class LocalEntitiesChangeApplier : IRemoteChangeApplier
             cmd.Transaction = tx;
             cmd.CommandText = $"DELETE FROM {map.Table} WHERE id = $id";
             cmd.Parameters.AddWithValue("$id", id);
-            await cmd.ExecuteNonQueryAsync(ct);
+            affected += await cmd.ExecuteNonQueryAsync(ct);
         }
 
         await tx.CommitAsync(ct);
+        return affected;
     }
 
     // ── Quarentena (tipos que este app ainda não entende) ─────────────────────────────────

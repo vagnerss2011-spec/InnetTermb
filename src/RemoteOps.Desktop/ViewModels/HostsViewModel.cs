@@ -23,6 +23,13 @@ public sealed class HostsViewModel : BaseViewModel
     private string _searchText = string.Empty;
     private string _selectedFilterKey = string.Empty; // "" = Todos; "role:X"; "vendor:X"
 
+    // Reentrância da reconciliação do sync (Fase 2): o sinal é debounced e marshalado pro Dispatcher,
+    // mas a reconciliação tem awaits (lê o store) e um novo sinal pode chegar no meio. Sem guarda,
+    // dois passes concorrentes mutariam as MESMAS ObservableCollections intercalados — o clássico
+    // crash/duplicação de WPF. A guarda coalesce: se já está reconciliando, marca "faz de novo" e sai.
+    private bool _reconcileInProgress;
+    private bool _reconcilePending;
+
     public HostsViewModel(ILocalStore store, SessionLauncher launcher, string workspaceId, IInlineCredentialService? inlineCreds = null)
     {
         _store = store;
@@ -243,4 +250,192 @@ public sealed class HostsViewModel : BaseViewModel
     }
 
     public Task ReloadAfterEditAsync() => RefreshAsync();
+
+    // ── Reconciliação disparada pelo cloud sync (Fase 2) ─────────────────────────────────────
+
+    /// <summary>
+    /// Recarga "inteligente" chamada quando o sync APLICOU mudanças no store local (evento
+    /// <c>SyncOrchestrator.ChangesApplied</c>). Re-busca do store e RECONCILIA as coleções por id em
+    /// vez de recriá-las: um <see cref="LoadAsync"/> cru zeraria o grupo aberto, a seleção e o filtro
+    /// (bug de runtime WPF que passa no build). Preserva:
+    /// <list type="bullet">
+    ///   <item>o grupo aberto (<see cref="CurrentGroup"/>) — a menos que o sync o tenha apagado;</item>
+    ///   <item>o host selecionado — a MESMA instância continua na coleção, então o DataGrid mantém a seleção;</item>
+    ///   <item>o chip de filtro ativo (<see cref="_selectedFilterKey"/>).</item>
+    /// </list>
+    ///
+    /// <para><b>Afinidade de thread:</b> DEVE rodar na UI thread — muta <see cref="ObservableCollection{T}"/>
+    /// com binding. O sinal vem da thread de sync; o App marshala pro Dispatcher antes de chamar aqui.</para>
+    /// </summary>
+    public async Task ReconcileFromStoreAsync()
+    {
+        // Coalesce reentrâncias (ver campos _reconcile*): um pass por vez, mas nunca perde o último sinal.
+        if (_reconcileInProgress)
+        {
+            _reconcilePending = true;
+            return;
+        }
+
+        _reconcileInProgress = true;
+        try
+        {
+            do
+            {
+                _reconcilePending = false;
+                await ReconcileOnceAsync();
+            }
+            while (_reconcilePending);
+        }
+        finally
+        {
+            _reconcileInProgress = false;
+        }
+    }
+
+    private async Task ReconcileOnceAsync()
+    {
+        await ReconcileGroupsAsync();
+
+        if (_currentGroup is null)
+        {
+            return; // na lista de grupos: reconciliar os cards basta.
+        }
+
+        // O grupo aberto pode ter sido APAGADO por outro device. Sumiu da lista → volta pros grupos
+        // (o setter limpa Hosts e os filtros). Ficar "dentro" de um grupo inexistente travaria a UI.
+        if (!GroupStillExists(_currentGroup.Id))
+        {
+            CurrentGroup = null;
+            return;
+        }
+
+        await ReconcileHostsAsync();
+    }
+
+    private bool GroupStillExists(string id)
+    {
+        foreach (var g in Groups)
+        {
+            if (string.Equals(g.Id, id, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Reconcilia os cards de grupo (mesmo filtro/contagem do <see cref="LoadAsync"/>) por id.</summary>
+    private async Task ReconcileGroupsAsync()
+    {
+        var groups = await _store.GetGroupsAsync(_workspaceId);
+        var filter = _searchText.Trim();
+
+        var desired = new List<GroupSnapshot>();
+        foreach (var g in groups)
+        {
+            if (filter.Length > 0 && !g.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)) continue;
+            var count = (await _store.GetAssetsAsync(_workspaceId, g.Id)).Count;
+            desired.Add(new GroupSnapshot(g.Id, g.Name, count));
+        }
+
+        ReconcileById(
+            Groups, desired,
+            itemKey: c => c.Id,
+            modelKey: s => s.Id,
+            create: s => new GroupCardViewModel(s.Id, s.Name, s.Count),
+            update: (card, s) => card.Update(s.Name, s.Count));
+    }
+
+    /// <summary>Reconcilia os hosts do grupo aberto (mesmos filtros do <see cref="LoadHostsAsync"/>) por id.</summary>
+    private async Task ReconcileHostsAsync()
+    {
+        if (_currentGroup is null) return;
+
+        var assets = await _store.GetAssetsAsync(_workspaceId, _currentGroup.Id);
+
+        // Recria os chips PRESERVANDO o chip ativo (RebuildDeviceFilters já mantém _selectedFilterKey).
+        RebuildDeviceFilters(assets);
+
+        var filter = _searchText.Trim();
+        var visible = assets.Where(a => MatchesDeviceFilter(a)
+            && (filter.Length == 0
+                || a.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)
+                || string.Join(" ", a.Tags).Contains(filter, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+        ReconcileById(
+            Hosts, visible,
+            itemKey: h => h.Id,
+            modelKey: a => a.Id,
+            create: a => new AssetViewModel(a),
+            update: (vm, a) => vm.Refresh(a));
+
+        // Se o host selecionado saiu (apagado pelo sync ou filtrado), zera a seleção — sem um DataGrid
+        // vivo (testes) ninguém faria isso por nós, e SelectedHost apontaria pra uma instância fora da lista.
+        if (_selectedHost is not null && !Hosts.Contains(_selectedHost))
+        {
+            SelectedHost = null;
+        }
+    }
+
+    /// <summary>
+    /// Reconcilia uma <see cref="ObservableCollection{T}"/> COM a lista alvo por chave estável (id),
+    /// preservando as INSTÂNCIAS que sobrevivem: remove os que sumiram, insere os novos na posição
+    /// certa e move+atualiza os que ficaram. Preservar a instância é o que mantém a seleção do
+    /// DataGrid e o estado dos cards — recriar tudo (o que <see cref="LoadAsync"/> faz) destruiria isso.
+    /// Usa <see cref="ObservableCollection{T}.Move"/> (atômico) em vez de remover+inserir pra a seleção
+    /// nunca "piscar" pra null no meio de um reordenamento.
+    /// </summary>
+    private static void ReconcileById<TItem, TModel>(
+        ObservableCollection<TItem> target,
+        IReadOnlyList<TModel> desired,
+        Func<TItem, string> itemKey,
+        Func<TModel, string> modelKey,
+        Func<TModel, TItem> create,
+        Action<TItem, TModel> update)
+    {
+        // 1) Remover os que não estão mais no alvo.
+        var desiredKeys = new HashSet<string>(desired.Select(modelKey), StringComparer.Ordinal);
+        for (int i = target.Count - 1; i >= 0; i--)
+        {
+            if (!desiredKeys.Contains(itemKey(target[i])))
+            {
+                target.RemoveAt(i);
+            }
+        }
+
+        // 2) Percorrer o alvo em ordem: inserir novos, mover+atualizar existentes pra a posição i.
+        for (int i = 0; i < desired.Count; i++)
+        {
+            TModel model = desired[i];
+            string key = modelKey(model);
+
+            int current = -1;
+            for (int j = i; j < target.Count; j++)
+            {
+                if (string.Equals(itemKey(target[j]), key, StringComparison.Ordinal))
+                {
+                    current = j;
+                    break;
+                }
+            }
+
+            if (current < 0)
+            {
+                target.Insert(i, create(model));
+            }
+            else
+            {
+                if (current != i)
+                {
+                    target.Move(current, i); // preserva a instância (e a seleção do DataGrid)
+                }
+
+                update(target[i], model);
+            }
+        }
+    }
+
+    private readonly record struct GroupSnapshot(string Id, string Name, int Count);
 }

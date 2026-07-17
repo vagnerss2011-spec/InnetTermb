@@ -45,6 +45,17 @@ public sealed class SyncOrchestrator
 
     public event Action<SyncStatus>? StatusChanged;
 
+    /// <summary>
+    /// Disparado quando um pull REALMENTE gravou algo nas tabelas locais que a UI lê (Fase 2). É o
+    /// gatilho que faltava: até aqui o sync só mexia numa string de status, e a lista de hosts do
+    /// device B ficava vazia no 1º launch porque nada mandava a VM recarregar quando os dados
+    /// chegavam. Nunca dispara quando o ciclo é no-op (applied == 0) — sem reload à toa a cada tick.
+    ///
+    /// <para><b>Roda na thread de fundo do sync</b> (laço por intervalo ou callback de hint). Quem
+    /// consome (App/VM) DEVE marshalar pro Dispatcher antes de tocar em ObservableCollection.</para>
+    /// </summary>
+    public event Action? ChangesApplied;
+
     public SyncStatus Status { get; private set; } = new(SyncState.Offline);
 
     // Serializa SyncOnceAsync: o laço por intervalo (SyncSession.RunLoopAsync) e o callback de hint
@@ -69,7 +80,16 @@ public sealed class SyncOrchestrator
             {
                 SyncCursors cursors = await _metadata.GetCursorsAsync(_workspaceId, ct);
                 await DrainOutboxAsync(cursors.OutboxCursor, ct);
-                await ApplyServerChangesAsync(cursors.ServerCursor, ct);
+                int applied = await ApplyServerChangesAsync(cursors.ServerCursor, ct);
+
+                // Avisa a UI ASSIM QUE o changelog é materializado — ANTES do canal de segredos, de
+                // propósito: a lista de hosts é METADADO (nome/endereço/grupo), não segredo. Se os
+                // segredos falharem em seguida, a lista já recarrega mesmo assim; senão o host só
+                // apareceria no relaunch (o bug da Fase 2). Só dispara com applied > 0.
+                if (applied > 0)
+                {
+                    ChangesApplied?.Invoke();
+                }
 
                 // Segredos DEPOIS dos metadados, sempre: assim o credential_ref já existe localmente
                 // quando o envelope dele chega, e o device que recebe nunca fica com uma senha órfã.
@@ -141,15 +161,17 @@ public sealed class SyncOrchestrator
     }
 
     // PULL: puxa o changelog do servidor em páginas e aplica localmente (idempotente, sem re-emitir
-    // no outbox). O server cursor avança a cada página confirmada.
-    private async Task ApplyServerChangesAsync(long serverCursor, CancellationToken ct)
+    // no outbox). O server cursor avança a cada página confirmada. Devolve o total de linhas
+    // REALMENTE gravadas nas tabelas locais (0 = nada visível mudou), pra o ciclo decidir se avisa a UI.
+    private async Task<int> ApplyServerChangesAsync(long serverCursor, CancellationToken ct)
     {
+        int applied = 0;
         while (true)
         {
             PullResponse response = await _api.PullAsync(_workspaceId, serverCursor, _pageSize, ct);
             if (response.Changes.Count > 0)
             {
-                await _applier.ApplyAsync(response.Changes, ct);
+                applied += await _applier.ApplyAsync(response.Changes, ct);
             }
 
             serverCursor = response.NextCursor;
@@ -157,7 +179,7 @@ public sealed class SyncOrchestrator
 
             if (!response.HasMore)
             {
-                return;
+                return applied;
             }
         }
     }

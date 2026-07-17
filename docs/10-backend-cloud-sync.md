@@ -131,6 +131,19 @@ o app é offline-first puro (sem rede). Com ON, o `SyncOrchestrator`:
 Toda request leva `Authorization: Bearer {JWT}` + `X-Device-Id`. Refresh automático em 401 + retry
 único. Tokens guardados via vault (DPAPI/envelope) — nunca em texto puro. TLS sempre validado.
 
+### Recarga da UI quando o pull traz dados novos (Fase 2)
+
+O `IRemoteChangeApplier` devolve **quantas linhas** das tabelas que a UI lê foram de fato gravadas
+(insert/update/delete efetivo; 0 num ciclo idempotente/no-op). Quando esse total é > 0, o
+`SyncOrchestrator` levanta o evento **`ChangesApplied`** — logo após materializar o changelog e
+**antes** do canal de segredos (a lista de hosts é metadado, não segredo). O `App` consome esse sinal
+com **debounce** (`DebouncedAction`, ~300 ms — agrupa os vários lotes de um pull grande), marshala
+para o `Dispatcher` e chama `HostsViewModel.ReconcileFromStoreAsync()`: uma recarga **incremental**
+que reconcilia as coleções observáveis **por id** preservando a instância (logo o host selecionado,
+o grupo aberto e o filtro ativo sobrevivem). Sem isso, o device B abria com a lista **vazia** no 1º
+launch e os hosts só apareciam no relaunch. Ciclo sem mudança real não dispara nada (sem reload à toa
+a cada tick de 2 min). Offline (sync OFF): nenhum evento, comportamento inalterado.
+
 ### Configuração do cliente (variáveis de ambiente, Desktop)
 
 | Variável | Descrição |
@@ -139,7 +152,7 @@ Toda request leva `Authorization: Bearer {JWT}` + `X-Device-Id`. Refresh automá
 | `REMOTEOPS_CLOUD_URL` | Base URL https do Cloud. |
 | `REMOTEOPS_CLOUD_WORKSPACE_ID` | GUID do workspace no servidor. |
 
-Estado exposto na UI (`MainViewModel.SyncStatus`): Offline / Sincronizando / Sincronizado
+Estado exposto na UI (`WorkspaceViewModel.SyncStatus`): Offline / Sincronizando / Sincronizado
 (+ contagem de conflitos) / Erro.
 
 ## NDesk broker
