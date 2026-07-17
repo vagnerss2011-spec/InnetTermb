@@ -1,12 +1,23 @@
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using RemoteOps.Desktop.Infrastructure;
 using RemoteOps.Desktop.ViewModels;
+using RemoteOps.Sync.Remote;
 using Xunit;
 
 namespace RemoteOps.UnitTests.Desktop.ViewModels;
 
 public sealed class SettingsViewModelTests
 {
+    private sealed class StubMfaApi : IMfaApi
+    {
+        public Task<MfaEnrollResponse> EnrollAsync(CancellationToken ct = default)
+            => Task.FromResult(new MfaEnrollResponse("SECRET", "otpauth://totp/x"));
+        public Task ConfirmAsync(MfaConfirmRequest request, CancellationToken ct = default) => Task.CompletedTask;
+        public Task DisableAsync(MfaDisableRequest request, CancellationToken ct = default) => Task.CompletedTask;
+    }
+
     private sealed class FakeStore : ISettingsStore
     {
         public AppSettings Saved { get; private set; } = new();
@@ -50,5 +61,32 @@ public sealed class SettingsViewModelTests
     {
         var vm = new SettingsViewModel(new FakeStore(new AppSettings()), updateService: null);
         Assert.False(vm.CheckForUpdatesCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void ManageMfa_Disabled_AndCanManageFalse_WhenNoMfaApi()
+    {
+        // Modo local (sem conta na nuvem): a seção de 2FA fica desabilitada.
+        var vm = new SettingsViewModel(new FakeStore(new AppSettings()));
+
+        Assert.False(vm.CanManageMfa);
+        Assert.Null(vm.MfaApi);
+        Assert.False(vm.ManageMfaCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void ManageMfa_Enabled_AndRaisesRequest_WhenMfaApiPresent()
+    {
+        var api = new StubMfaApi();
+        var vm = new SettingsViewModel(new FakeStore(new AppSettings()), mfaApi: api);
+        bool requested = false;
+        vm.MfaSetupRequested += (_, _) => requested = true;
+
+        Assert.True(vm.CanManageMfa);
+        Assert.Same(api, vm.MfaApi);
+        Assert.True(vm.ManageMfaCommand.CanExecute(null));
+
+        vm.ManageMfaCommand.Execute(null);
+        Assert.True(requested);
     }
 }

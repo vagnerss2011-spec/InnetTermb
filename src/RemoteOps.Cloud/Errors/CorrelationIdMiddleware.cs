@@ -19,11 +19,23 @@ public sealed class CorrelationIdMiddleware(RequestDelegate next)
 
 public static class ProblemExtensionHelpers
 {
-    public static Dictionary<string, object?> ProblemExtensions(this HttpContext ctx)
+    /// <summary>
+    /// Extensões do ProblemDetails. Sempre inclui o correlationId; pares extras (ex.: um código de
+    /// erro estruturado como <c>("error", "mfa_required")</c>) entram como membros de topo do JSON —
+    /// é assim que o cliente distingue um 401 de 2FA de um 401 de credencial inválida.
+    /// </summary>
+    public static Dictionary<string, object?> ProblemExtensions(
+        this HttpContext ctx, params (string Key, object? Value)[] extra)
     {
         var correlationId = ctx.Items.TryGetValue("X-Correlation-Id", out var cid)
             ? cid?.ToString()
             : null;
-        return new Dictionary<string, object?> { ["correlationId"] = correlationId };
+        var result = new Dictionary<string, object?> { ["correlationId"] = correlationId };
+        foreach (var (key, value) in extra)
+        {
+            result[key] = value;
+        }
+
+        return result;
     }
 }

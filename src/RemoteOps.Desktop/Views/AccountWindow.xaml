@@ -32,6 +32,16 @@
             <TextBlock Text="Senha" Style="{DynamicResource Text.Caption}" Margin="0,0,0,2"/>
             <PasswordBox x:Name="PasswordField" Height="28" IsEnabled="{Binding IsIdle}" Margin="0,0,0,10"/>
 
+            <!-- ── Desafio de 2FA (login): aparece quando o backend responde mfa_required ── -->
+            <StackPanel Visibility="{Binding IsMfaChallenge, Converter={StaticResource BoolToVis}}">
+                <TextBlock Text="Código de verificação (2FA)" Style="{DynamicResource Text.Caption}" Margin="0,0,0,2"/>
+                <TextBox x:Name="TotpField" MaxLength="6"
+                         Text="{Binding TotpCode, UpdateSourceTrigger=PropertyChanged}"
+                         IsEnabled="{Binding IsIdle}" Margin="0,0,0,6"/>
+                <TextBlock Style="{DynamicResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,10"
+                           Text="Abra seu aplicativo autenticador (Google Authenticator, Authy…) e digite o código de 6 dígitos."/>
+            </StackPanel>
+
             <StackPanel Visibility="{Binding IsRegisterMode, Converter={StaticResource BoolToVis}}">
                 <TextBlock Text="Confirmar senha" Style="{DynamicResource Text.Caption}" Margin="0,0,0,2"/>
                 <PasswordBox x:Name="ConfirmPasswordField" Height="28" IsEnabled="{Binding IsIdle}" Margin="0,0,0,10"/>

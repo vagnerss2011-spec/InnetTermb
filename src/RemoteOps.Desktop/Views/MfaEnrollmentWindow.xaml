@@ -1,0 +1,100 @@
+<Window x:Class="RemoteOps.Desktop.Views.MfaEnrollmentWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="RemoteOps — Verificação em duas etapas" Height="Auto" Width="460"
+        SizeToContent="Height"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Background="{DynamicResource Brush.Bg.App}"
+        Foreground="{DynamicResource Brush.Text.Primary}"
+        FontFamily="{DynamicResource Font.Family.Base}"
+        FontSize="{DynamicResource Font.Size.Body}">
+    <!--
+        Ativar/desativar 2FA (Fase 3). Como na AccountWindow, os controles NÃO levam Background/
+        Foreground locais: o tema define estilo implícito por TargetType (regressão v1.2.24).
+    -->
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+    </Window.Resources>
+
+    <StackPanel Margin="20">
+        <TextBlock Text="Verificação em duas etapas (2FA)" Style="{DynamicResource Text.TitleLg}" Margin="0,0,0,4"/>
+        <TextBlock Style="{DynamicResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,12"
+                   Text="Protege o acesso à sua conta no servidor com um código do seu app autenticador. Não altera a senha do cofre nem é usada para recuperá-lo."/>
+
+        <!-- ── Início: ativar / desativar ── -->
+        <StackPanel Visibility="{Binding IsIntro, Converter={StaticResource BoolToVis}}">
+            <Button Content="Ativar verificação em duas etapas" Style="{DynamicResource Button.Primary}"
+                    Command="{Binding BeginEnrollCommand}" IsEnabled="{Binding IsIdle}"
+                    Padding="10,6" Margin="0,0,0,16"/>
+
+            <Border BorderBrush="{DynamicResource Brush.Border.Default}" BorderThickness="0,1,0,0"
+                    Padding="0,12,0,0">
+                <StackPanel>
+                    <TextBlock Style="{DynamicResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,6"
+                               Text="Já usa 2FA e quer desativar? Informe um código atual do seu app e confirme."/>
+                    <TextBox x:Name="DisableCodeField" MaxLength="6"
+                             Text="{Binding DisableCode, UpdateSourceTrigger=PropertyChanged}"
+                             IsEnabled="{Binding IsIdle}" Margin="0,0,0,8"/>
+                    <Button Content="Desativar 2FA" Command="{Binding DisableCommand}"
+                            IsEnabled="{Binding IsIdle}" HorizontalAlignment="Left" Padding="10,4"/>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+
+        <!-- ── Pós-enroll: segredo + confirmação ── -->
+        <StackPanel Visibility="{Binding IsShowSecret, Converter={StaticResource BoolToVis}}">
+            <TextBlock Text="Segredo (digite no app, ou escaneie o QR pela URI abaixo)"
+                       Style="{DynamicResource Text.Caption}" Margin="0,0,0,2"/>
+            <Border Background="{DynamicResource Brush.Bg.Surface}"
+                    BorderBrush="{DynamicResource Brush.Border.Default}"
+                    BorderThickness="1" CornerRadius="{DynamicResource Radius.Surface}"
+                    Padding="12" Margin="0,0,0,8">
+                <TextBlock x:Name="SecretText" Text="{Binding SecretBase32}"
+                           Style="{DynamicResource Text.Mono}" TextWrapping="Wrap" TextAlignment="Center"/>
+            </Border>
+
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                <Button Content="Copiar segredo" Command="{Binding CopySecretCommand}" Padding="10,4" Margin="0,0,8,0"/>
+                <Button Content="Copiar URI (otpauth)" Command="{Binding CopyUriCommand}" Padding="10,4"/>
+            </StackPanel>
+
+            <TextBlock Text="{Binding OtpauthUri}" Style="{DynamicResource Text.Caption}"
+                       TextWrapping="Wrap" Margin="0,0,0,12"/>
+
+            <TextBlock Text="Código do app autenticador" Style="{DynamicResource Text.Caption}" Margin="0,0,0,2"/>
+            <TextBox x:Name="ConfirmCodeField" MaxLength="6"
+                     Text="{Binding ConfirmCode, UpdateSourceTrigger=PropertyChanged}"
+                     IsEnabled="{Binding IsIdle}" Margin="0,0,0,10"/>
+
+            <Button Content="Confirmar e ativar" Style="{DynamicResource Button.Primary}"
+                    Command="{Binding ConfirmCommand}" IsDefault="True"
+                    IsEnabled="{Binding IsIdle}" Padding="10,6"/>
+        </StackPanel>
+
+        <!-- ── Concluído ── -->
+        <StackPanel Visibility="{Binding IsDone, Converter={StaticResource BoolToVis}}">
+            <Border Background="{DynamicResource Brush.Bg.Surface}"
+                    BorderBrush="{DynamicResource Brush.Border.Default}"
+                    BorderThickness="1" CornerRadius="{DynamicResource Radius.Surface}"
+                    Padding="12" Margin="0,0,0,12">
+                <TextBlock Text="{Binding DoneMessage}" TextWrapping="Wrap"/>
+            </Border>
+            <Button Content="Fechar" Style="{DynamicResource Button.Primary}"
+                    Command="{Binding CloseCommand}" IsDefault="True" Padding="10,6"/>
+        </StackPanel>
+
+        <!-- ── Erro / status (compartilhados) ── -->
+        <Border Visibility="{Binding HasError, Converter={StaticResource BoolToVis}}"
+                Background="{DynamicResource Brush.Status.CriticalSurface}"
+                BorderBrush="{DynamicResource Brush.Status.CriticalBase}"
+                BorderThickness="1" CornerRadius="{DynamicResource Radius.Control}"
+                Padding="10,6" Margin="0,12,0,0">
+            <TextBlock Text="{Binding ErrorMessage}" TextWrapping="Wrap"
+                       Foreground="{DynamicResource Brush.Status.Error}"/>
+        </Border>
+
+        <TextBlock Text="{Binding StatusMessage}" Style="{DynamicResource Text.Caption}"
+                   TextWrapping="Wrap" Margin="0,8,0,0"
+                   Visibility="{Binding HasStatus, Converter={StaticResource BoolToVis}}"/>
+    </StackPanel>
+</Window>

@@ -33,6 +33,21 @@
                                FontSize="11" Margin="0,12,0,0" TextWrapping="Wrap"/>
                 </StackPanel>
             </TabItem>
+            <TabItem Header="Conta">
+                <StackPanel Margin="12">
+                    <TextBlock Text="Verificação em duas etapas (2FA)" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <TextBlock Text="Exige um código do seu aplicativo autenticador ao entrar na conta da nuvem. Protege o acesso ao servidor; não altera a senha do cofre."
+                               Foreground="{DynamicResource Brush.Text.Secondary}"
+                               FontSize="11" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                    <Button Content="Configurar verificação em duas etapas…"
+                            Command="{Binding ManageMfaCommand}"
+                            HorizontalAlignment="Left" Padding="10,4"
+                            IsEnabled="{Binding CanManageMfa}"/>
+                    <TextBlock Text="Disponível quando você está conectado a uma conta na nuvem."
+                               Foreground="{DynamicResource Brush.Text.Tertiary}"
+                               FontSize="11" Margin="0,8,0,0" TextWrapping="Wrap"/>
+                </StackPanel>
+            </TabItem>
             <TabItem Header="Ferramentas externas">
                 <StackPanel Margin="12">
                     <TextBlock Text="WinBox" FontWeight="SemiBold" Margin="0,0,0,4"/>

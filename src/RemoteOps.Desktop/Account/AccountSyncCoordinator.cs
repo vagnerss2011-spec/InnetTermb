@@ -40,6 +40,13 @@ public sealed class AccountSyncCoordinator
     private ITokenStore? _tokens;
     private string? _activeWorkspaceId;
 
+    /// <summary>
+    /// Token store da conta ATIVA (ou null se não há sessão). Exposto pra o App montar um cliente
+    /// autenticado pontual (ex.: gestão de 2FA nas Configurações) reusando o MESMO cache de tokens do
+    /// sync — assim o refresh rotacionado num lugar não derruba o outro.
+    /// </summary>
+    public ITokenStore? ActiveTokenStore => _tokens;
+
     /// <param name="vaultWorkspaceIds">
     /// Workspaces do COFRE LOCAL (ex.: <c>ws-local</c>, <c>local</c>) — as identidades sob as quais
     /// os segredos deste device estão selados. Não confundir com o workspace do SERVIDOR (GUID), que

@@ -33,7 +33,8 @@ public sealed class AccountWindowRenderTests
                 new[] { new AccountWorkspace("ws-1", workspaceName, "Owner") },
                 "ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ23-4567"));
 
-        public Task<AccountSession> LoginAsync(string email, char[] password, CancellationToken ct = default)
+        public Task<AccountSession> LoginAsync(
+            string email, char[] password, string? totpCode = null, CancellationToken ct = default)
             => Task.FromResult(new AccountSession(
                 email, "ws-1", new byte[32],
                 new TokenSet("access", "refresh", DateTimeOffset.UtcNow.AddHours(1)),
@@ -113,5 +114,35 @@ public sealed class AccountWindowRenderTests
         Exception? captured = RenderWith(vm);
 
         Assert.True(captured is null, captured?.ToString());
+    }
+
+    /// <summary>
+    /// Desafio de 2FA: o campo do código só é realizado (medido/arranjado) quando IsMfaChallenge fica
+    /// true — é o momento em que o operador com 2FA depende dele. Um erro de XAML aqui passaria pelo
+    /// build e só explodiria justo pra quem tem 2FA ativa.
+    /// </summary>
+    [Fact]
+    public async Task Constructs_InMfaChallengeMode_WithoutThrowing()
+    {
+        var vm = new AccountViewModel(new MfaChallengingAuthenticator(), _ => { });
+        vm.Email = "op@innet.tec.br";
+        await vm.SubmitAsync("senha-forte-123".ToCharArray(), null);
+        Assert.True(vm.IsMfaChallenge);
+
+        Exception? captured = RenderWith(vm);
+
+        Assert.True(captured is null, captured?.ToString());
+    }
+
+    /// <summary>Autenticador que sempre exige 2FA no login (para exercitar o modo de desafio na UI).</summary>
+    private sealed class MfaChallengingAuthenticator : IAccountAuthenticator
+    {
+        public Task<AccountSession> RegisterAsync(
+            string email, char[] password, string workspaceName, CancellationToken ct = default)
+            => throw new NotSupportedException();
+
+        public Task<AccountSession> LoginAsync(
+            string email, char[] password, string? totpCode = null, CancellationToken ct = default)
+            => Task.FromException<AccountSession>(new MfaRequiredException());
     }
 }

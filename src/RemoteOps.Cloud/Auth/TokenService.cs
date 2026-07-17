@@ -10,11 +10,19 @@ using RemoteOps.Cloud.Data.Entities;
 
 namespace RemoteOps.Cloud.Auth;
 
-public sealed class TokenService(AppDbContext db, IConfiguration config, ILogger<TokenService> logger)
+public sealed class TokenService(
+    AppDbContext db,
+    IConfiguration config,
+    MfaSecretProtector mfaProtector,
+    ILogger<TokenService> logger)
 {
     private const int RefreshTokenByteLength = 64;
     private static readonly TimeSpan AccessTokenLifetime = TimeSpan.FromMinutes(15);
     private static readonly TimeSpan RefreshTokenLifetime = TimeSpan.FromDays(30);
+
+    // Seam de teste: relógio para a validação do TOTP. Por padrão é o real; um teste o fixa para
+    // gerar um código determinístico e provar a exigência de 2FA no login.
+    internal Func<DateTimeOffset> UtcNow { get; init; } = () => DateTimeOffset.UtcNow;
 
     // PBKDF2 de um valor fixo, calculado UMA vez no carregamento do tipo. Serve de alvo
     // "decoy": o login de e-mail inexistente (ou de tipo de prova incompatível) verifica
@@ -26,7 +34,7 @@ public sealed class TokenService(AppDbContext db, IConfiguration config, ILogger
     // e-mail existente e inexistente invocam o hasher o MESMO número de vezes.
     internal Func<string, string?, bool> ProofVerifier { get; init; } = PasswordHasher.Verify;
 
-    public async Task<LoginResponse?> LoginAsync(LoginRequest req, string ipAddress, CancellationToken ct)
+    public async Task<LoginResult> LoginAsync(LoginRequest req, string ipAddress, CancellationToken ct)
     {
         var email = EmailNormalizer.Normalize(req.Email);
         var user = await db.Users
@@ -40,18 +48,61 @@ public sealed class TokenService(AppDbContext db, IConfiguration config, ILogger
         {
             logger.LogWarning("Login failed for email hash {EmailHash} from {Ip}",
                 HashForLog(email), ipAddress);
-            return null;
+            return LoginResult.InvalidCredentials;
+        }
+
+        // 2FA: SÓ é checado DEPOIS de a senha (AuthHash) validar. Assim o sinal "mfa_required"
+        // nunca vira oráculo de enumeração — quem chega aqui já provou a identidade pela senha. E o
+        // custo/timing do caminho de falha antes deste ponto segue idêntico ao de sempre (o PBKDF2 já
+        // rodou uma vez, com ou sem 2FA na conta).
+        if (user.MfaRequired && !VerifyTotp(user, req.TotpCode))
+        {
+            logger.LogWarning("Login needs valid TOTP for user {UserId} from {Ip}", user.Id, ipAddress);
+            return LoginResult.MfaChallenge;
         }
 
         var device = await EnsureDeviceAsync(user.Id, req.DeviceId, req.DeviceName, ct);
         if (device.Status == "revoked")
         {
             logger.LogWarning("Login blocked: device {DeviceId} revoked for user {UserId}", device.Id, user.Id);
-            return null;
+            return LoginResult.InvalidCredentials;
         }
 
         logger.LogInformation("Login ok for user {UserId} device {DeviceId}", user.Id, device.Id);
-        return await IssueSessionAsync(user, device.Id, ct);
+        return LoginResult.Success(await IssueSessionAsync(user, device.Id, ct));
+    }
+
+    /// <summary>
+    /// Valida o TOTP contra o segredo cifrado da conta. Um blob que não desembrulha (chave de deploy
+    /// rotacionada, corrupção) NÃO trava o login como sucesso: conta como "código inválido" → a UI
+    /// pede o código de novo e o operador percebe (e re-inscreve o 2FA).
+    /// </summary>
+    private bool VerifyTotp(UserEntity user, string? code)
+    {
+        if (user.MfaSecret is null)
+        {
+            return false;
+        }
+
+        byte[] secret;
+        try
+        {
+            secret = mfaProtector.Unprotect(user.MfaSecret);
+        }
+        catch (CryptographicException)
+        {
+            logger.LogError("TOTP secret failed to unprotect for user {UserId}", user.Id);
+            return false;
+        }
+
+        try
+        {
+            return TotpService.Verify(secret, code, UtcNow());
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(secret);
+        }
     }
 
     /// <summary>

@@ -14,6 +14,34 @@ public sealed record LoginRequest(string Email, string? Password, string DeviceI
 {
     /// <summary>Prova de senha derivada no device (base64). O servidor nunca recebe a senha.</summary>
     public string? AuthHash { get; init; }
+
+    /// <summary>
+    /// Código TOTP de 6 dígitos. Só exigido quando a conta tem 2FA ativa (<c>MfaRequired</c>). É
+    /// PEDIDO só DEPOIS de o AuthHash validar (ver TokenService) — não vira oráculo de enumeração.
+    /// </summary>
+    public string? TotpCode { get; init; }
+}
+
+/// <summary>Resultado do login: sucesso (com payload), credencial inválida, ou 2FA pendente.</summary>
+public enum LoginOutcome
+{
+    Success,
+    InvalidCredentials,
+
+    /// <summary>Senha OK, mas falta (ou está errado) o código TOTP — a UI deve pedir o código.</summary>
+    MfaRequired,
+}
+
+/// <summary>
+/// Envelope do login. <see cref="LoginOutcome.MfaRequired"/> é DISTINTO de
+/// <see cref="LoginOutcome.InvalidCredentials"/> de propósito: só a UI que já provou a senha recebe o
+/// sinal de pedir o TOTP. As duas viram 401 no endpoint, mas com corpo estruturado diferente.
+/// </summary>
+public sealed record LoginResult(LoginOutcome Outcome, LoginResponse? Response)
+{
+    public static readonly LoginResult InvalidCredentials = new(LoginOutcome.InvalidCredentials, null);
+    public static readonly LoginResult MfaChallenge = new(LoginOutcome.MfaRequired, null);
+    public static LoginResult Success(LoginResponse response) => new(LoginOutcome.Success, response);
 }
 
 /// <summary>
@@ -62,6 +90,20 @@ public sealed record RegisterResponse(
 
 /// <summary>Params públicos de KDF para o device derivar a MasterKey antes do login.</summary>
 public sealed record KdfResponse(string Argon2Salt, Argon2Params Argon2Params);
+
+// ── 2FA / TOTP (spec Fase 3) ────────────────────────────────────────────────
+
+/// <summary>
+/// Resposta do <c>/auth/mfa/enroll</c>: o segredo em Base32 (pra digitar) + o otpauth URI (pro QR).
+/// O 2FA ainda NÃO está ativo aqui — só depois do <c>/auth/mfa/confirm</c>.
+/// </summary>
+public sealed record MfaEnrollResponse(string SecretBase32, string OtpauthUri);
+
+/// <summary>Confirma o enroll (ativa o 2FA) com um código TOTP válido do app do usuário.</summary>
+public sealed record MfaConfirmRequest(string Code);
+
+/// <summary>Desliga o 2FA — exige um código TOTP válido (não basta estar logado).</summary>
+public sealed record MfaDisableRequest(string Code);
 
 /// <summary>
 /// Troca de senha: re-embrulha a AMK sob a nova KEK. A AMK não muda, então os

@@ -172,6 +172,10 @@ public partial class App : Application
 
             _workspaceViewModel = _serviceProvider.GetRequiredService<WorkspaceViewModel>();
 
+            // 2FA nas Configurações: o VM monta o cliente autenticado sob demanda, reusando os tokens
+            // da conta ativa. Lazy → null em modo local (sem conta), e a seção de 2FA fica desabilitada.
+            _workspaceViewModel.MfaApiFactory = TryCreateMfaApi;
+
             // Recarga da lista de hosts quando o sync baixa dados novos (Fase 2). Sem isto, o device B
             // abre com a lista VAZIA: o LoadAsync roda uma vez no Loaded, e nada recarrega quando o
             // primeiro pull materializa os hosts segundos depois. Debounced (300ms) porque um pull
@@ -623,6 +627,22 @@ public partial class App : Application
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Cliente autenticado de 2FA pra a tela de Configurações, ou null se não há conta ativa (modo
+    /// local). Reusa o token store do coordenador (mesmo cache do sync → refresh coerente). Um
+    /// HttpClient novo por abertura é aceitável (ação rara do operador).
+    /// </summary>
+    private IMfaApi? TryCreateMfaApi()
+    {
+        if (_coordinator?.ActiveTokenStore is not { } tokens || _accountConfig is not { } config)
+        {
+            return null;
+        }
+
+        var http = new HttpClient { BaseAddress = config.CloudUrl };
+        return new MfaApiClient(http, config.DeviceId, tokens);
     }
 
     /// <summary>Abre a janela de conta (modal) e devolve a sessão autenticada, ou null se cancelou.</summary>

@@ -61,7 +61,8 @@ public sealed class AuthTests
         device.RevokedAt = DateTimeOffset.UtcNow;
         await ctx.Db.SaveChangesAsync();
 
-        var svc = new TokenService(ctx.Db, TestConfig(), NullLogger<TokenService>.Instance);
+        var svc = new TokenService(
+            ctx.Db, TestConfig(), new MfaSecretProtector(TestConfig()), NullLogger<TokenService>.Instance);
         var result = await svc.RefreshAsync(
             new RefreshRequest(rawToken, device.Id.ToString()), "1.2.3.4", default);
 
@@ -93,7 +94,8 @@ public sealed class AuthTests
         });
         await ctx.Db.SaveChangesAsync();
 
-        var svc = new TokenService(ctx.Db, TestConfig(), NullLogger<TokenService>.Instance);
+        var svc = new TokenService(
+            ctx.Db, TestConfig(), new MfaSecretProtector(TestConfig()), NullLogger<TokenService>.Instance);
         var result = await svc.RefreshAsync(
             new RefreshRequest(rawToken, Guid.NewGuid().ToString()), "1.2.3.4", default);
 

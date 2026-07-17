@@ -73,11 +73,12 @@ public sealed class AuthE2eeTests
                 AuthHash = Convert.ToBase64String(authHash),
             }, "5.6.7.8", default);
 
-        Assert.NotNull(login);
-        Assert.Equal(Convert.ToBase64String(wrappedPwd), login.WrappedAmkPwd);
-        Assert.Equal(1, login.AmkKeyVersion);
-        Assert.NotNull(login.Workspaces);
-        var ws = Assert.Single(login.Workspaces!);
+        Assert.Equal(LoginOutcome.Success, login.Outcome);
+        var response = login.Response!;
+        Assert.Equal(Convert.ToBase64String(wrappedPwd), response.WrappedAmkPwd);
+        Assert.Equal(1, response.AmkKeyVersion);
+        Assert.NotNull(response.Workspaces);
+        var ws = Assert.Single(response.Workspaces!);
         Assert.Equal("Meu Workspace", ws.Name);
         Assert.Equal(reg.WorkspaceId, ws.Id);
         Assert.Equal("Owner", ws.Role);
@@ -99,7 +100,7 @@ public sealed class AuthE2eeTests
                 AuthHash = Convert.ToBase64String(Rand(32)), // AuthHash de outra senha
             }, "5.6.7.8", default);
 
-        Assert.Null(login);
+        Assert.Equal(LoginOutcome.InvalidCredentials, login.Outcome);
     }
 
     [Fact]
@@ -115,7 +116,7 @@ public sealed class AuthE2eeTests
             new LoginRequest(email, "qualquer-coisa", Guid.NewGuid().ToString(), "Device B"),
             "5.6.7.8", default);
 
-        Assert.Null(login);
+        Assert.Equal(LoginOutcome.InvalidCredentials, login.Outcome);
     }
 
     // ── Servidor nunca persiste plaintext ─────────────────────────────────────
@@ -276,12 +277,12 @@ public sealed class AuthE2eeTests
         Assert.Equal(1, updated.AmkKeyVersion);
 
         // A senha antiga deixa de autenticar; a nova autentica.
-        Assert.Null(await ctx.Tokens.LoginAsync(
+        Assert.Equal(LoginOutcome.InvalidCredentials, (await ctx.Tokens.LoginAsync(
             new LoginRequest(email, null, Guid.NewGuid().ToString(), "D")
-            { AuthHash = Convert.ToBase64String(oldAuthHash) }, "1.2.3.4", default));
-        Assert.NotNull(await ctx.Tokens.LoginAsync(
+            { AuthHash = Convert.ToBase64String(oldAuthHash) }, "1.2.3.4", default)).Outcome);
+        Assert.Equal(LoginOutcome.Success, (await ctx.Tokens.LoginAsync(
             new LoginRequest(email, null, Guid.NewGuid().ToString(), "D")
-            { AuthHash = Convert.ToBase64String(newAuthHash) }, "1.2.3.4", default));
+            { AuthHash = Convert.ToBase64String(newAuthHash) }, "1.2.3.4", default)).Outcome);
     }
 
     [Fact]
@@ -326,9 +327,9 @@ public sealed class AuthE2eeTests
             new LoginRequest(user.Email, "segredo-legado-do-teste", Guid.NewGuid().ToString(), "Device Legado"),
             "1.2.3.4", default);
 
-        Assert.NotNull(login);
+        Assert.Equal(LoginOutcome.Success, login.Outcome);
         // Conta sem escrow não devolve AMK — o cliente cai no fluxo antigo.
-        Assert.Null(login.WrappedAmkPwd);
+        Assert.Null(login.Response!.WrappedAmkPwd);
     }
 
     [Fact]
@@ -343,7 +344,7 @@ public sealed class AuthE2eeTests
             new LoginRequest(user.Email, null, Guid.NewGuid().ToString(), "D")
             { AuthHash = Convert.ToBase64String(Rand(32)) }, "1.2.3.4", default);
 
-        Assert.Null(login);
+        Assert.Equal(LoginOutcome.InvalidCredentials, login.Outcome);
     }
 
     // ── Anti-enumeração por timing no /auth/login (FIX 2) ─────────────────────
@@ -368,7 +369,7 @@ public sealed class AuthE2eeTests
 
         // Conta existente, AuthHash errado → falha, mas roda o PBKDF2 real.
         var existingCount = 0;
-        var svcExisting = new TokenService(ctx.Db, config, NullLogger<TokenService>.Instance)
+        var svcExisting = new TokenService(ctx.Db, config, ctx.MfaProtector, NullLogger<TokenService>.Instance)
         {
             ProofVerifier = (v, h) => { Interlocked.Increment(ref existingCount); return PasswordHasher.Verify(v, h); },
         };
@@ -378,7 +379,7 @@ public sealed class AuthE2eeTests
 
         // Conta inexistente → tem que rodar o MESMO número de PBKDF2 (contra o decoy).
         var unknownCount = 0;
-        var svcUnknown = new TokenService(ctx.Db, config, NullLogger<TokenService>.Instance)
+        var svcUnknown = new TokenService(ctx.Db, config, ctx.MfaProtector, NullLogger<TokenService>.Instance)
         {
             ProofVerifier = (v, h) => { Interlocked.Increment(ref unknownCount); return PasswordHasher.Verify(v, h); },
         };
@@ -386,8 +387,8 @@ public sealed class AuthE2eeTests
             new LoginRequest("naoexiste@test.local", null, Guid.NewGuid().ToString(), "D")
             { AuthHash = Convert.ToBase64String(Rand(32)) }, "1.2.3.4", default);
 
-        Assert.Null(existingLogin);
-        Assert.Null(unknownLogin);
+        Assert.Equal(LoginOutcome.InvalidCredentials, existingLogin.Outcome);
+        Assert.Equal(LoginOutcome.InvalidCredentials, unknownLogin.Outcome);
         Assert.Equal(1, existingCount);
         Assert.Equal(existingCount, unknownCount);
     }

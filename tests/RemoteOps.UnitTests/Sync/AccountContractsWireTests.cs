@@ -37,7 +37,14 @@ public sealed class AccountContractsWireTests
     private sealed record ServerLoginRequest(string Email, string? Password, string DeviceId, string DeviceName)
     {
         public string? AuthHash { get; init; }
+        public string? TotpCode { get; init; }
     }
+
+    private sealed record ServerMfaEnrollResponse(string SecretBase32, string OtpauthUri);
+
+    private sealed record ServerMfaConfirmRequest(string Code);
+
+    private sealed record ServerMfaDisableRequest(string Code);
 
     private sealed record ServerWorkspaceSummary(string Id, string Name, string Role);
 
@@ -195,6 +202,69 @@ public sealed class AccountContractsWireTests
 
         // A regra do backend: hasAuthHash != hasPassword. Sem o campo password no fio, passa.
         Assert.DoesNotContain("\"password\"", wire, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// No RE-envio do login (2FA), o <c>totpCode</c> do cliente tem que cair no campo homônimo do
+    /// backend — senão o código nunca chegaria e o login travaria em loop de mfa_required.
+    /// </summary>
+    [Fact]
+    public void E2eeLoginRequest_WithTotpCode_LandsInServerField()
+    {
+        var client = new E2eeLoginRequest("op@innet.tec.br", new byte[32], "dev-1", "PC-A", "123456");
+
+        string wire = JsonSerializer.Serialize(client, s_web);
+        ServerLoginRequest? server = JsonSerializer.Deserialize<ServerLoginRequest>(wire, s_web);
+
+        Assert.Equal("123456", server!.TotpCode);
+    }
+
+    [Fact]
+    public void E2eeLoginRequest_WithoutTotpCode_LeavesServerFieldNull()
+    {
+        var client = new E2eeLoginRequest("op@innet.tec.br", new byte[32], "dev-1", "PC-A");
+
+        string wire = JsonSerializer.Serialize(client, s_web);
+        ServerLoginRequest? server = JsonSerializer.Deserialize<ServerLoginRequest>(wire, s_web);
+
+        Assert.Null(server!.TotpCode);
+    }
+
+    // ── /auth/mfa/* (2FA) ──────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void MfaEnrollResponse_FromServerShape_BindsOnClient()
+    {
+        var server = new ServerMfaEnrollResponse("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", "otpauth://totp/RemoteOps:op?secret=X");
+
+        string wire = JsonSerializer.Serialize(server, s_web);
+        MfaEnrollResponse? client = JsonSerializer.Deserialize<MfaEnrollResponse>(wire, s_web);
+
+        Assert.NotNull(client);
+        Assert.Equal("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", client!.SecretBase32);
+        Assert.StartsWith("otpauth://totp/", client.OtpauthUri);
+    }
+
+    [Fact]
+    public void MfaConfirmRequest_DeserializesIntoServerShape()
+    {
+        var client = new MfaConfirmRequest("123456");
+
+        var server = JsonSerializer.Deserialize<ServerMfaConfirmRequest>(
+            JsonSerializer.Serialize(client, s_web), s_web);
+
+        Assert.Equal("123456", server!.Code);
+    }
+
+    [Fact]
+    public void MfaDisableRequest_DeserializesIntoServerShape()
+    {
+        var client = new MfaDisableRequest("654321");
+
+        var server = JsonSerializer.Deserialize<ServerMfaDisableRequest>(
+            JsonSerializer.Serialize(client, s_web), s_web);
+
+        Assert.Equal("654321", server!.Code);
     }
 
     /// <summary>Resposta de login E2EE do servidor real → tipo do cliente, campo a campo.</summary>

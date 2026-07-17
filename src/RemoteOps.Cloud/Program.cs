@@ -84,6 +84,9 @@ builder.Services.AddSignalR();
 // ── Serviços de domínio ──────────────────────────────────────────────────────
 builder.Services.AddScoped<TokenService>();
 builder.Services.AddScoped<AccountService>();
+builder.Services.AddScoped<MfaService>();
+// Protetor do segredo TOTP em repouso: sem estado próprio, derivado da config → singleton.
+builder.Services.AddSingleton<MfaSecretProtector>();
 builder.Services.AddScoped<PermissionEvaluator>();
 builder.Services.AddScoped<SyncService>();
 builder.Services.AddScoped<SecretsService>();

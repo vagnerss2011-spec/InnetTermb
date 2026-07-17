@@ -71,8 +71,27 @@ public sealed record KdfResponse(byte[] Argon2Salt, Argon2Params Argon2Params);
 /// guarda PBKDF2 dele — nem o AuthHash cru). O backend aceita exatamente UM entre <c>authHash</c> e
 /// <c>password</c>; este tipo não tem o campo <c>password</c>, então o servidor sempre entra no ramo
 /// E2EE — o caminho legado é inalcançável a partir do cliente por construção.
+///
+/// <para><see cref="TotpCode"/> só é preenchido no RE-envio, depois de o backend responder
+/// <c>mfa_required</c> (conta com 2FA ativa). Fica nulo no 1º envio — o servidor só o exige quando a
+/// conta tem 2FA e o AuthHash já validou.</para>
 /// </summary>
-public sealed record E2eeLoginRequest(string Email, byte[] AuthHash, string DeviceId, string DeviceName);
+public sealed record E2eeLoginRequest(
+    string Email, byte[] AuthHash, string DeviceId, string DeviceName, string? TotpCode = null);
+
+// ── 2FA / TOTP (spec Fase 3) — espelhos das mensagens de MFA do backend ─────────────────
+
+/// <summary>
+/// Resposta de <c>POST /auth/mfa/enroll</c> (autenticado): o segredo em Base32 (pra digitar no app) +
+/// o <c>otpauth://</c> URI (pra montar o QR). O 2FA NÃO fica ativo até o <c>confirm</c>.
+/// </summary>
+public sealed record MfaEnrollResponse(string SecretBase32, string OtpauthUri);
+
+/// <summary><c>POST /auth/mfa/confirm</c> (autenticado): ativa o 2FA com um código TOTP válido.</summary>
+public sealed record MfaConfirmRequest(string Code);
+
+/// <summary><c>POST /auth/mfa/disable</c> (autenticado): desliga o 2FA — exige um código TOTP válido.</summary>
+public sealed record MfaDisableRequest(string Code);
 
 /// <summary>
 /// Resposta do login E2EE: além dos tokens, devolve o escrow por senha pra o device desembrulhar a
