@@ -19,6 +19,14 @@
 *.yaml text eol=lf
 *.md   text eol=lf
 
+# Artefatos de deploy: são consumidos por Docker/Caddy em Linux. CRLF num
+# Dockerfile quebra a continuação de linha (`\`), e num .env entra \r no fim do
+# valor — a senha do Postgres vira outra senha. LF mesmo quando clonado no Windows.
+Dockerfile text eol=lf
+.dockerignore text eol=lf
+.env.example text eol=lf
+deploy/Caddyfile text eol=lf
+
 # Binários (não normalizar).
 *.png binary
 *.jpg binary

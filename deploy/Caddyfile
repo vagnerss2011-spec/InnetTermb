@@ -1,0 +1,40 @@
+# Caddy — TLS automático (ACME/Let's Encrypt) + proxy para a API.
+# Montado em /etc/caddy/Caddyfile pelo docker-compose.yml.
+#
+# O cliente EXIGE https (REMOTEOPS_CLOUD_URL). O Caddy tira o certificado sozinho
+# na primeira subida, desde que:
+#   1) o DNS de REMOTEOPS_PUBLIC_HOSTNAME aponte para o IP deste servidor, e
+#   2) as portas 80 e 443 estejam abertas na internet (o desafio ACME usa a 80).
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$REMOTEOPS_PUBLIC_HOSTNAME} {
+	encode zstd gzip
+
+	# SignalR (/hubs/sync) não precisa de configuração: o Caddy faz o upgrade de
+	# WebSocket sozinho e, por padrão, não impõe timeout de resposta — conexão de
+	# longa duração sobrevive. NÃO adicione `transport http { read_timeout ... }`
+	# aqui: essas opções não existem no transport (são do servidor) e o Caddy se
+	# recusa a carregar o arquivo, derrubando o proxy inteiro.
+	reverse_proxy api:8080 {
+		# SOBRESCREVE o X-Forwarded-For em vez de deixar o Caddy APENDAR ao valor
+		# que o cliente mandou. O rate limit do /auth particiona por IP: se o
+		# cliente pudesse injetar o header, trocaria de balde a cada request e o
+		# freio de força-bruta do AuthHash viraria enfeite.
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+	}
+
+	# HSTS: o app só fala https; o navegador/cliente não deve nem tentar http.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
