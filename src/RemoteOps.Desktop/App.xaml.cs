@@ -17,6 +17,7 @@ using RemoteOps.Security.Storage;
 using RemoteOps.Security.Vault;
 using RemoteOps.Sync;
 using RemoteOps.Sync.Remote;
+using RemoteOps.Sync.Storage;
 using Velopack;
 
 namespace RemoteOps.Desktop;
@@ -32,6 +33,7 @@ public partial class App : Application
     private VaultRootActivator? _accountActivator;
     private SyncStartContext? _syncContext;
     private AccountConfig? _accountConfig;
+    private IntegrityReport? _integrityReport;
 
     public App()
     {
@@ -138,6 +140,13 @@ public partial class App : Application
             // abrir o banco com a raiz antiga e migrar em seguida deixaria a chave ilegível.
             var syncFactory = new LocalSyncClientFactory(vault, dataDir);
             WorkspaceContext ctx = await syncFactory.OpenWorkspaceAsync(AppRuntime.DbWorkspace);
+
+            // Validação de integridade na reabertura (Fase 2, item C): ANTES de confiar no cofre/outbox,
+            // roda quick_check + recuperação do WAL + consistência dos cursores. Fail-open — nunca trava
+            // o boot; recupera o que der, sinaliza o grave. O resultado vai pros Logs quando a UI subir.
+            _integrityReport = await TryValidateIntegrityAsync(
+                ctx, syncFactory.DbPath(AppRuntime.DbWorkspace));
+
             ILocalStore store = new SqlCipherLocalStore(ctx);
 
             // Composition root (ADR-011): injeta o vault de produção + store SQLCipher
@@ -180,8 +189,18 @@ public partial class App : Application
             // o app (era o default antes do startup mexer nisso pela janela de conta).
             ShutdownMode = ShutdownMode.OnLastWindowClose;
 
+            // Só agora leva o resultado da integridade (item C) ao operador: a janela já está no ar, o
+            // Logs existe. Emitir ANTES bloquearia a abertura; aqui o app já abriu (boot nunca trava).
+            SurfaceIntegrityReport();
+
             // A partir daqui, uma 2ª instância que tentar abrir vai só trazer esta janela pra frente.
             _singleInstance.ListenForActivation(() => Dispatcher.Invoke(BringMainWindowToFront));
+
+            // Flush-ao-fechar (Fase 2, item A): logoff/shutdown do Windows encerra o app sem passar
+            // por um fechamento "normal" de janela — SessionEnding é a única chance de drenar o outbox
+            // antes de o processo morrer. O Alt+F4/fechar-janela cai no OnExit (mais abaixo). Os dois
+            // chamam o MESMO flush, guardado pra rodar uma vez só.
+            SessionEnding += OnSessionEnding;
 
             // Cloud sync (ADR-013) atrás da feature flag cloud.sync.enabled (default OFF).
             // OFF (ou config incompleta) → app idêntico ao atual: offline-first, sem rede.
@@ -290,8 +309,106 @@ public partial class App : Application
         return true;
     }
 
+    /// <summary>
+    /// Roda a validação de integridade da reabertura (Fase 2, item C) sem nunca deixar o boot travar.
+    /// O próprio <see cref="StartupIntegrityValidator"/> é fail-open; este try/catch é a cinta de
+    /// segurança extra (ex.: falha ao instanciar). Devolve <c>null</c> = "não deu pra verificar",
+    /// tratado como silêncio — a ausência de checagem nunca pode impedir o app de abrir.
+    /// </summary>
+    private static async Task<IntegrityReport?> TryValidateIntegrityAsync(WorkspaceContext ctx, string dbPath)
+    {
+        try
+        {
+            return await new StartupIntegrityValidator().ValidateAndRecoverAsync(ctx, dbPath);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Leva o resultado da integridade ao operador: sempre loga (painel de Logs), e mostra um aviso
+    /// modal SÓ quando é grave (<see cref="IntegrityReport.ShouldWarnOperator"/>). Roda depois da
+    /// janela abrir — o boot já terminou, então nada aqui o trava.
+    /// </summary>
+    private void SurfaceIntegrityReport()
+    {
+        if (_integrityReport is not { } report)
+        {
+            return;
+        }
+
+        IUiLogSink? log = _serviceProvider?.GetService<IUiLogSink>();
+        foreach (string message in report.Messages)
+        {
+            log?.Emit($"[integridade] {message}");
+        }
+
+        if (report.ShouldWarnOperator)
+        {
+            MessageBox.Show(
+                string.Join("\n\n", report.Messages),
+                "RemoteOps — Verificação de integridade",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+    }
+
+    // Teto do flush-ao-fechar: encurta a janela de perda dos últimos segundos SEM travar o fechamento
+    // se a rede estiver fora. O outbox é durável — o que não subir agora sobe no próximo boot.
+    private static readonly TimeSpan FlushOnCloseTimeout = TimeSpan.FromSeconds(4);
+    private bool _outboxFlushed;
+
+    private void OnSessionEnding(object sender, SessionEndingCancelEventArgs e)
+    {
+        // Logoff/shutdown do Windows: última chance de subir o pendente antes de o processo morrer.
+        FlushOutboxOnClose();
+    }
+
+    /// <summary>
+    /// Drena o outbox uma vez, no fechamento, com teto de tempo (Fase 2, item A). Best-effort e
+    /// idempotente: chamado por <see cref="OnSessionEnding"/> E por <see cref="OnExit"/>, mas só o
+    /// primeiro efetivamente roda.
+    ///
+    /// <para><b>Offload pro pool (Task.Run) de propósito:</b> este método bloqueia a UI thread
+    /// (GetResult), e o flush encadeia awaits no store SQLCipher que, na UI thread, capturariam o
+    /// DispatcherSynchronizationContext — cujas continuações não rodam com a UI thread bloqueada
+    /// (deadlock sync-over-async). Rodando o flush dentro de um Task.Run, ele nasce SEM contexto de
+    /// sincronização, então nenhuma continuação depende da UI thread; o teto interno do flush garante
+    /// que o GetResult retorna rápido mesmo com a rede fora.</para>
+    /// </summary>
+    private void FlushOutboxOnClose()
+    {
+        if (_outboxFlushed)
+        {
+            return;
+        }
+
+        _outboxFlushed = true;
+
+        SyncSession? session = _syncSession;
+        if (session is null)
+        {
+            return; // sem sync ativo (offline-first): nada a drenar.
+        }
+
+        try
+        {
+            Task.Run(() => session.FlushOutboxAsync(FlushOnCloseTimeout)).GetAwaiter().GetResult();
+        }
+        catch (Exception)
+        {
+            // best-effort: rede fora no fechamento é rotina, não erro.
+        }
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
+        // Flush final do outbox ANTES de descartar a sessão (Fase 2, item A). Se o SessionEnding já
+        // rodou (logoff), a guarda evita o segundo flush — nada de esperar o timeout duas vezes.
+        FlushOutboxOnClose();
+
         // Para o timer do debounce antes de derrubar a sessão: um Signal em voo não deve tentar
         // reconciliar sobre uma VM/janela já em processo de encerramento.
         _syncReload?.Dispose();
@@ -353,6 +470,13 @@ public partial class App : Application
         // marshalado pro Dispatcher em OnSyncChangesApplied → _syncReload). StatusChanged só mexe numa
         // string; era ele, sozinho, que deixava o device B com a lista vazia até o relaunch.
         _syncSession.Orchestrator.ChangesApplied += OnSyncChangesApplied;
+
+        // Fase 2, item B: liga o "Sincronizar agora" ao orquestrador DESTA sessão (push+pull), o que
+        // também habilita os botões no shell (HasCloud vira true). Marshala pro Dispatcher — toca
+        // binding de UI. StartSyncSession roda na UI thread hoje, mas o Invoke deixa isso explícito.
+        var controller = new OrchestratorSyncController(_syncSession.Orchestrator);
+        Dispatcher.Invoke(() => _workspaceViewModel?.Browser.Sync.AttachController(controller));
+
         OnSyncStatusChanged(_syncSession.Orchestrator.Status);
         _ = StartSyncAsync(_syncSession);
     }
@@ -594,7 +718,14 @@ public partial class App : Application
             return;
         }
 
-        Dispatcher.Invoke(() => vm.SyncStatus = FormatStatus(status));
+        // Marshala pro Dispatcher: o StatusChanged vem da thread de fundo do sync e aqui se toca
+        // binding de UI (o indicador de status do shell). Atualiza a string legada (back-compat) E o
+        // indicador rico da Fase 2 item B.
+        Dispatcher.Invoke(() =>
+        {
+            vm.SyncStatus = FormatStatus(status);
+            vm.Browser.Sync.Apply(status);
+        });
     }
 
     private static string FormatStatus(SyncStatus status) => status.State switch

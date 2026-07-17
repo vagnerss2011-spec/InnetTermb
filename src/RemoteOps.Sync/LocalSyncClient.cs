@@ -27,6 +27,9 @@ public sealed class LocalSyncClient : ISyncClient
 
     public long CurrentCursor => Volatile.Read(ref _currentCursor);
 
+    /// <inheritdoc/>
+    public event Action? LocalChangePushed;
+
     internal LocalSyncClient(IDbConnectionFactory connectionFactory, long initialCursor = 0)
     {
         _connectionFactory = connectionFactory;
@@ -35,26 +38,38 @@ public sealed class LocalSyncClient : ISyncClient
 
     public async Task PushAsync(IEnumerable<SyncChange> changes, CancellationToken ct = default)
     {
-        using SqliteConnection conn = await _connectionFactory.OpenAsync(ct);
-        await EnsureSchemaAsync(conn, ct);
-
-        foreach (SyncChange change in changes)
+        int written = 0;
+        using (SqliteConnection conn = await _connectionFactory.OpenAsync(ct))
         {
-            using SqliteCommand cmd = conn.CreateCommand();
-            cmd.CommandText = """
-                INSERT OR IGNORE INTO local_outbox
-                    (client_change_id, entity_type, entity_id, operation, base_version, patch_json, created_at)
-                VALUES
-                    ($cid, $et, $eid, $op, $bv, $patch, $ts)
-                """;
-            cmd.Parameters.AddWithValue("$cid", (object?)change.ClientChangeId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("$et", change.EntityType);
-            cmd.Parameters.AddWithValue("$eid", change.EntityId);
-            cmd.Parameters.AddWithValue("$op", change.Operation);
-            cmd.Parameters.AddWithValue("$bv", change.BaseVersion);
-            cmd.Parameters.AddWithValue("$patch", JsonSerializer.Serialize(change.Patch, s_json));
-            cmd.Parameters.AddWithValue("$ts", DateTimeOffset.UtcNow.ToString("O"));
-            await cmd.ExecuteNonQueryAsync(ct);
+            await EnsureSchemaAsync(conn, ct);
+
+            foreach (SyncChange change in changes)
+            {
+                using SqliteCommand cmd = conn.CreateCommand();
+                cmd.CommandText = """
+                    INSERT OR IGNORE INTO local_outbox
+                        (client_change_id, entity_type, entity_id, operation, base_version, patch_json, created_at)
+                    VALUES
+                        ($cid, $et, $eid, $op, $bv, $patch, $ts)
+                    """;
+                cmd.Parameters.AddWithValue("$cid", (object?)change.ClientChangeId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$et", change.EntityType);
+                cmd.Parameters.AddWithValue("$eid", change.EntityId);
+                cmd.Parameters.AddWithValue("$op", change.Operation);
+                cmd.Parameters.AddWithValue("$bv", change.BaseVersion);
+                cmd.Parameters.AddWithValue("$patch", JsonSerializer.Serialize(change.Patch, s_json));
+                cmd.Parameters.AddWithValue("$ts", DateTimeOffset.UtcNow.ToString("O"));
+                written += await cmd.ExecuteNonQueryAsync(ct);
+            }
+        }
+
+        // Só avisa se algo entrou de fato no outbox (INSERT OR IGNORE pode ser no-op num retry com o
+        // mesmo client_change_id): um sync incremental à toa não faria mal, mas o gatilho existe pra
+        // edição real. Levantado com a conexão JÁ FECHADA (fim do using acima) — o handler debounça e
+        // dispara o sync noutra thread, então nunca segura um lock de banco nem reentra nesta conexão.
+        if (written > 0)
+        {
+            LocalChangePushed?.Invoke();
         }
     }
 

@@ -117,6 +117,48 @@ public sealed class SyncOrchestrator
         }
     }
 
+    /// <summary>
+    /// Flush best-effort do outbox no fechamento (Fase 2, item A — o "Alt+F4"): drena SÓ o push, sem
+    /// pull e sem aplicar changelog. Serializado pelo mesmo <see cref="_gate"/> do
+    /// <see cref="SyncOnceAsync"/> — um flush nunca roda concorrente a um ciclo, e vice-versa.
+    ///
+    /// <para><b>Não levanta <see cref="StatusChanged"/> de propósito.</b> O flush roda no fechamento,
+    /// onde a UI thread costuma estar BLOQUEADA esperando por ele (App.OnExit); marshalar o status pro
+    /// Dispatcher daí seria deadlock. O outbox é durável: o que não subir agora sobe no próximo boot —
+    /// o flush só encurta a janela de perda dos últimos segundos, não é fonte de verdade.</para>
+    ///
+    /// <para>Em falha/cancelamento (rede fora, timeout curto do fechamento): não relança — fechar o
+    /// app nunca pode travar por causa do sync (ADR-002).</para>
+    /// </summary>
+    public async Task FlushOutboxAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            await _gate.WaitAsync(ct);
+        }
+        catch (OperationCanceledException)
+        {
+            return; // teto do fechamento estourou antes de adquirir o gate — nada a liberar.
+        }
+
+        try
+        {
+            SyncCursors cursors = await _metadata.GetCursorsAsync(_workspaceId, ct);
+            await DrainOutboxAsync(cursors.OutboxCursor, ct);
+        }
+        catch (Exception)
+        {
+            // Engole TUDO, inclusive OperationCanceledException (timeout do fechamento): este flush
+            // nunca deve FALHAR a task — quem chama pode abandoná-la no teto, e uma task faltada não
+            // observada viraria UnobservedTaskException. Sem detalhe no log (ADR-013). Outbox é
+            // durável; o que não subiu sobe no próximo boot.
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     // PUSH: drena o outbox local em páginas e empurra para o servidor. A política de conflito
     // (OnConflictsAsync) decide se o cursor avança (skip) ou para (block). SecretEnvelope nunca
     // sofre auto-merge no cliente. Ver ADR-013.

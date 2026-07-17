@@ -83,7 +83,12 @@ public static class SyncSessionFactory
         var hints = new SignalRSyncHintChannel(
             hubUrl, async () => (await tokenStore.LoadAsync())?.AccessToken);
 
-        return new SyncSession(orchestrator, hints, options.WorkspaceId, options.Interval);
+        // Fase 2, item A: liga o push-ao-mudar à MESMA fonte que o orquestrador drena (o outbox do
+        // workspace). Uma edição local levanta LocalChangePushed nesse ISyncClient → a sessão debounça
+        // e sincroniza — sem esperar o tick de ~2 min.
+        return new SyncSession(
+            orchestrator, hints, options.WorkspaceId, options.Interval,
+            localChanges: options.Workspace.SyncClient);
     }
 
     /// <summary>
