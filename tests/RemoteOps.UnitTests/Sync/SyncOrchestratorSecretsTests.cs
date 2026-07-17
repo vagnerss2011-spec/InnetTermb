@@ -160,10 +160,10 @@ public sealed class SyncOrchestratorSecretsTests : IDisposable
 
     private sealed class RecordingApplier(List<string> order) : IRemoteChangeApplier
     {
-        public Task ApplyAsync(IReadOnlyList<SyncChange> changes, CancellationToken ct = default)
+        public Task<int> ApplyAsync(IReadOnlyList<SyncChange> changes, CancellationToken ct = default)
         {
             order.Add("metadados");
-            return Task.CompletedTask;
+            return Task.FromResult(changes.Count);
         }
     }
 
