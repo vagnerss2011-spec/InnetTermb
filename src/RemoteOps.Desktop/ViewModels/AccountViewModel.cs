@@ -47,7 +47,9 @@ public sealed class AccountViewModel : BaseViewModel
     private string _errorMessage = string.Empty;
     private string _statusMessage = string.Empty;
     private string _recoveryKey = string.Empty;
+    private string _totpCode = string.Empty;
     private bool _isBusy;
+    private bool _isMfaChallenge;
     private bool _recoveryAcknowledged;
     private AccountSession? _session;
 
@@ -127,6 +129,27 @@ public sealed class AccountViewModel : BaseViewModel
     /// <summary>Chave de recuperação recém-criada. Só tem valor no modo <see cref="AccountMode.RecoveryKey"/>.</summary>
     public string RecoveryKey { get => _recoveryKey; private set => Set(ref _recoveryKey, value); }
 
+    /// <summary>
+    /// Login exigiu 2FA: o backend respondeu <c>mfa_required</c>. A UI mostra o campo do código e o
+    /// próximo submit reenvia a senha (do PasswordBox) + o <see cref="TotpCode"/>. Ortogonal ao
+    /// <see cref="Mode"/> — só acontece no login.
+    /// </summary>
+    public bool IsMfaChallenge
+    {
+        get => _isMfaChallenge;
+        private set => Set(ref _isMfaChallenge, value);
+    }
+
+    /// <summary>
+    /// Código TOTP de 6 dígitos digitado no desafio de 2FA. É string (não char[]) de propósito: um
+    /// código de 30s não é segredo de longa duração como a senha — bindar como texto é aceitável.
+    /// </summary>
+    public string TotpCode
+    {
+        get => _totpCode;
+        set => Set(ref _totpCode, value);
+    }
+
     /// <summary>"Guardei em local seguro" — obrigatório pra fechar a tela da chave.</summary>
     public bool RecoveryAcknowledged
     {
@@ -176,13 +199,11 @@ public sealed class AccountViewModel : BaseViewModel
                 // o operador ficaria com um cofre sem plano B e sem saber disso.
                 bool registering = IsRegisterMode;
 
-                _session = registering
-                    ? await _authenticator.RegisterAsync(NormalizedEmail, password, WorkspaceName.Trim())
-                    : await _authenticator.LoginAsync(NormalizedEmail, password);
-                RaisePropertyChanged(nameof(Session));
-
                 if (registering)
                 {
+                    _session = await _authenticator.RegisterAsync(NormalizedEmail, password, WorkspaceName.Trim());
+                    RaisePropertyChanged(nameof(Session));
+
                     // Registro NÃO autentica direto: sem a chave de recuperação guardada, o operador
                     // fica com um cofre sem plano B (spec §6 — "exibe a RecoveryKey 1x").
                     RecoveryKey = _session.RecoveryKey ?? string.Empty;
@@ -190,8 +211,20 @@ public sealed class AccountViewModel : BaseViewModel
                 }
                 else
                 {
+                    // No desafio de 2FA, manda o código; senão, nulo (o backend só exige se tiver 2FA).
+                    string? totpCode = IsMfaChallenge ? TotpCode.Trim() : null;
+                    _session = await _authenticator.LoginAsync(NormalizedEmail, password, totpCode);
+                    RaisePropertyChanged(nameof(Session));
+
+                    IsMfaChallenge = false;
                     Authenticated?.Invoke(this, EventArgs.Empty);
                 }
+            }
+            catch (MfaRequiredException)
+            {
+                // Senha OK, mas a conta tem 2FA: pede o código e reenvia. Se já estávamos no desafio,
+                // foi código errado — a mensagem muda pra dizer isso. NÃO é erro de credencial.
+                EnterMfaChallenge(codeWasWrong: IsMfaChallenge);
             }
             catch (Exception ex)
             {
@@ -254,6 +287,12 @@ public sealed class AccountViewModel : BaseViewModel
             return "Informe a senha.";
         }
 
+        // No desafio de 2FA (login), exige o código de 6 dígitos ANTES de bater no servidor.
+        if (IsMfaChallenge && !IsSixDigits(TotpCode.Trim()))
+        {
+            return "Informe o código de 6 dígitos do seu aplicativo autenticador.";
+        }
+
         if (!IsRegisterMode)
         {
             return null;
@@ -282,7 +321,50 @@ public sealed class AccountViewModel : BaseViewModel
     {
         ErrorMessage = string.Empty;
         StatusMessage = string.Empty;
+        // Trocar Entrar/Criar conta abandona qualquer desafio de 2FA pendente.
+        IsMfaChallenge = false;
+        TotpCode = string.Empty;
         Mode = mode;
+    }
+
+    /// <summary>
+    /// Entra (ou permanece) no desafio de 2FA. Primeira vez = mensagem informativa; código errado =
+    /// mensagem de erro + limpa o campo pra redigitar. NÃO limpa a senha (o PasswordBox a mantém pro
+    /// reenvio) nem autentica.
+    /// </summary>
+    private void EnterMfaChallenge(bool codeWasWrong)
+    {
+        IsMfaChallenge = true;
+        if (codeWasWrong)
+        {
+            ErrorMessage = "Código inválido. Confira o aplicativo autenticador e tente de novo.";
+            StatusMessage = string.Empty;
+            TotpCode = string.Empty;
+        }
+        else
+        {
+            ErrorMessage = string.Empty;
+            StatusMessage = "Esta conta usa verificação em duas etapas. "
+                + "Digite o código de 6 dígitos do seu aplicativo autenticador.";
+        }
+    }
+
+    private static bool IsSixDigits(string value)
+    {
+        if (value.Length != 6)
+        {
+            return false;
+        }
+
+        foreach (char c in value)
+        {
+            if (!char.IsAsciiDigit(c))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private void CopyRecovery()

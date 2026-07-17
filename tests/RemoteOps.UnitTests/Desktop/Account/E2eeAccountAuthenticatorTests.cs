@@ -36,6 +36,12 @@ public sealed class E2eeAccountAuthenticatorTests
     {
         public RegisterAccountRequest? Stored { get; private set; }
 
+        /// <summary>Se setado, o login exige este código TOTP; sem ele (ou errado) → MfaRequiredException.</summary>
+        public string? RequiredTotp { get; set; }
+
+        /// <summary>Último código TOTP recebido no login — prova que o orquestrador o repassa.</summary>
+        public string? LastTotp { get; private set; }
+
         public Task<RegisterAccountResponse> RegisterAsync(
             RegisterAccountRequest request, CancellationToken ct = default)
         {
@@ -59,6 +65,13 @@ public sealed class E2eeAccountAuthenticatorTests
             if (Stored is null || !request.AuthHash.SequenceEqual(Stored.AuthHash))
             {
                 throw new CloudSyncException(HttpStatusCode.Unauthorized);
+            }
+
+            LastTotp = request.TotpCode;
+            // 2FA: só depois da senha (AuthHash) validar — exatamente como o backend real.
+            if (RequiredTotp is not null && request.TotpCode != RequiredTotp)
+            {
+                throw new MfaRequiredException();
             }
 
             return Task.FromResult(new E2eeLoginResponse(
@@ -170,6 +183,31 @@ public sealed class E2eeAccountAuthenticatorTests
         byte[] recovered = new AccountKeyService()
             .UnwrapAmkWithRecoveryKey(session.RecoveryKey!, server.Stored!.WrappedAmkRec);
         Assert.Equal(session.Amk, recovered);
+    }
+
+    /// <summary>
+    /// Conta com 2FA: o login sem código lança MfaRequiredException (a KEK é zerada e o cofre nem é
+    /// tocado) e, com o código certo, recupera a MESMA AMK. Prova que o orquestrador REPASSA o código.
+    /// </summary>
+    [Fact]
+    public async Task Login_With2fa_RequiresCode_ThenRecoversAmk()
+    {
+        var server = new FakeAccountServer();
+        var deviceA = new E2eeAccountAuthenticator(server, DeviceA, "PC-A");
+        AccountSession registered = await deviceA.RegisterAsync("op@innet.tec.br", Password.ToCharArray(), "NOC");
+
+        // Operador ativou 2FA no servidor.
+        server.RequiredTotp = "424242";
+        var deviceB = new E2eeAccountAuthenticator(server, DeviceB, "PC-B");
+
+        // Sem código → desafio.
+        await Assert.ThrowsAsync<MfaRequiredException>(
+            () => deviceB.LoginAsync("op@innet.tec.br", Password.ToCharArray()));
+
+        // Com o código → recupera a AMK (e o servidor recebeu o código).
+        AccountSession loggedIn = await deviceB.LoginAsync("op@innet.tec.br", Password.ToCharArray(), "424242");
+        Assert.Equal("424242", server.LastTotp);
+        Assert.Equal(registered.Amk, loggedIn.Amk);
     }
 
     /// <summary>O login não devolve chave de recuperação — ela só existe uma vez, no registro.</summary>

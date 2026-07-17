@@ -84,7 +84,7 @@ public sealed class E2eeAccountAuthenticator : IAccountAuthenticator
     }
 
     public async Task<AccountSession> LoginAsync(
-        string email, char[] password, CancellationToken ct = default)
+        string email, char[] password, string? totpCode = null, CancellationToken ct = default)
     {
         // 1) Salt/params da conta (públicos) — sem eles o device não consegue re-derivar a MasterKey.
         KdfResponse kdf = await _api.GetKdfAsync(email, ct);
@@ -93,12 +93,14 @@ public sealed class E2eeAccountAuthenticator : IAccountAuthenticator
         //    DEPOIS de o servidor devolver o escrow (que só existe se a prova passar). O char[] do
         //    PasswordBox entra direto no núcleo (sem virar string); ele é usado de novo no passo 3 e
         //    zerado uma única vez pelo AccountViewModel — por isso NÃO o zeramos aqui.
+        //    Se a conta tiver 2FA e o totpCode faltar/errar, o _api lança MfaRequiredException aqui:
+        //    a KEK já foi zerada no finally e o passo 3 nem é alcançado — a UI reenvia com o código.
         AccountKeyMaterial material = _keys.DeriveFromPassword(password, kdf.Argon2Salt, kdf.Argon2Params);
         E2eeLoginResponse login;
         try
         {
             login = await _api.LoginAsync(
-                new E2eeLoginRequest(email, material.AuthHash, _deviceId.ToString(), _deviceName), ct);
+                new E2eeLoginRequest(email, material.AuthHash, _deviceId.ToString(), _deviceName, totpCode), ct);
         }
         finally
         {

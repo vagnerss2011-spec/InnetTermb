@@ -17,6 +17,12 @@ public interface IAccountAuthenticator
     Task<AccountSession> RegisterAsync(
         string email, char[] password, string workspaceName, CancellationToken ct = default);
 
-    /// <summary>Entra numa conta existente (device novo ou reinstalação) e recupera a AMK.</summary>
-    Task<AccountSession> LoginAsync(string email, char[] password, CancellationToken ct = default);
+    /// <summary>
+    /// Entra numa conta existente (device novo ou reinstalação) e recupera a AMK.
+    ///
+    /// <para><paramref name="totpCode"/> é nulo no 1º intento; se a conta tiver 2FA ativa, a
+    /// implementação lança <c>MfaRequiredException</c> e a UI reenvia com o código de 6 dígitos.</para>
+    /// </summary>
+    Task<AccountSession> LoginAsync(
+        string email, char[] password, string? totpCode = null, CancellationToken ct = default);
 }

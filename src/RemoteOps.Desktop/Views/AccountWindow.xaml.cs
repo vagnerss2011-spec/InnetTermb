@@ -36,9 +36,14 @@ public partial class AccountWindow : Window
         // SubmitAsync zera os dois buffers — inclusive quando a validação falha antes da rede.
         await Vm.SubmitAsync(password, confirm);
 
-        // Some com o texto dos campos também (o PasswordBox guarda a senha internamente).
-        PasswordField.Clear();
-        ConfirmPasswordField.Clear();
+        // Some com o texto dos campos também (o PasswordBox guarda a senha internamente). EXCETO no
+        // desafio de 2FA: aí o reenvio (senha do PasswordBox + código) ainda precisa da senha; ela é
+        // limpa quando o fluxo resolve (autenticou ou trocou de modo).
+        if (!Vm.IsMfaChallenge)
+        {
+            PasswordField.Clear();
+            ConfirmPasswordField.Clear();
+        }
     }
 
     /// <summary>Lê a senha como char[] via SecureString/BSTR (nunca retorna string). O VM zera depois.</summary>

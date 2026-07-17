@@ -43,7 +43,35 @@ public sealed class AccountApiClient : IAccountApi
         E2eeLoginRequest request, CancellationToken ct = default)
     {
         using HttpResponseMessage resp = await _http.PostAsJsonAsync("/auth/login", request, s_json, ct);
+
+        // 401 pode ser credencial inválida OU 2FA pendente. Só o segundo carrega error=mfa_required
+        // no corpo — e é o que faz a UI pedir o código em vez de dizer "senha errada".
+        if (resp.StatusCode == HttpStatusCode.Unauthorized && await IsMfaRequiredAsync(resp, ct))
+        {
+            throw new MfaRequiredException();
+        }
+
         return await ReadOrThrowAsync<E2eeLoginResponse>(resp, ct);
+    }
+
+    /// <summary>
+    /// Lê o corpo do 401 e vê se é o ProblemDetails estruturado do 2FA. Tolerante: corpo não-JSON,
+    /// vazio ou sem o campo → trata como 401 comum (não-MFA). Nunca loga o corpo.
+    /// </summary>
+    private static async Task<bool> IsMfaRequiredAsync(HttpResponseMessage resp, CancellationToken ct)
+    {
+        try
+        {
+            using JsonDocument doc = await JsonDocument.ParseAsync(
+                await resp.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+            return doc.RootElement.TryGetProperty("error", out JsonElement error)
+                   && error.ValueKind == JsonValueKind.String
+                   && error.GetString() == "mfa_required";
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     private static async Task<T> ReadOrThrowAsync<T>(HttpResponseMessage resp, CancellationToken ct)
