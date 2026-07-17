@@ -60,7 +60,8 @@ public sealed class TokenService(AppDbContext db, IConfiguration config, ILogger
     /// </summary>
     internal async Task<LoginResponse> IssueSessionAsync(UserEntity user, Guid deviceId, CancellationToken ct)
     {
-        var (accessToken, expiresAt) = IssueAccessToken(user);
+        var tenantId = await ResolveUserTenantAsync(user.Id, ct);
+        var (accessToken, expiresAt) = IssueAccessToken(user, tenantId);
         var refreshToken = await IssueRefreshTokenAsync(user.Id, deviceId, ct);
         var workspaces = await LoadWorkspacesAsync(user.Id, ct);
 
@@ -82,6 +83,27 @@ public sealed class TokenService(AppDbContext db, IConfiguration config, ILogger
             .Select(m => new WorkspaceSummary(
                 m.WorkspaceId.ToString(), m.Workspace.Name, m.Role))
             .ToListAsync(ct);
+
+    /// <summary>
+    /// Tenant do usuário para o claim <c>tenant_id</c> (ativa a guarda cross-tenant do
+    /// PermissionEvaluator). Hoje um usuário pertence a exatamente um tenant: o membership só
+    /// é criado no /auth/register, junto com o tenant. Por robustez futura, só devolve valor
+    /// quando o tenant é ÚNICO — se um dia o usuário pertencer a workspaces de tenants
+    /// diferentes, devolve null (claim omitido → guarda inerte, sem NEGAR acesso legítimo) em
+    /// vez de cravar um tenant arbitrário. Membership continua protegendo em qualquer caso.
+    /// </summary>
+    internal async Task<Guid?> ResolveUserTenantAsync(Guid userId, CancellationToken ct)
+    {
+        var tenantIds = await db.Memberships
+            .AsNoTracking()
+            .Where(m => m.UserId == userId && m.Workspace.Status == "active")
+            .Select(m => m.Workspace.TenantId)
+            .Distinct()
+            .Take(2)
+            .ToListAsync(ct);
+
+        return tenantIds.Count == 1 ? tenantIds[0] : null;
+    }
 
     internal async Task<DeviceEntity> EnsureDeviceAsync(
         Guid userId, string deviceIdStr, string deviceName, CancellationToken ct)
@@ -184,7 +206,8 @@ public sealed class TokenService(AppDbContext db, IConfiguration config, ILogger
         // Rotate refresh token (revoke old, issue new)
         stored.RevokedAt = DateTimeOffset.UtcNow;
         var newRefresh = await IssueRefreshTokenAsync(stored.UserId, stored.DeviceId, ct);
-        var (accessToken, expiresAt) = IssueAccessToken(stored.User);
+        var tenantId = await ResolveUserTenantAsync(stored.UserId, ct);
+        var (accessToken, expiresAt) = IssueAccessToken(stored.User, tenantId);
 
         logger.LogInformation("Token refreshed for user {UserId} device {DeviceId}", stored.UserId, stored.DeviceId);
         return new RefreshResponse(accessToken, newRefresh, expiresAt);
@@ -202,17 +225,22 @@ public sealed class TokenService(AppDbContext db, IConfiguration config, ILogger
         return true;
     }
 
-    private (string Token, DateTimeOffset ExpiresAt) IssueAccessToken(UserEntity user)
+    private (string Token, DateTimeOffset ExpiresAt) IssueAccessToken(UserEntity user, Guid? tenantId)
     {
         var key = GetSigningKey();
         var expires = DateTimeOffset.UtcNow.Add(AccessTokenLifetime);
-        var claims = new[]
+        var claims = new List<Claim>
         {
-            new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
-            new Claim(JwtRegisteredClaimNames.Email, user.Email),
-            new Claim("display_name", user.DisplayName),
-            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+            new(JwtRegisteredClaimNames.Email, user.Email),
+            new("display_name", user.DisplayName),
+            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
         };
+
+        // tenant_id ativa a guarda cross-tenant do PermissionEvaluator (defense-in-depth).
+        // Emitido só quando o tenant do usuário é único e resolvível (ver ResolveUserTenantAsync).
+        if (tenantId.HasValue)
+            claims.Add(new Claim("tenant_id", tenantId.Value.ToString()));
 
         var descriptor = new SecurityTokenDescriptor
         {
