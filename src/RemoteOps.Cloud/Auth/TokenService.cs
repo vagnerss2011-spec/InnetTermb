@@ -16,13 +16,27 @@ public sealed class TokenService(AppDbContext db, IConfiguration config, ILogger
     private static readonly TimeSpan AccessTokenLifetime = TimeSpan.FromMinutes(15);
     private static readonly TimeSpan RefreshTokenLifetime = TimeSpan.FromDays(30);
 
+    // PBKDF2 de um valor fixo, calculado UMA vez no carregamento do tipo. Serve de alvo
+    // "decoy": o login de e-mail inexistente (ou de tipo de prova incompatível) verifica
+    // contra ele para gastar o MESMO PBKDF2 e não vazar a existência da conta por timing.
+    private static readonly string DummyAuthHashHash = PasswordHasher.Hash("remoteops:login-timing-decoy:v1");
+
+    // Seam de teste: por padrão é o PBKDF2 real. Um teste injeta um contador POR INSTÂNCIA
+    // (sem estado global → sem flake com a paralelização do xUnit) para provar que login de
+    // e-mail existente e inexistente invocam o hasher o MESMO número de vezes.
+    internal Func<string, string?, bool> ProofVerifier { get; init; } = PasswordHasher.Verify;
+
     public async Task<LoginResponse?> LoginAsync(LoginRequest req, string ipAddress, CancellationToken ct)
     {
         var email = EmailNormalizer.Normalize(req.Email);
         var user = await db.Users
             .FirstOrDefaultAsync(u => u.Email == email && u.Status == "active", ct);
 
-        if (user is null || !VerifyProof(req, user))
+        // Roda SEMPRE (mesmo com user null) para gastar o PBKDF2 e não vazar a existência
+        // da conta por timing. Avaliado ANTES do short-circuit de propósito — trocar a
+        // ordem reabriria o oráculo de enumeração.
+        var proofValid = VerifyProof(req, user);
+        if (user is null || !proofValid)
         {
             logger.LogWarning("Login failed for email hash {EmailHash} from {Ip}",
                 HashForLog(email), ipAddress);
@@ -94,17 +108,47 @@ public sealed class TokenService(AppDbContext db, IConfiguration config, ILogger
     /// <summary>
     /// Valida a prova de identidade. Conta E2EE só aceita AuthHash; conta legada só
     /// aceita senha. Nunca os dois — senão o caminho legado viraria bypass do E2EE.
+    ///
+    /// Roda SEMPRE exatamente um PBKDF2 (real ou decoy), inclusive com <paramref name="user"/>
+    /// nulo: sem isso, e-mail inexistente respondia em sub-ms e existente em dezenas de ms,
+    /// vazando a existência da conta por timing e furando a anti-enumeração do /auth/kdf.
     /// </summary>
-    private static bool VerifyProof(LoginRequest req, UserEntity user)
+    private bool VerifyProof(LoginRequest req, UserEntity? user)
     {
         var hasAuthHash = !string.IsNullOrEmpty(req.AuthHash);
         var hasPassword = !string.IsNullOrEmpty(req.Password);
-        if (hasAuthHash == hasPassword) return false;
 
-        if (hasAuthHash)
-            return user.AuthHashHash is not null && PasswordHasher.Verify(req.AuthHash!, user.AuthHashHash);
+        // Escolhe a prova enviada e o hash-alvo correspondente. Sem alvo (conta inexistente,
+        // tipo de prova incompatível com a conta, ou requisição malformada com ambas/nenhuma
+        // prova) o alvo é null e caímos no decoy — nunca em short-circuit.
+        string proof;
+        string? targetHash;
+        if (hasAuthHash == hasPassword)
+        {
+            // Ambas ou nenhuma prova: o endpoint já barra com 400, mas se chamado direto
+            // ainda pagamos o custo para não abrir um oráculo lateral.
+            proof = req.AuthHash ?? req.Password ?? string.Empty;
+            targetHash = null;
+        }
+        else if (hasAuthHash)
+        {
+            proof = req.AuthHash!;
+            targetHash = user?.AuthHashHash;
+        }
+        else
+        {
+            proof = req.Password!;
+            targetHash = user?.PasswordHash;
+        }
 
-        return user.PasswordHash is not null && PasswordHasher.Verify(req.Password!, user.PasswordHash);
+        if (targetHash is null)
+        {
+            // Gasta um PBKDF2 no decoy e descarta o resultado (nunca autentica).
+            _ = ProofVerifier(proof, DummyAuthHashHash);
+            return false;
+        }
+
+        return ProofVerifier(proof, targetHash);
     }
 
     public async Task<RefreshResponse?> RefreshAsync(RefreshRequest req, string ipAddress, CancellationToken ct)

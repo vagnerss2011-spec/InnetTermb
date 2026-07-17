@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Microsoft.Extensions.Logging.Abstractions;
 using RemoteOps.Cloud.Auth;
 using Xunit;
 
@@ -343,5 +344,51 @@ public sealed class AuthE2eeTests
             { AuthHash = Convert.ToBase64String(Rand(32)) }, "1.2.3.4", default);
 
         Assert.Null(login);
+    }
+
+    // ── Anti-enumeração por timing no /auth/login (FIX 2) ─────────────────────
+
+    /// <summary>
+    /// Prova ESTRUTURAL (sem medir tempo → sem flake) de que o login de e-mail existente e
+    /// o de e-mail inexistente invocam o PBKDF2 o MESMO número de vezes. Antes do fix, o
+    /// e-mail inexistente dava short-circuit (0 PBKDF2, resposta sub-ms) e o existente rodava
+    /// 1 (dezenas de ms), vazando a existência da conta por timing.
+    /// O contador é injetado POR INSTÂNCIA via TokenService.ProofVerifier, então não há estado
+    /// global compartilhado entre os testes paralelos do xUnit.
+    /// </summary>
+    [Fact]
+    public async Task Login_InvokesPbkdf2_SameCount_ForExistingAndUnknownEmail()
+    {
+        using var ctx = new CloudTestContext();
+        var config = CloudTestContext.TestConfig();
+
+        const string existingEmail = "existe@test.local";
+        await ctx.Accounts.RegisterAsync(
+            NewRegister(existingEmail, Rand(32), Rand(16), Rand(60), Rand(60)), "1.2.3.4", default);
+
+        // Conta existente, AuthHash errado → falha, mas roda o PBKDF2 real.
+        var existingCount = 0;
+        var svcExisting = new TokenService(ctx.Db, config, NullLogger<TokenService>.Instance)
+        {
+            ProofVerifier = (v, h) => { Interlocked.Increment(ref existingCount); return PasswordHasher.Verify(v, h); },
+        };
+        var existingLogin = await svcExisting.LoginAsync(
+            new LoginRequest(existingEmail, null, Guid.NewGuid().ToString(), "D")
+            { AuthHash = Convert.ToBase64String(Rand(32)) }, "1.2.3.4", default);
+
+        // Conta inexistente → tem que rodar o MESMO número de PBKDF2 (contra o decoy).
+        var unknownCount = 0;
+        var svcUnknown = new TokenService(ctx.Db, config, NullLogger<TokenService>.Instance)
+        {
+            ProofVerifier = (v, h) => { Interlocked.Increment(ref unknownCount); return PasswordHasher.Verify(v, h); },
+        };
+        var unknownLogin = await svcUnknown.LoginAsync(
+            new LoginRequest("naoexiste@test.local", null, Guid.NewGuid().ToString(), "D")
+            { AuthHash = Convert.ToBase64String(Rand(32)) }, "1.2.3.4", default);
+
+        Assert.Null(existingLogin);
+        Assert.Null(unknownLogin);
+        Assert.Equal(1, existingCount);
+        Assert.Equal(existingCount, unknownCount);
     }
 }
