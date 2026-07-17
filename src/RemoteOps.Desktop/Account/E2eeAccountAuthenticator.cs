@@ -41,8 +41,10 @@ public sealed class E2eeAccountAuthenticator : IAccountAuthenticator
         string email, char[] password, string workspaceName, CancellationToken ct = default)
     {
         // Enroll faz tudo o que é sensível de uma vez (AMK + salt + recovery + os 2 escrows) e já
-        // devolve a KEK zerada por dentro — nada de material de chave sobra aqui.
-        AccountEnrollment enrollment = _keys.Enroll(ToPasswordString(password));
+        // devolve a KEK zerada por dentro — nada de material de chave sobra aqui. Passa o char[] do
+        // PasswordBox direto (sem virar string): o núcleo converte pra UTF-8 num buffer próprio e o
+        // zera; o char[] em si é zerado pelo AccountViewModel. Quem chama Enroll NÃO zera o char[].
+        AccountEnrollment enrollment = _keys.Enroll(password);
 
         var request = new RegisterAccountRequest(
             email,
@@ -84,14 +86,14 @@ public sealed class E2eeAccountAuthenticator : IAccountAuthenticator
     public async Task<AccountSession> LoginAsync(
         string email, char[] password, CancellationToken ct = default)
     {
-        string pwd = ToPasswordString(password);
-
         // 1) Salt/params da conta (públicos) — sem eles o device não consegue re-derivar a MasterKey.
         KdfResponse kdf = await _api.GetKdfAsync(email, ct);
 
         // 2) Prova de senha. A KEK derivada junto é descartada aqui: o unwrap acontece no passo 3,
-        //    DEPOIS de o servidor devolver o escrow (que só existe se a prova passar).
-        AccountKeyMaterial material = _keys.DeriveFromPassword(pwd, kdf.Argon2Salt, kdf.Argon2Params);
+        //    DEPOIS de o servidor devolver o escrow (que só existe se a prova passar). O char[] do
+        //    PasswordBox entra direto no núcleo (sem virar string); ele é usado de novo no passo 3 e
+        //    zerado uma única vez pelo AccountViewModel — por isso NÃO o zeramos aqui.
+        AccountKeyMaterial material = _keys.DeriveFromPassword(password, kdf.Argon2Salt, kdf.Argon2Params);
         E2eeLoginResponse login;
         try
         {
@@ -117,7 +119,7 @@ public sealed class E2eeAccountAuthenticator : IAccountAuthenticator
         //    fluxo que acontece uma vez por device. É o preço de NÃO duplicar aqui fora o AAD
         //    "amk|pwd|v1", que é privado do núcleo: uma constante de cripto copiada é exatamente o
         //    tipo de coisa que diverge em silêncio e só aparece como "cofre não abre" em campo.
-        byte[] amk = _keys.UnwrapAmkWithPassword(pwd, kdf.Argon2Salt, kdf.Argon2Params, wrappedAmkPwd);
+        byte[] amk = _keys.UnwrapAmkWithPassword(password, kdf.Argon2Salt, kdf.Argon2Params, wrappedAmkPwd);
 
         return new AccountSession(
             email,
@@ -128,13 +130,4 @@ public sealed class E2eeAccountAuthenticator : IAccountAuthenticator
             new TokenSet(login.AccessToken, login.RefreshToken, login.ExpiresAt),
             workspaces);
     }
-
-    /// <summary>
-    /// Ponto ÚNICO onde a senha vira string. O <see cref="AccountKeyService"/> (núcleo já provado,
-    /// que não alteramos nesta task) recebe <c>string</c>; string é imutável, então esta cópia não
-    /// pode ser zerada e vive até o GC coletá-la. O <c>char[]</c> vindo do PasswordBox continua
-    /// sendo zerado pelo ViewModel. Pendência registrada no resumo da T7: um overload
-    /// <c>DeriveFromPassword(char[] …)</c>/<c>Enroll(char[] …)</c> no núcleo eliminaria esta cópia.
-    /// </summary>
-    private static string ToPasswordString(char[] password) => new(password);
 }
