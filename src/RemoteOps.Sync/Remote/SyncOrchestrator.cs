@@ -132,19 +132,26 @@ public sealed class SyncOrchestrator
     /// </summary>
     public async Task FlushOutboxAsync(CancellationToken ct = default)
     {
-        await _gate.WaitAsync(ct);
+        try
+        {
+            await _gate.WaitAsync(ct);
+        }
+        catch (OperationCanceledException)
+        {
+            return; // teto do fechamento estourou antes de adquirir o gate — nada a liberar.
+        }
+
         try
         {
             SyncCursors cursors = await _metadata.GetCursorsAsync(_workspaceId, ct);
             await DrainOutboxAsync(cursors.OutboxCursor, ct);
         }
-        catch (OperationCanceledException)
-        {
-            throw; // timeout do fechamento — quem chamou já trata (best-effort, não trava o exit).
-        }
         catch (Exception)
         {
-            // Sem detalhe no log (ADR-013). Outbox é durável; o resto sobe no próximo boot.
+            // Engole TUDO, inclusive OperationCanceledException (timeout do fechamento): este flush
+            // nunca deve FALHAR a task — quem chama pode abandoná-la no teto, e uma task faltada não
+            // observada viraria UnobservedTaskException. Sem detalhe no log (ADR-013). Outbox é
+            // durável; o que não subiu sobe no próximo boot.
         }
         finally
         {

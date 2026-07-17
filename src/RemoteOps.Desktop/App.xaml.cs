@@ -367,10 +367,16 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Drena o outbox uma vez, no fechamento, com teto de tempo (Fase 2, item A). Roda na UI thread,
-    /// mas o flush NÃO toca o Dispatcher (ver <c>SyncOrchestrator.FlushOutboxAsync</c>), então bloquear
-    /// aqui não gera deadlock; e o próprio flush respeita o timeout. Best-effort e idempotente: chamado
-    /// por <see cref="OnSessionEnding"/> E por <see cref="OnExit"/>, mas só o primeiro efetivamente roda.
+    /// Drena o outbox uma vez, no fechamento, com teto de tempo (Fase 2, item A). Best-effort e
+    /// idempotente: chamado por <see cref="OnSessionEnding"/> E por <see cref="OnExit"/>, mas só o
+    /// primeiro efetivamente roda.
+    ///
+    /// <para><b>Offload pro pool (Task.Run) de propósito:</b> este método bloqueia a UI thread
+    /// (GetResult), e o flush encadeia awaits no store SQLCipher que, na UI thread, capturariam o
+    /// DispatcherSynchronizationContext — cujas continuações não rodam com a UI thread bloqueada
+    /// (deadlock sync-over-async). Rodando o flush dentro de um Task.Run, ele nasce SEM contexto de
+    /// sincronização, então nenhuma continuação depende da UI thread; o teto interno do flush garante
+    /// que o GetResult retorna rápido mesmo com a rede fora.</para>
     /// </summary>
     private void FlushOutboxOnClose()
     {
@@ -389,7 +395,7 @@ public partial class App : Application
 
         try
         {
-            session.FlushOutboxAsync(FlushOnCloseTimeout).GetAwaiter().GetResult();
+            Task.Run(() => session.FlushOutboxAsync(FlushOnCloseTimeout)).GetAwaiter().GetResult();
         }
         catch (Exception)
         {

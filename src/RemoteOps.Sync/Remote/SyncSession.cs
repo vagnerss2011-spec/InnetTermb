@@ -78,7 +78,12 @@ public sealed class SyncSession : IAsyncDisposable
     /// Flush final do outbox no fechamento (Fase 2, item A — o "Alt+F4"), LIMITADO por
     /// <paramref name="timeout"/>: drena só o push (<see cref="SyncOrchestrator.FlushOutboxAsync"/>) e
     /// nunca deixa o fechamento pendurado se a rede estiver fora. Best-effort — o que não subir sobe no
-    /// próximo boot (outbox durável). Seguro chamar da UI thread: o flush não toca o Dispatcher.
+    /// próximo boot (outbox durável).
+    ///
+    /// <para><b>Ao BLOQUEAR nisto (GetResult) da UI thread, faça-o fora do contexto de
+    /// sincronização</b> (ex.: <c>Task.Run</c>): o flush em si não toca o Dispatcher, mas os awaits do
+    /// store SQLCipher capturam o SynchronizationContext atual, e continuações presas na UI thread
+    /// bloqueada seriam deadlock. Ver <c>App.FlushOutboxOnClose</c>.</para>
     ///
     /// <para>A janela é limitada por dois mecanismos, de propósito: um CTS que cancela o flush (a rede
     /// honra o token) E um <see cref="Task.WhenAny(Task, Task)"/> contra um <see cref="Task.Delay(TimeSpan)"/>
@@ -87,26 +92,21 @@ public sealed class SyncSession : IAsyncDisposable
     /// </summary>
     public async Task FlushOutboxAsync(TimeSpan timeout)
     {
-        using var cts = new CancellationTokenSource(timeout);
+        var cts = new CancellationTokenSource();
         Task flush = _orchestrator.FlushOutboxAsync(cts.Token);
-        Task first = await Task.WhenAny(flush, Task.Delay(timeout));
-        if (!ReferenceEquals(first, flush))
+        Task completed = await Task.WhenAny(flush, Task.Delay(timeout));
+
+        if (ReferenceEquals(completed, flush))
         {
-            // Timeout do teto: para de esperar (o app está fechando). Cancela o flush em voo pra ele
-            // não segurar a conexão além do necessário; a exceção de cancelamento é engolida.
-            cts.Cancel();
+            cts.Dispose(); // flush terminou dentro do teto — seguro descartar (nunca falha, ver orquestrador).
             return;
         }
 
-        // Observa a exceção do flush (não deve lançar — FlushOutboxAsync já engole tudo menos o cancel).
-        try
-        {
-            await flush;
-        }
-        catch (Exception)
-        {
-            // best-effort no fechamento.
-        }
+        // Teto estourou: para de esperar (o app está fechando). Cancela o flush em voo pra ele soltar a
+        // conexão, e agenda o descarte do CTS pra QUANDO ele terminar — descartar agora correria com o
+        // token ainda em uso. O flush não falha (o orquestrador engole tudo), então nada a observar.
+        cts.Cancel();
+        _ = flush.ContinueWith(_ => cts.Dispose(), TaskScheduler.Default);
     }
 
     private void OnLocalChangePushed()
