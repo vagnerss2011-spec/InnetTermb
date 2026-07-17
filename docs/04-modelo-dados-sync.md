@@ -141,7 +141,14 @@ erDiagram
 
 Cada cliente mantém:
 
-- `local_entities`: cache de objetos.
+- Tabelas de domínio (`asset_groups`, `assets`, `endpoints`, `credential_refs`): **onde os dados
+  do operador moram de verdade** — é o que a UI lê e o que o pull materializa (ADR-021). Schema
+  em `RemoteOps.Sync/Storage/LocalSchema.cs`, compartilhado pelo `SqlCipherLocalStore` (escritas
+  locais) e pelo applier (escritas vindas do changelog).
+- `local_entities`: **quarentena** de tipo de entidade que este app ainda não entende (ADR-021).
+  Já foi o cache/landing-zone do pull; **não é mais** — os 4 tipos conhecidos vão para as tabelas
+  de domínio. Cai aqui só o desconhecido, porque o cursor avança de qualquer jeito e descartar
+  perderia a mudança para sempre num upgrade futuro.
 - `local_outbox`: mudanças geradas offline ou ainda não confirmadas.
 - `sync_cursor`: último changelog aplicado.
 - `conflicts`: conflitos pendentes.
@@ -166,6 +173,8 @@ CREATE TABLE local_outbox (
 
 CREATE INDEX idx_outbox_entity ON local_outbox (entity_id, entity_type);
 
+-- Quarentena (ADR-021): só tipo de entidade que este app ainda não entende. Os 4 tipos
+-- conhecidos do changelog são materializados nas tabelas de domínio pelo applier.
 CREATE TABLE local_entities (
     entity_type TEXT    NOT NULL,
     entity_id   TEXT    NOT NULL,
@@ -266,9 +275,20 @@ ALTER TABLE conflicts ADD COLUMN reason           TEXT;
   = último `local_outbox.id` confirmado no push.
 - `conflicts` passa a guardar o `ConflictDetail`; as colunas legadas `local_patch_json`/
   `server_patch_json` recebem `'{}'` quando a origem é um conflito do servidor.
-- O **applier** (`LocalEntitiesChangeApplier`) aplica as mudanças puxadas em `local_entities` de
-  forma idempotente/monotônica (UPSERT com guarda `version >=`) e **sem** re-emitir no outbox.
+- O **applier** (`LocalEntitiesChangeApplier`) materializa as mudanças puxadas nas **tabelas de
+  domínio** (ADR-021) de forma idempotente/monotônica (UPSERT com guarda `version >=`) e **sem**
+  re-emitir no outbox. Tipo desconhecido cai em `local_entities` (quarentena).
+  - **Patches são parciais**: o upsert toca só as colunas presentes no patch (um rename manda só
+    `{name}`). As chaves do patch são os nomes das colunas, de uma allowlist por tipo.
+  - **Ids são canonizados para "n"** na chegada: o backend guarda o `EntityId` num `Guid` e o
+    devolve em "D" (com hífens), enquanto os campos do patch são ecoados verbatim em "n". Sem
+    canonizar, `endpoint.asset_id` não acharia `assets.id` e o host chegaria sem endereço.
+  - **`base_version` do push é lido do banco**, não presumido: o servidor recusa
+    `baseVersion < versão atual` (`version.conflict`) e a mudança nunca entra no changelog — um
+    `0` fixo fazia todo update/delete ser silenciosamente descartado.
 - `SecretEnvelope` nunca sofre auto-merge no cliente (espelha `secret-envelope.no-auto-merge`).
+  O segredo viaja pelo canal `/secrets`; o `secret_envelope_id` em `credential_ref` é só a
+  referência que liga o host à senha no outro device.
 
 ## Algoritmo de sync
 

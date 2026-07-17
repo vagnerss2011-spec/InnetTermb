@@ -65,6 +65,17 @@ public sealed class DpapiKeyProtector : ILocalKeyProtector
         {
             if (outBlob.pbData != IntPtr.Zero)
             {
+                // Zera o buffer nativo ANTES de liberá-lo. No Unprotect ele contém a chave em claro
+                // (AMK/WDK); sem isto, o material decifrado ficaria legível na heap nativa já liberada
+                // até algo sobrescrever a região. No Protect é só o blob cifrado (não sensível), mas
+                // como o caminho é compartilhado, zerar aqui é uniforme e inofensivo — o resultado já
+                // foi copiado pra 'result' antes deste finally. Marshal.WriteByte é escrita real em
+                // memória não gerenciada: o JIT não pode elidi-la (não é dead-store).
+                for (int i = 0; i < outBlob.cbData; i++)
+                {
+                    Marshal.WriteByte(outBlob.pbData, i, 0);
+                }
+
                 LocalFree(outBlob.pbData);
             }
 

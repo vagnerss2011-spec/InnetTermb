@@ -1,13 +1,16 @@
 using System.IO;
+using System.Net.Http;
 using System.Windows;
 using System.Windows.Threading;
 
 using Microsoft.Extensions.DependencyInjection;
 
+using RemoteOps.Desktop.Account;
 using RemoteOps.Desktop.Infrastructure;
 using RemoteOps.Desktop.Integration;
 using RemoteOps.Desktop.Update;
 using RemoteOps.Desktop.ViewModels;
+using RemoteOps.Desktop.Views;
 using RemoteOps.Security.Audit;
 using RemoteOps.Security.Crypto;
 using RemoteOps.Security.Storage;
@@ -24,6 +27,10 @@ public partial class App : Application
     private WorkspaceViewModel? _workspaceViewModel;
     private SyncSession? _syncSession;
     private SingleInstanceGuard? _singleInstance;
+    private AccountSyncCoordinator? _coordinator;
+    private VaultRootActivator? _accountActivator;
+    private SyncStartContext? _syncContext;
+    private AccountConfig? _accountConfig;
 
     public App()
     {
@@ -82,6 +89,14 @@ public partial class App : Application
         // nenhum feedback ao operador (crash silencioso no despachante do WPF).
         try
         {
+            // A janela de conta abre ANTES da MainWindow, e o ShutdownMode default
+            // (OnLastWindowClose) encerra o processo quando a ÚLTIMA janela fecha. Durante o
+            // startup a MainWindow ainda não existe, então fechar a AccountWindow — inclusive
+            // fechando-a por ter logado com sucesso — deixaria zero janelas e o app "sumiria" no
+            // meio do login. Explícito durante o startup; volta ao default assim que a MainWindow
+            // está no ar (senão fechar a MainWindow não encerraria mais o app).
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
             string dataDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 "RemoteOps");
@@ -91,12 +106,37 @@ public partial class App : Application
             // FileVaultStore implementa ICredentialStore e IWorkspaceKeyStore.
             string vaultPath = Path.Combine(dataDir, "vault.json");
             var fileStore = new FileVaultStore(vaultPath);
-            var keyRing = new WorkspaceKeyRing(fileStore, new DpapiKeyProtector());
-            var vault = new CredentialVault(fileStore, keyRing, new InMemoryVaultAuditSink());
+            var legacyKeyRing = new WorkspaceKeyRing(fileStore, new DpapiKeyProtector());
+
+            // Conta E2EE (Fase 1): resolve a AMK ANTES de montar o cofre — é ela que decide a raiz.
+            // Devolve null quando não há conta configurada/logada: aí o cofre segue na raiz DPAPI e
+            // o app é exatamente o de hoje (offline-first, ADR-002 — nuvem é opt-in, nunca requisito).
+            CredentialVault? activated = await TryActivateAccountAsync(dataDir, fileStore, legacyKeyRing);
+            if (activated is null && await IsVaultAmkRootedAsync(fileStore))
+            {
+                // Cofre já vinculado a uma conta e sem AMK em mãos (o operador saiu da conta e
+                // cancelou o login, ou o cache foi apagado). Não há modo local possível aqui — a
+                // chave do banco só abre com a AMK. Dizer isso é MUITO melhor que deixar o startup
+                // estourar um erro de cripto genérico logo adiante.
+                MessageBox.Show(
+                    "Este computador está vinculado a uma conta RemoteOps: seus dados locais estão "
+                    + "protegidos pela senha dela.\n\nAbra o RemoteOps de novo e entre na conta para "
+                    + "continuar. Sem entrar, não é possível abrir o cofre nem os equipamentos.",
+                    "RemoteOps — É preciso entrar na conta",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                Shutdown();
+                return;
+            }
+
+            CredentialVault vault = activated
+                ?? new CredentialVault(fileStore, legacyKeyRing, new InMemoryVaultAuditSink());
 
             // SQLCipher local store (ADR-008): banco criptografado por workspace.
+            // Depende do cofre (a chave do banco é um segredo dele), por isso vem DEPOIS da conta:
+            // abrir o banco com a raiz antiga e migrar em seguida deixaria a chave ilegível.
             var syncFactory = new LocalSyncClientFactory(vault, dataDir);
-            WorkspaceContext ctx = await syncFactory.OpenWorkspaceAsync("local");
+            WorkspaceContext ctx = await syncFactory.OpenWorkspaceAsync(AppRuntime.DbWorkspace);
             ILocalStore store = new SqlCipherLocalStore(ctx);
 
             // Composition root (ADR-011): injeta o vault de produção + store SQLCipher
@@ -127,17 +167,29 @@ public partial class App : Application
             MainWindow = window;
             window.Show();
 
+            // Janela principal no ar: devolve o comportamento normal — fechar a MainWindow encerra
+            // o app (era o default antes do startup mexer nisso pela janela de conta).
+            ShutdownMode = ShutdownMode.OnLastWindowClose;
+
             // A partir daqui, uma 2ª instância que tentar abrir vai só trazer esta janela pra frente.
             _singleInstance.ListenForActivation(() => Dispatcher.Invoke(BringMainWindowToFront));
 
             // Cloud sync (ADR-013) atrás da feature flag cloud.sync.enabled (default OFF).
             // OFF (ou config incompleta) → app idêntico ao atual: offline-first, sem rede.
-            if (TryBuildSyncOptions(dataDir, ctx, vault, out SyncSessionOptions syncOptions))
+            //
+            // Com conta E2EE ativa, o sync sobe pelo coordenador (que sabe o workspace da conta e
+            // já deixou os tokens no cofre) — este é o último elo da cadeia AMK → cofre → banco →
+            // sync, e por isso vem aqui no fim. Sem conta, o caminho antigo por env var continua
+            // valendo (compatibilidade com quem já usava o preview do sync).
+            if (_coordinator is not null && _accountConfig is { } account)
             {
-                _syncSession = SyncSessionFactory.Create(syncOptions);
-                _syncSession.Orchestrator.StatusChanged += OnSyncStatusChanged;
-                OnSyncStatusChanged(_syncSession.Orchestrator.Status);
-                _ = StartSyncAsync(_syncSession);
+                _syncContext = new SyncStartContext(
+                    dataDir, ctx, vault, account.CloudUrl, account.DeviceId, fileStore);
+                _ = _coordinator.StartSyncAsync();
+            }
+            else if (TryBuildSyncOptions(dataDir, ctx, vault, out SyncSessionOptions syncOptions))
+            {
+                StartSyncSession(syncOptions);
             }
         }
         catch (Exception ex)
@@ -240,6 +292,8 @@ public partial class App : Application
             // shutdown best-effort
         }
 
+        // Zera a AMK que a raiz do cofre mantém viva — o processo pode demorar a morrer.
+        _accountActivator?.Dispose();
         _serviceProvider?.Dispose();
         _singleInstance?.Dispose();
         base.OnExit(e);
@@ -276,6 +330,226 @@ public partial class App : Application
         {
             // Falha ao iniciar o sync não derruba o app; o estado reflete o erro.
         }
+    }
+
+    private void StartSyncSession(SyncSessionOptions options)
+    {
+        _syncSession = SyncSessionFactory.Create(options);
+        _syncSession.Orchestrator.StatusChanged += OnSyncStatusChanged;
+        OnSyncStatusChanged(_syncSession.Orchestrator.Status);
+        _ = StartSyncAsync(_syncSession);
+    }
+
+    /// <summary>
+    /// O que o sync da conta precisa e que só existe depois do cofre: o banco local + o cofre
+    /// ativado (de onde saem os tokens). Preenchido no fim do OnStartup, lido pelo starter.
+    /// A URL/device vêm carimbados aqui (e não relidos do ambiente) pra o sync usar exatamente a
+    /// mesma config que a conta usou pra logar.
+    /// </summary>
+    /// <param name="EnvelopeStore">
+    /// O cofre em arquivo, para o transporte de segredos (spec §5) enumerar os envelopes a subir e
+    /// gravar os que descem. É o MESMO <see cref="FileVaultStore"/> que o <see cref="CredentialVault"/>
+    /// usa — tem que ser, senão o device B gravaria o envelope num cofre que ninguém lê.
+    /// </param>
+    private sealed record SyncStartContext(
+        string DataDir,
+        WorkspaceContext Workspace,
+        CredentialVault Vault,
+        Uri CloudUrl,
+        Guid DeviceId,
+        FileVaultStore EnvelopeStore);
+
+    /// <summary>
+    /// Fluxo de conta E2EE (spec §6), ANTES de o cofre existir — é a AMK que decide a raiz dele.
+    ///
+    /// <para>Devolve o cofre AMK-rooted, ou <c>null</c> pra "siga no modo local" — que é o caminho
+    /// de TODO usuário atual: sem <c>REMOTEOPS_CLOUD_URL</c> configurada não há conta, não há
+    /// janela de login e o app é bit a bit o de hoje. Nuvem é opt-in (ADR-002).</para>
+    ///
+    /// <para><b>Offline-first:</b> servidor fora, operador cancelando o login ou falha de migração
+    /// caem todos em <c>null</c> → o app abre com a raiz DPAPI e trabalha local. A única coisa que
+    /// se perde é o sync. Nunca há um caminho em que o RemoteOps não abre por causa da nuvem.</para>
+    /// </summary>
+    private async Task<CredentialVault?> TryActivateAccountAsync(
+        string dataDir, FileVaultStore fileStore, WorkspaceKeyRing legacyKeyRing)
+    {
+        if (TryBuildAccountConfig(dataDir) is not { } config)
+        {
+            return null; // sem nuvem configurada: modo local, exatamente como antes.
+        }
+
+        _accountConfig = config;
+        var activator = new VaultRootActivator(
+            fileStore, legacyKeyRing, Path.Combine(dataDir, "cloud-tokens.tokenref"));
+        _accountActivator = activator;
+
+        var amkCache = new DpapiAmkCache(Path.Combine(dataDir, "account.amk"), new DpapiKeyProtector());
+        _coordinator = new AccountSyncCoordinator(
+            amkCache,
+            activator,
+            new DelegateSyncStarter(StartAccountSyncAsync),
+            AppRuntime.VaultWorkspaces);
+
+        try
+        {
+            // 1) Relaunch: com cache da AMK, abre sem pedir senha (spec §4.3) e sem tocar a rede.
+            if (await _coordinator.TryActivateFromCacheAsync() is not null)
+            {
+                return activator.Vault;
+            }
+
+            // 2) Sem cache: pede login. A janela é modal e ANTES da MainWindow — sem conta não há
+            //    raiz pro cofre. Cancelar (X/Esc) devolve null e o app abre local.
+            AccountSession? session = ShowAccountWindow(config.CloudUrl, config.DeviceId);
+            if (session is null)
+            {
+                _coordinator = null;
+                _accountActivator = null;
+                activator.Dispose();
+                return null;
+            }
+
+            await _coordinator.ActivateFromLoginAsync(session);
+            return activator.Vault;
+        }
+        catch (Exception ex) when (activator.Vault is not null)
+        {
+            // A ativação passou da troca de raiz e estourou DEPOIS (cache da AMK, tokens). O cofre
+            // AMK existe e o vault.json em disco JÁ tem envelopes re-selados sob a AMK — voltar pra
+            // raiz DPAPI aqui seria fatal: o cofre legado não abriria o que já migrou, e a chave do
+            // banco é um desses segredos (o app morreria com CryptographicException no startup).
+            // Segue com a raiz nova; o que se perde é o cache/sync (pede a senha no próximo boot),
+            // nunca o cofre.
+            _coordinator = null;
+            ShowError(
+                "Conta ativada, mas com pendências",
+                ex,
+                "O RemoteOps vai abrir normalmente e seus dados estão intactos, mas talvez peça a "
+                + "senha de novo na próxima abertura e fique sem sincronizar.",
+                MessageBoxImage.Warning);
+            return activator.Vault;
+        }
+        catch (Exception ex)
+        {
+            // Estourou ANTES de a raiz virar AMK: o cofre em disco segue como estava, então voltar
+            // pro modo local é seguro. Um app que não abre é pior que um app sem sync.
+            _coordinator = null;
+            _accountActivator = null;
+            activator.Dispose();
+            ShowError(
+                "Não foi possível ativar a conta",
+                ex,
+                "O RemoteOps vai abrir em modo local (sem sincronização). Seus dados continuam "
+                + "neste computador. Tente entrar de novo pelo menu da conta.",
+                MessageBoxImage.Warning);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// O cofre em disco já foi migrado pra raiz AMK?
+    ///
+    /// <para>Quando já foi, NÃO EXISTE modo local: a chave do banco SQLCipher é um segredo do cofre
+    /// (<c>VaultDbKeyProvider</c>) e só a AMK a abre. Sem conta, o app não tem como abrir o banco —
+    /// e sem esta checagem ele estouraria um <c>CryptographicException</c> genérico no meio do
+    /// startup ("Não foi possível iniciar"), sem dizer ao operador que o que falta é entrar.</para>
+    /// </summary>
+    private static async Task<bool> IsVaultAmkRootedAsync(FileVaultStore fileStore)
+    {
+        foreach (string workspaceId in AppRuntime.VaultWorkspaces)
+        {
+            if (await fileStore.LoadKeyRootingAsync(workspaceId) == VaultKeyRooting.AmkDerived)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Abre a janela de conta (modal) e devolve a sessão autenticada, ou null se cancelou.</summary>
+    private static AccountSession? ShowAccountWindow(Uri cloudUrl, Guid deviceId)
+    {
+        var http = new HttpClient { BaseAddress = cloudUrl };
+        var authenticator = new E2eeAccountAuthenticator(
+            new AccountApiClient(http), deviceId, Environment.MachineName);
+        var viewModel = new AccountViewModel(authenticator);
+        var window = new AccountWindow(viewModel);
+
+        return window.ShowDialog() == true ? viewModel.TakeSession() : null;
+    }
+
+    /// <summary>
+    /// Liga o SyncSession da conta. O coordenador chama isto no fim do OnStartup, quando o banco já
+    /// existe — daí ler o <see cref="_syncContext"/> em vez de recebê-lo pronto: na hora em que este
+    /// starter é CONSTRUÍDO (antes do cofre), o banco ainda não existe.
+    /// </summary>
+    private Task StartAccountSyncAsync(string workspaceId, CancellationToken ct)
+    {
+        // Guarda de ordem: sem contexto não há banco pra sincronizar. Devolver "não iniciou" é o
+        // certo — o coordenador trata como sync indisponível (o app abre), nunca como erro fatal.
+        if (_syncContext is not { } context)
+        {
+            throw new InvalidOperationException(
+                "O sync da conta precisa do banco local, que só existe depois do cofre ativado.");
+        }
+
+        StartSyncSession(new SyncSessionOptions
+        {
+            Workspace = context.Workspace,
+            WorkspaceId = workspaceId,
+            CloudBaseUrl = context.CloudUrl,
+            DeviceId = context.DeviceId,
+            Vault = context.Vault,
+            TokenRefPath = Path.Combine(context.DataDir, "cloud-tokens.tokenref"),
+
+            // Transporte de segredos (spec §5): só existe NESTE caminho, o da conta E2EE — é o único
+            // em que o cofre está enraizado na AMK, portanto o único em que um envelope subido faz
+            // sentido pra outro device. O escopo é o workspace das CREDENCIAIS: a chave do banco
+            // (AppRuntime.DbWorkspace) e os tokens (workspace = GUID do servidor) também moram no
+            // cofre e não podem sair daqui nunca.
+            EnvelopeStore = context.EnvelopeStore,
+            VaultWorkspaceId = AppRuntime.CredentialsWorkspace,
+        });
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Config da conta E2EE resolvida do ambiente.</summary>
+    private sealed record AccountConfig(Uri CloudUrl, Guid DeviceId);
+
+    /// <summary>
+    /// Config mínima pra existir CONTA: a MESMA flag opt-in do sync (<c>cloud.sync.enabled</c>) +
+    /// a URL do Cloud (https). Sem as duas não há login — e o app segue local, que é o default de
+    /// quem nunca configurou nuvem.
+    ///
+    /// <para>A flag entra aqui de propósito, e não só a URL: quem já tinha
+    /// <c>REMOTEOPS_CLOUD_URL</c> apontada mas o sync desligado não pode passar a levar uma janela
+    /// de login na cara ao atualizar. Nuvem é opt-in (ADR-002) e continua sendo — a Fase 1 não muda
+    /// quem entra nela, só o que acontece depois.</para>
+    ///
+    /// <para>HTTPS obrigatório pelo mesmo motivo do sync (ADR-013): authHash e tokens não trafegam
+    /// em claro. URL http:// não "avisa e segue" — simplesmente não liga a conta (fail-closed no
+    /// transporte, fail-open no app).</para>
+    /// </summary>
+    private static AccountConfig? TryBuildAccountConfig(string dataDir)
+    {
+        if (!string.Equals(
+                Environment.GetEnvironmentVariable("REMOTEOPS_CLOUD_SYNC_ENABLED"),
+                "true",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        string? url = Environment.GetEnvironmentVariable("REMOTEOPS_CLOUD_URL");
+        if (string.IsNullOrWhiteSpace(url)
+            || !Uri.TryCreate(url, UriKind.Absolute, out Uri? parsed)
+            || parsed.Scheme != Uri.UriSchemeHttps)
+        {
+            return null;
+        }
+
+        return new AccountConfig(parsed, GetOrCreateDeviceId(dataDir));
     }
 
     private void OnSyncStatusChanged(SyncStatus status)

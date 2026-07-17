@@ -158,26 +158,8 @@ public sealed class CloudSyncApiClientTests
         Assert.DoesNotContain("super-secret-access-token", ex.Message);
     }
 
-    [Fact]
-    public async Task LoginAsync_Stores_Tokens_And_Sends_DeviceId()
-    {
-        var deviceId = Guid.NewGuid();
-        var tokenStore = new FakeTokenStore();
-        var handler = new FakeHttpMessageHandler(_ =>
-            FakeHttpMessageHandler.Json(HttpStatusCode.OK, """
-                {"accessToken":"A","refreshToken":"R","expiresAt":"2030-01-01T00:00:00+00:00"}
-                """));
-        CloudSyncApiClient client = Client(handler, deviceId, tokenStore);
-
-        await client.LoginAsync("user@example.com", "pw", "DESKTOP-1");
-
-        Assert.Equal(1, tokenStore.SaveCount);
-        Assert.Equal("A", tokenStore.Current!.AccessToken);
-        Assert.Equal("R", tokenStore.Current.RefreshToken);
-
-        CapturedRequest sent = Assert.Single(handler.Requests);
-        Assert.Equal("/auth/login", sent.Uri!.AbsolutePath);
-        Assert.Contains("user@example.com", sent.Body);
-        Assert.Contains(deviceId.ToString(), sent.Body);
-    }
+    // LoginAsync_Stores_Tokens_And_Sends_DeviceId saiu junto com o CloudSyncApiClient.LoginAsync:
+    // era a cobertura do login por SENHA (pré-E2EE), o caminho que a Fase 1 elimina do cliente.
+    // Quem prova o login agora é E2eeAccountAuthenticatorTests (authHash, nunca senha) e quem prova
+    // que os tokens chegam ao store é AccountSyncCoordinatorTests.
 }

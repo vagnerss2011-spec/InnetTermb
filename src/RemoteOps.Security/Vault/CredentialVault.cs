@@ -67,8 +67,8 @@ public sealed class CredentialVault : IVault, ICredentialVault
         byte[] plaintext = EnvelopeCipher.Open(
             workspaceKey.Key.Span,
             envelope,
-            BuildAad(envelope.EnvelopeId, envelope.WorkspaceId, envelope.Version, envelope.Type),
-            BuildWrapAad(envelope.WorkspaceId));
+            EnvelopeCipher.BuildAad(envelope),
+            EnvelopeCipher.BuildWrapAad(envelope.WorkspaceId));
 
         // O plaintext só fica seguro (auto-zerável) dentro do VaultSecret. Até lá, se
         // qualquer await falhar (auditoria/cancelamento), zere o buffer manualmente
@@ -135,8 +135,8 @@ public sealed class CredentialVault : IVault, ICredentialVault
     private SecretEnvelope CreateEnvelope(string workspaceId, string credentialId, string type, int version, ReadOnlySpan<byte> workspaceKey, ReadOnlyMemory<char> secret)
     {
         string envelopeId = Guid.NewGuid().ToString("n");
-        byte[] aad = BuildAad(envelopeId, workspaceId, version, type);
-        byte[] wrapAad = BuildWrapAad(workspaceId);
+        byte[] aad = EnvelopeCipher.BuildAad(envelopeId, workspaceId, version, type);
+        byte[] wrapAad = EnvelopeCipher.BuildWrapAad(workspaceId);
 
         int rentSize = Encoding.UTF8.GetMaxByteCount(Math.Max(1, secret.Length));
         byte[] buffer = ArrayPool<byte>.Shared.Rent(rentSize);
@@ -152,7 +152,9 @@ public sealed class CredentialVault : IVault, ICredentialVault
                 CredentialId = credentialId,
                 Type = type,
                 Version = version,
-                Algorithm = EnvelopeCipher.AlgorithmId,
+                // Quem carimba o esquema é a RAIZ: assim o Algorithm de cada envelope diz a verdade
+                // sobre como ele foi selado, inclusive depois do cofre migrar de DPAPI para AMK.
+                Algorithm = _keyRing.AlgorithmId,
                 WrappedCek = payload.WrappedCek,
                 CekNonce = payload.CekNonce,
                 CekTag = payload.CekTag,
@@ -212,13 +214,4 @@ public sealed class CredentialVault : IVault, ICredentialVault
                 OccurredAt = _clock.GetUtcNow(),
             },
             ct);
-
-    // Type entra no AAD para autenticar o campo estrutural do envelope: mesmo sem
-    // RBAC por tipo hoje, impede que um atacante com escrita no store altere o Type
-    // de um envelope sem quebrar a verificação GCM.
-    private static byte[] BuildAad(string envelopeId, string workspaceId, int version, string type) =>
-        Encoding.UTF8.GetBytes($"env|{envelopeId}|{workspaceId}|v{version}|{type}");
-
-    private static byte[] BuildWrapAad(string workspaceId) =>
-        Encoding.UTF8.GetBytes($"wdk|{workspaceId}");
 }

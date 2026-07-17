@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 
 using RemoteOps.Security.Storage;
+using RemoteOps.Security.Vault;
 
 namespace RemoteOps.Security.Crypto;
 
@@ -24,6 +25,16 @@ public sealed class WorkspaceKeyRing : IWorkspaceKeyRing
         ArgumentNullException.ThrowIfNull(protector);
         _store = store;
         _protector = protector;
+    }
+
+    public string AlgorithmId => VaultAlgorithms.DpapiRootedV1;
+
+    public async Task<WorkspaceKey?> TryGetWorkspaceKeyAsync(string workspaceId, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
+
+        byte[]? existing = await _store.LoadAsync(workspaceId, ct).ConfigureAwait(false);
+        return existing is null ? null : Unprotect(workspaceId, existing);
     }
 
     public async Task<WorkspaceKey> GetOrCreateWorkspaceKeyAsync(string workspaceId, CancellationToken ct = default)

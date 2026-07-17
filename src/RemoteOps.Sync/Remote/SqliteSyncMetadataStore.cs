@@ -6,9 +6,12 @@ namespace RemoteOps.Sync.Remote;
 
 /// <summary>
 /// <see cref="ISyncMetadataStore"/> sobre o banco SQLCipher do workspace (via
-/// <see cref="WorkspaceContext"/>): cursores em <c>sync_cursor</c> (com a coluna nova
-/// <c>outbox_cursor</c>) e conflitos em <c>conflicts</c> (com as colunas do
-/// <see cref="ConflictDetail"/>). Migração aditiva e idempotente (ADR-013).
+/// <see cref="WorkspaceContext"/>): cursores em <c>sync_cursor</c> (com as colunas
+/// <c>outbox_cursor</c> e <c>secrets_cursor</c>), conflitos em <c>conflicts</c> (com as colunas do
+/// <see cref="ConflictDetail"/>) e o ledger do canal de segredos em <c>secrets_pushed</c>.
+/// Migração aditiva e idempotente (ADR-013): tudo é <c>CREATE TABLE IF NOT EXISTS</c> +
+/// <c>PRAGMA table_info</c>/<c>ALTER TABLE</c>, então um banco de uma versão anterior do app abre e
+/// ganha as colunas novas sem tocar no que já existe.
 /// </summary>
 public sealed class SqliteSyncMetadataStore : ISyncMetadataStore
 {
@@ -108,6 +111,76 @@ public sealed class SqliteSyncMetadataStore : ISyncMetadataStore
         return Convert.ToInt32(await cmd.ExecuteScalarAsync(ct));
     }
 
+    // ── Canal de segredos ────────────────────────────────────────────────────────────────
+
+    public async Task<long> GetSecretsCursorAsync(string workspaceId, CancellationToken ct = default)
+    {
+        using SqliteConnection conn = await _workspace.OpenConnectionAsync(ct);
+        await EnsureSchemaAsync(conn, ct);
+
+        using SqliteCommand cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT secrets_cursor FROM sync_cursor WHERE workspace_id = $ws";
+        cmd.Parameters.AddWithValue("$ws", workspaceId);
+
+        object? value = await cmd.ExecuteScalarAsync(ct);
+        return value is null or DBNull ? 0 : Convert.ToInt64(value);
+    }
+
+    public async Task SaveSecretsCursorAsync(string workspaceId, long cursor, CancellationToken ct = default)
+    {
+        using SqliteConnection conn = await _workspace.OpenConnectionAsync(ct);
+        await EnsureSchemaAsync(conn, ct);
+
+        using SqliteCommand cmd = conn.CreateCommand();
+        // MAX(...): mesma disciplina monotônica dos outros cursores — um save tardio nunca regride.
+        cmd.CommandText = """
+            INSERT INTO sync_cursor (workspace_id, cursor, outbox_cursor, secrets_cursor)
+            VALUES ($ws, 0, 0, $secrets)
+            ON CONFLICT (workspace_id) DO UPDATE SET
+                secrets_cursor = MAX(secrets_cursor, excluded.secrets_cursor);
+            """;
+        cmd.Parameters.AddWithValue("$ws", workspaceId);
+        cmd.Parameters.AddWithValue("$secrets", cursor);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task<IReadOnlyDictionary<string, int>> GetPushedSecretsAsync(
+        string workspaceId, CancellationToken ct = default)
+    {
+        using SqliteConnection conn = await _workspace.OpenConnectionAsync(ct);
+        await EnsureSchemaAsync(conn, ct);
+
+        using SqliteCommand cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT envelope_id, version FROM secrets_pushed WHERE workspace_id = $ws";
+        cmd.Parameters.AddWithValue("$ws", workspaceId);
+
+        var pushed = new Dictionary<string, int>(StringComparer.Ordinal);
+        using SqliteDataReader reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            pushed[reader.GetString(0)] = reader.GetInt32(1);
+        }
+
+        return pushed;
+    }
+
+    public async Task MarkSecretPushedAsync(
+        string workspaceId, string envelopeId, int version, CancellationToken ct = default)
+    {
+        using SqliteConnection conn = await _workspace.OpenConnectionAsync(ct);
+        await EnsureSchemaAsync(conn, ct);
+
+        using SqliteCommand cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO secrets_pushed (workspace_id, envelope_id, version) VALUES ($ws, $eid, $ver)
+            ON CONFLICT (workspace_id, envelope_id) DO UPDATE SET version = MAX(version, excluded.version);
+            """;
+        cmd.Parameters.AddWithValue("$ws", workspaceId);
+        cmd.Parameters.AddWithValue("$eid", envelopeId);
+        cmd.Parameters.AddWithValue("$ver", version);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
     // Migração aditiva e idempotente: cria as tabelas se faltarem e adiciona, via ALTER, a coluna
     // outbox_cursor (sync_cursor) e as colunas do ConflictDetail (conflicts) quando ausentes — ADR-013.
     private static async Task EnsureSchemaAsync(SqliteConnection conn, CancellationToken ct)
@@ -128,11 +201,21 @@ public sealed class SqliteSyncMetadataStore : ISyncMetadataStore
                     server_patch_json  TEXT    NOT NULL,
                     detected_at        TEXT    NOT NULL
                 );
+
+                -- Ledger do canal de segredos: que envelope já está no servidor, e em que versão.
+                -- Só id + versão: nenhum material de envelope encosta aqui.
+                CREATE TABLE IF NOT EXISTS secrets_pushed (
+                    workspace_id TEXT    NOT NULL,
+                    envelope_id  TEXT    NOT NULL,
+                    version      INTEGER NOT NULL,
+                    PRIMARY KEY (workspace_id, envelope_id)
+                );
                 """;
             await cmd.ExecuteNonQueryAsync(ct);
         }
 
         await EnsureColumnAsync(conn, "sync_cursor", "outbox_cursor", "INTEGER NOT NULL DEFAULT 0", ct);
+        await EnsureColumnAsync(conn, "sync_cursor", "secrets_cursor", "INTEGER NOT NULL DEFAULT 0", ct);
         await EnsureColumnAsync(conn, "conflicts", "client_change_id", "TEXT", ct);
         await EnsureColumnAsync(conn, "conflicts", "base_version", "INTEGER", ct);
         await EnsureColumnAsync(conn, "conflicts", "current_version", "INTEGER", ct);

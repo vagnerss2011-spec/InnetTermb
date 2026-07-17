@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text;
 
 using RemoteOps.Security.Vault;
 
@@ -9,11 +10,13 @@ namespace RemoteOps.Security.Crypto;
 /// (AES-256-GCM); a CEK é embrulhada pela Workspace Data Key (também GCM).
 /// O Associated Data (AAD) liga cada ciphertext à identidade do envelope,
 /// impedindo troca/replay entre envelopes ou workspaces.
+///
+/// O identificador do esquema (<c>SecretEnvelope.Algorithm</c>) NÃO mora aqui: quem carimba é a
+/// raiz de chave (<see cref="IWorkspaceKeyRing.AlgorithmId"/>), porque o cifrador é o mesmo para
+/// as duas raízes (DPAPI e AMK) — ver <see cref="Vault.VaultAlgorithms"/>.
 /// </summary>
 internal static class EnvelopeCipher
 {
-    internal const string AlgorithmId = "AES-256-GCM;CEK-wrap;DPAPI-CurrentUser";
-
     private const int KeySize = 32;   // AES-256
     private const int NonceSize = 12; // tamanho padrão recomendado para GCM
     private const int TagSize = 16;
@@ -86,6 +89,27 @@ internal static class EnvelopeCipher
             CryptographicOperations.ZeroMemory(cek);
         }
     }
+
+    // ---- Construção do AAD (fonte ÚNICA da verdade) ----
+    //
+    // Vive aqui, e não em quem chama, porque o LocalVaultMigrator re-sela envelopes existentes e
+    // precisa reproduzir o AAD byte-a-byte — duplicar essas strings em dois lugares seria uma
+    // bomba-relógio: divergiu, o tag GCM falha e o cofre não abre mais.
+
+    /// <summary>
+    /// AAD do payload: liga o ciphertext à identidade do envelope. O <paramref name="type"/> entra
+    /// para autenticar o campo estrutural — mesmo sem RBAC por tipo hoje, impede que um atacante
+    /// com escrita no store altere o Type sem quebrar a verificação GCM.
+    /// </summary>
+    internal static byte[] BuildAad(string envelopeId, string workspaceId, int version, string type) =>
+        Encoding.UTF8.GetBytes($"env|{envelopeId}|{workspaceId}|v{version}|{type}");
+
+    internal static byte[] BuildAad(SecretEnvelope envelope) =>
+        BuildAad(envelope.EnvelopeId, envelope.WorkspaceId, envelope.Version, envelope.Type);
+
+    /// <summary>AAD do embrulho da CEK: liga a CEK embrulhada ao workspace.</summary>
+    internal static byte[] BuildWrapAad(string workspaceId) =>
+        Encoding.UTF8.GetBytes($"wdk|{workspaceId}");
 
     internal readonly record struct SealedSecret(
         byte[] WrappedCek,

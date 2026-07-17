@@ -1,3 +1,6 @@
+using System.IO;
+
+using RemoteOps.Security.Storage;
 using RemoteOps.Sync.Remote;
 
 using Xunit;
@@ -40,5 +43,95 @@ public sealed class SyncSessionFactoryTests
         };
 
         Assert.Throws<ArgumentException>(() => SyncSessionFactory.Create(options));
+    }
+
+    // ── Canal de segredos ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Sessão sem os campos de segredo continua montando (só metadados) — é o caminho de quem não
+    /// tem conta E2EE: o cofre ainda está em DPAPI e não há o que sincronizar.
+    /// </summary>
+    [Fact]
+    public async Task Create_WithoutSecretOptions_StillBuilds_MetadataOnlySession()
+    {
+        using var ctx = await SyncTestContext.CreateAsync("ws-nosecrets");
+
+        await using SyncSession session = SyncSessionFactory.Create(new SyncSessionOptions
+        {
+            Workspace = ctx.Workspace,
+            WorkspaceId = "00000000-0000-0000-0000-000000000001",
+            CloudBaseUrl = new Uri("https://cloud.local"),
+            DeviceId = Guid.NewGuid(),
+            Vault = ctx.Vault,
+            TokenRefPath = ctx.DbPath + ".tokenref",
+        });
+
+        Assert.Equal(SyncState.Offline, session.Orchestrator.Status.State);
+    }
+
+    /// <summary>
+    /// Meio configurado é pior que desligado: um cofre sem escopo sincronizaria o workspace errado —
+    /// e o workspace errado é onde moram a chave do banco e os tokens. Falha alto.
+    /// </summary>
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task Create_WithHalfConfiguredSecretOptions_Throws(bool withStore, bool withWorkspace)
+    {
+        using var ctx = await SyncTestContext.CreateAsync($"ws-half-{withStore}-{withWorkspace}");
+        string dir = Path.Combine(Path.GetTempPath(), $"remoteops-half-{Guid.NewGuid():n}");
+        try
+        {
+            var options = new SyncSessionOptions
+            {
+                Workspace = ctx.Workspace,
+                WorkspaceId = "00000000-0000-0000-0000-000000000001",
+                CloudBaseUrl = new Uri("https://cloud.local"),
+                DeviceId = Guid.NewGuid(),
+                Vault = ctx.Vault,
+                TokenRefPath = ctx.DbPath + ".tokenref",
+                EnvelopeStore = withStore ? new FileVaultStore(Path.Combine(dir, "vault.json")) : null,
+                VaultWorkspaceId = withWorkspace ? "ws-local" : null,
+            };
+
+            Assert.Throws<ArgumentException>(() => SyncSessionFactory.Create(options));
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task Create_WithSecretOptions_BuildsSession()
+    {
+        using var ctx = await SyncTestContext.CreateAsync("ws-withsecrets");
+        string dir = Path.Combine(Path.GetTempPath(), $"remoteops-withsec-{Guid.NewGuid():n}");
+        try
+        {
+            await using SyncSession session = SyncSessionFactory.Create(new SyncSessionOptions
+            {
+                Workspace = ctx.Workspace,
+                WorkspaceId = "00000000-0000-0000-0000-000000000001",
+                CloudBaseUrl = new Uri("https://cloud.local"),
+                DeviceId = Guid.NewGuid(),
+                Vault = ctx.Vault,
+                TokenRefPath = ctx.DbPath + ".tokenref",
+                EnvelopeStore = new FileVaultStore(Path.Combine(dir, "vault.json")),
+                VaultWorkspaceId = "ws-local",
+            });
+
+            Assert.Equal(SyncState.Offline, session.Orchestrator.Status.State);
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
     }
 }
