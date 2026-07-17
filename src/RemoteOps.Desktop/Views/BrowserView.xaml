@@ -42,6 +42,92 @@
 
     <DockPanel>
 
+        <!-- Barra de status do cloud sync (Fase 2, item B): indicador Offline/Sincronizando/
+             Sincronizado/Erro + botão "Sincronizar agora" (push+pull). DataContext = Sync (nunca null).
+             Botão desabilitado sem nuvem (SyncNowCommand.CanExecute = HasCloud && !IsBusy) — offline-first. -->
+        <Border DockPanel.Dock="Bottom"
+                DataContext="{Binding Sync}"
+                Background="{DynamicResource Brush.Bg.Surface}"
+                BorderBrush="{DynamicResource Brush.Border.Subtle}"
+                BorderThickness="0,1,0,0"
+                Padding="12,5">
+            <Border.Resources>
+                <!-- Cor do ponto pelo estado. Padrão = Idle (Offline); triggers pintam o resto. -->
+                <Style x:Key="Sync.Dot" TargetType="Ellipse">
+                    <Setter Property="Width" Value="9"/>
+                    <Setter Property="Height" Value="9"/>
+                    <Setter Property="VerticalAlignment" Value="Center"/>
+                    <Setter Property="Margin" Value="0,0,7,0"/>
+                    <Setter Property="Fill" Value="{DynamicResource Brush.Status.Idle}"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsSyncing}" Value="True">
+                            <Setter Property="Fill" Value="{DynamicResource Brush.Status.Pending}"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding IsSynced}" Value="True">
+                            <Setter Property="Fill" Value="{DynamicResource Brush.Status.Online}"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding IsError}" Value="True">
+                            <Setter Property="Fill" Value="{DynamicResource Brush.Status.Error}"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Resources>
+
+            <DockPanel LastChildFill="False">
+                <!-- Indicador à esquerda: ponto colorido + texto; tooltip acionável em pt-BR. -->
+                <StackPanel Orientation="Horizontal"
+                            DockPanel.Dock="Left"
+                            VerticalAlignment="Center"
+                            ToolTip="{Binding StatusDetail}">
+                    <Ellipse Style="{StaticResource Sync.Dot}"/>
+                    <TextBlock Text="{Binding StatusText}"
+                               Style="{DynamicResource Text.Caption}"
+                               Foreground="{DynamicResource Brush.Text.Secondary}"
+                               VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <!-- "Sincronizar agora": push+pull. Desabilita sozinho quando não há nuvem. -->
+                <Button DockPanel.Dock="Right"
+                        Command="{Binding SyncNowCommand}"
+                        ToolTip="Sincronizar agora"
+                        Cursor="Hand"
+                        Padding="6,2"
+                        BorderThickness="0"
+                        Background="Transparent"
+                        Foreground="{DynamicResource Brush.Text.Secondary}">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="Chrome"
+                                    Background="{TemplateBinding Background}"
+                                    CornerRadius="{DynamicResource Radius.Control}"
+                                    Padding="{TemplateBinding Padding}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{DynamicResource Icon.Sync}"
+                                               FontFamily="{DynamicResource Font.Family.Icons}"
+                                               FontSize="14"
+                                               VerticalAlignment="Center"/>
+                                    <TextBlock Text="Sincronizar agora"
+                                               Margin="6,0,0,0"
+                                               VerticalAlignment="Center"
+                                               Style="{DynamicResource Text.Caption}"
+                                               Foreground="{TemplateBinding Foreground}"/>
+                                </StackPanel>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource Brush.Bg.Hover}"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Opacity" Value="0.4"/>
+                                    <Setter Property="Cursor" Value="Arrow"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+            </DockPanel>
+        </Border>
+
         <!-- Rail à esquerda: seções (Hosts/Keychain/Logs) + avatar/menu da conta no rodapé -->
         <Border DockPanel.Dock="Left"
                 Width="70"

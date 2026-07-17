@@ -164,7 +164,16 @@ internal static class AppCompositionRoot
             sp.GetRequiredService<ILocalStore>(),
             sp.GetRequiredService<RemoteOps.Security.Vault.IVault>(),
             DefaultWorkspaceId));
-        services.AddSingleton<ViewModels.BrowserViewModel>();
+        // Indicador de sync + "Sincronizar agora" (Fase 2, item B). Nasce SEM controlador (offline —
+        // comando desabilitado); o App liga o controlador quando a sessão de sync sobe.
+        services.AddSingleton<ViewModels.SyncStatusViewModel>(_ => new ViewModels.SyncStatusViewModel());
+        services.AddSingleton<ViewModels.BrowserViewModel>(sp => new ViewModels.BrowserViewModel(
+            sp.GetRequiredService<ViewModels.HostsViewModel>(),
+            sp.GetRequiredService<ViewModels.KeychainViewModel>(),
+            sp.GetRequiredService<ViewModels.LogsViewModel>(),
+            sp.GetService<Changelog.IChangelogSource>(),
+            sp.GetService<ISettingsStore>(),
+            sp.GetRequiredService<ViewModels.SyncStatusViewModel>()));
         services.AddSingleton<ViewModels.WorkspaceViewModel>();
 
         // validateOnBuild: false — ISshConnectionFactory/ITelnetConnectionFactory são internal

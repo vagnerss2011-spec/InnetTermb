@@ -18,13 +18,15 @@ public sealed class BrowserViewModel : BaseViewModel
         KeychainViewModel keychain,
         LogsViewModel logs,
         IChangelogSource? changelogSource = null,
-        ISettingsStore? settingsStore = null)
+        ISettingsStore? settingsStore = null,
+        SyncStatusViewModel? sync = null)
     {
         Hosts = hosts;
         Keychain = keychain;
         Logs = logs;
         _changelogSource = changelogSource;
         _settingsStore = settingsStore;
+        Sync = sync ?? new SyncStatusViewModel();
         ShowHostsCommand = new RelayCommand(() => ActiveSection = BrowserSection.Hosts);
         ShowKeychainCommand = new RelayCommand(() => { ActiveSection = BrowserSection.Keychain; _ = keychain.LoadAsync(); });
         ShowLogsCommand = new RelayCommand(() => ActiveSection = BrowserSection.Logs);
@@ -36,6 +38,10 @@ public sealed class BrowserViewModel : BaseViewModel
     public HostsViewModel Hosts { get; }
     public KeychainViewModel Keychain { get; }
     public LogsViewModel Logs { get; }
+
+    /// <summary>Estado do cloud sync + "Sincronizar agora" no shell (Fase 2, item B). Nunca null: sem
+    /// nuvem, é um <see cref="SyncStatusViewModel"/> desabilitado que só mostra "Offline".</summary>
+    public SyncStatusViewModel Sync { get; }
 
     public BrowserSection ActiveSection
     {

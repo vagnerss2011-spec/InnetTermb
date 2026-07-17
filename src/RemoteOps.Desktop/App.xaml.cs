@@ -464,6 +464,13 @@ public partial class App : Application
         // marshalado pro Dispatcher em OnSyncChangesApplied → _syncReload). StatusChanged só mexe numa
         // string; era ele, sozinho, que deixava o device B com a lista vazia até o relaunch.
         _syncSession.Orchestrator.ChangesApplied += OnSyncChangesApplied;
+
+        // Fase 2, item B: liga o "Sincronizar agora" ao orquestrador DESTA sessão (push+pull), o que
+        // também habilita os botões no shell (HasCloud vira true). Marshala pro Dispatcher — toca
+        // binding de UI. StartSyncSession roda na UI thread hoje, mas o Invoke deixa isso explícito.
+        var controller = new OrchestratorSyncController(_syncSession.Orchestrator);
+        Dispatcher.Invoke(() => _workspaceViewModel?.Browser.Sync.AttachController(controller));
+
         OnSyncStatusChanged(_syncSession.Orchestrator.Status);
         _ = StartSyncAsync(_syncSession);
     }
@@ -705,7 +712,14 @@ public partial class App : Application
             return;
         }
 
-        Dispatcher.Invoke(() => vm.SyncStatus = FormatStatus(status));
+        // Marshala pro Dispatcher: o StatusChanged vem da thread de fundo do sync e aqui se toca
+        // binding de UI (o indicador de status do shell). Atualiza a string legada (back-compat) E o
+        // indicador rico da Fase 2 item B.
+        Dispatcher.Invoke(() =>
+        {
+            vm.SyncStatus = FormatStatus(status);
+            vm.Browser.Sync.Apply(status);
+        });
     }
 
     private static string FormatStatus(SyncStatus status) => status.State switch
