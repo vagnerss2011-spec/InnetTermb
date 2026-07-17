@@ -26,6 +26,7 @@ public partial class App : Application
     private ServiceProvider? _serviceProvider;
     private WorkspaceViewModel? _workspaceViewModel;
     private SyncSession? _syncSession;
+    private DebouncedAction? _syncReload;
     private SingleInstanceGuard? _singleInstance;
     private AccountSyncCoordinator? _coordinator;
     private VaultRootActivator? _accountActivator;
@@ -161,6 +162,14 @@ public partial class App : Application
             }
 
             _workspaceViewModel = _serviceProvider.GetRequiredService<WorkspaceViewModel>();
+
+            // Recarga da lista de hosts quando o sync baixa dados novos (Fase 2). Sem isto, o device B
+            // abre com a lista VAZIA: o LoadAsync roda uma vez no Loaded, e nada recarrega quando o
+            // primeiro pull materializa os hosts segundos depois. Debounced (300ms) porque um pull
+            // grande chega em vários lotes — agrupa tudo numa reconciliação só. A ação marshala pro
+            // Dispatcher (o sinal vem da thread de fundo do sync).
+            _syncReload = new DebouncedAction(TimeSpan.FromMilliseconds(300), ReconcileHostsFromSyncAsync);
+
             var window = new MainWindow(
                 _workspaceViewModel, store,
                 _serviceProvider.GetRequiredService<Credentials.IInlineCredentialService>());
@@ -283,6 +292,10 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        // Para o timer do debounce antes de derrubar a sessão: um Signal em voo não deve tentar
+        // reconciliar sobre uma VM/janela já em processo de encerramento.
+        _syncReload?.Dispose();
+
         try
         {
             _syncSession?.DisposeAsync().AsTask().GetAwaiter().GetResult();
@@ -336,8 +349,29 @@ public partial class App : Application
     {
         _syncSession = SyncSessionFactory.Create(options);
         _syncSession.Orchestrator.StatusChanged += OnSyncStatusChanged;
+        // Fase 2: quando um pull grava algo nas tabelas locais, recarrega a lista (debounced +
+        // marshalado pro Dispatcher em OnSyncChangesApplied → _syncReload). StatusChanged só mexe numa
+        // string; era ele, sozinho, que deixava o device B com a lista vazia até o relaunch.
+        _syncSession.Orchestrator.ChangesApplied += OnSyncChangesApplied;
         OnSyncStatusChanged(_syncSession.Orchestrator.Status);
         _ = StartSyncAsync(_syncSession);
+    }
+
+    // Roda na thread de fundo do sync — só sinaliza o debounce (thread-safe); não toca a UI aqui.
+    private void OnSyncChangesApplied() => _syncReload?.Signal();
+
+    // Ação do debounce: marshala pro Dispatcher e reconcilia a lista preservando seleção/grupo/filtro.
+    // A reconciliação muta ObservableCollections com binding — fora da UI thread seria crash de
+    // afinidade de thread do WPF (a causa clássica de queda neste app).
+    private async Task ReconcileHostsFromSyncAsync()
+    {
+        await Dispatcher.InvokeAsync(async () =>
+        {
+            if (_workspaceViewModel is { } vm)
+            {
+                await vm.Browser.Hosts.ReconcileFromStoreAsync();
+            }
+        }).Task.Unwrap();
     }
 
     /// <summary>
