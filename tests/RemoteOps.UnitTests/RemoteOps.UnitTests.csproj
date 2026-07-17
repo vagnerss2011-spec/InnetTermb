@@ -25,7 +25,12 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\RemoteOps.Contracts\RemoteOps.Contracts.csproj" />
-    <ProjectReference Include="..\..\src\RemoteOps.Cloud\RemoteOps.Cloud.csproj" />
+    <!-- RemoteOps.Cloud e RemoteOps.NDesk.Broker expõem, cada um, um `public partial
+         class Program` (marcador de WebApplicationFactory). Como este projeto de testes
+         referencia os dois, `Program` fica ambíguo (CS0433). O alias `cloud` deixa os
+         testes de integração da Cloud ancorarem em `cloud::Program` sem colisão; `global`
+         é mantido para os demais testes que usam tipos da Cloud pela via normal. -->
+    <ProjectReference Include="..\..\src\RemoteOps.Cloud\RemoteOps.Cloud.csproj" Aliases="global,cloud" />
     <ProjectReference Include="..\..\src\RemoteOps.Security\RemoteOps.Security.csproj" />
     <ProjectReference Include="..\..\src\RemoteOps.Terminal\RemoteOps.Terminal.csproj" />
     <ProjectReference Include="..\..\src\RemoteOps.MikroTik\RemoteOps.MikroTik.csproj" />

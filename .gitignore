@@ -28,3 +28,8 @@ Thumbs.db
 # O app resolve assets/logos/<vendorKey>.png em runtime; sem o arquivo, cai no glifo de papel.
 src/RemoteOps.Desktop/assets/logos/*
 !src/RemoteOps.Desktop/assets/logos/.gitkeep
+
+# Deploy: o .env do operador tem a senha do Postgres e a chave do JWT.
+# O modelo versionado é o .env.example (sem valores).
+.env
+.env.local

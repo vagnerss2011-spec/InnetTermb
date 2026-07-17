@@ -2,7 +2,6 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 using RemoteOps.Cloud.Errors;
 using RemoteOps.Cloud.Rbac;
-using RemoteOps.Contracts.Sync;
 
 namespace RemoteOps.Cloud.Sync;
 
@@ -88,7 +87,15 @@ internal static class HttpContextExtensions
         var userIdStr = ctx.User.FindFirstValue(ClaimTypes.NameIdentifier)
                         ?? ctx.User.FindFirstValue("sub") ?? string.Empty;
         Guid.TryParse(userIdStr, out var userId);
-        return new PermissionContext(userId, workspaceId, deviceId);
+
+        // tenant_id (quando presente no token) ativa a guarda cross-tenant do
+        // PermissionEvaluator. Ausente = guarda inerte (compat com tokens antigos); o
+        // membership continua protegendo. Claim custom não é remapeada pelo JwtBearer.
+        var tenantId = Guid.TryParse(ctx.User.FindFirstValue("tenant_id"), out var tid)
+            ? tid
+            : (Guid?)null;
+
+        return new PermissionContext(userId, workspaceId, deviceId, tenantId);
     }
 
     internal static bool TryGetDeviceId(this HttpContext ctx, out Guid deviceId)
