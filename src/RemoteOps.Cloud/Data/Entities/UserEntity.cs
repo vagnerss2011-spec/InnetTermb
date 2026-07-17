@@ -6,7 +6,28 @@ public sealed class UserEntity
     public required string Email { get; set; }
     public required string DisplayName { get; set; }
     public required string Status { get; set; }
+
+    /// <summary>
+    /// 2FA (TOTP) EXIGIDA no login. Gancho que já existia; passa a ser CHECADO na Fase 3.
+    /// Fica <c>true</c> só depois de <c>/auth/mfa/confirm</c> (o enroll sozinho não ativa).
+    /// </summary>
     public bool MfaRequired { get; set; }
+
+    // ── 2FA / TOTP (spec Fase 3) ──────────────────────────────────────────────
+    // ATENÇÃO: o TOTP é AUTENTICAÇÃO (prova de identidade ao servidor), NÃO cripto do cofre. O
+    // segredo abaixo é um segredo do SERVIDOR (diferente de tudo o mais em E2EE, que é opaco/cliente):
+    // o servidor precisa dele em claro para validar os códigos. Guardado cifrado em repouso pelo
+    // MfaSecretProtector (defesa em profundidade: um dump do banco sem a chave de assinatura do
+    // deploy não revela os segredos TOTP). Ver TotpService para a fronteira E2EE.
+
+    /// <summary>
+    /// Segredo TOTP (20B) CIFRADO em repouso (nonce||tag||ct, AES-256-GCM com chave derivada do
+    /// deploy). Nulo = sem 2FA. Preenchido no enroll (pendente) e mantido até o disable.
+    /// </summary>
+    public byte[]? MfaSecret { get; set; }
+
+    /// <summary>Quando o 2FA foi confirmado/ativado. Nulo enquanto o enroll não é confirmado.</summary>
+    public DateTimeOffset? MfaEnrolledAt { get; set; }
 
     /// <summary>
     /// Hash da senha do fluxo LEGADO (pré-E2EE). Nulo em contas E2EE, que autenticam

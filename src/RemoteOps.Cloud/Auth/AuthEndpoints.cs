@@ -72,14 +72,26 @@ public static class AuthEndpoints
             var ip = ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown";
             var result = await svc.LoginAsync(req, ip, ct);
 
-            if (result is null)
-                return Results.Problem(
+            return result.Outcome switch
+            {
+                LoginOutcome.Success => Results.Ok(result.Response),
+
+                // 2FA: 401 com corpo ESTRUTURADO (error=mfa_required) para a UI saber pedir o código.
+                // É distinto do 401 de credencial inválida, mas só chega aqui quem JÁ provou a senha
+                // (ver TokenService) — não vira oráculo de enumeração.
+                LoginOutcome.MfaRequired => Results.Problem(
+                    detail: "Informe o código de verificação em duas etapas do seu aplicativo autenticador.",
+                    statusCode: 401,
+                    extensions: ctx.ProblemExtensions(("error", "mfa_required"))),
+
+                _ => Results.Problem(
                     detail: "Credenciais inválidas ou dispositivo revogado.",
                     statusCode: 401,
-                    extensions: ctx.ProblemExtensions());
-
-            return Results.Ok(result);
+                    extensions: ctx.ProblemExtensions()),
+            };
         }).AllowAnonymous();
+
+        MapMfaEndpoints(group);
 
         // ── POST /auth/password/change ────────────────────────────────────────
         group.MapPost("/password/change", async (
@@ -88,13 +100,8 @@ public static class AuthEndpoints
             HttpContext ctx,
             CancellationToken ct) =>
         {
-            var userIdStr = ctx.User.FindFirstValue(ClaimTypes.NameIdentifier)
-                            ?? ctx.User.FindFirstValue("sub");
-            if (!Guid.TryParse(userIdStr, out var userId))
-                return Results.Problem(
-                    detail: "Token sem subject válido.",
-                    statusCode: 401,
-                    extensions: ctx.ProblemExtensions());
+            if (ResolveUserId(ctx) is not { } userId)
+                return UnauthorizedSubject(ctx);
 
             var ok = await svc.ChangePasswordAsync(userId, req, ct);
             if (!ok)
@@ -135,6 +142,87 @@ public static class AuthEndpoints
 
         return app;
     }
+
+    /// <summary>
+    /// 2FA/TOTP (spec Fase 3). Todos AUTENTICADOS: o userId vem do JWT (nunca do corpo). Enroll gera
+    /// o segredo (não ativa); confirm ativa com um código válido; disable desliga exigindo código.
+    /// </summary>
+    private static void MapMfaEndpoints(RouteGroupBuilder group)
+    {
+        // ── POST /auth/mfa/enroll ─────────────────────────────────────────────
+        group.MapPost("/mfa/enroll", async (
+            MfaService svc,
+            HttpContext ctx,
+            CancellationToken ct) =>
+        {
+            if (ResolveUserId(ctx) is not { } userId)
+                return UnauthorizedSubject(ctx);
+
+            var result = await svc.EnrollAsync(userId, ct);
+
+            // Null = 2FA já ativo (tem que desativar antes de re-inscrever). 409 sem detalhe sensível.
+            if (result is null)
+                return Results.Problem(
+                    detail: "Não foi possível iniciar a verificação em duas etapas. Ela já pode estar ativa.",
+                    statusCode: 409,
+                    extensions: ctx.ProblemExtensions());
+
+            return Results.Ok(result);
+        }).RequireAuthorization();
+
+        // ── POST /auth/mfa/confirm ────────────────────────────────────────────
+        group.MapPost("/mfa/confirm", async (
+            [FromBody] MfaConfirmRequest req,
+            MfaService svc,
+            HttpContext ctx,
+            CancellationToken ct) =>
+        {
+            if (ResolveUserId(ctx) is not { } userId)
+                return UnauthorizedSubject(ctx);
+
+            var ok = await svc.ConfirmAsync(userId, req, ct);
+            if (!ok)
+                return Results.Problem(
+                    detail: "Código inválido. Verifique o app autenticador e tente de novo.",
+                    statusCode: 400,
+                    extensions: ctx.ProblemExtensions());
+
+            return Results.NoContent();
+        }).RequireAuthorization();
+
+        // ── POST /auth/mfa/disable ────────────────────────────────────────────
+        group.MapPost("/mfa/disable", async (
+            [FromBody] MfaDisableRequest req,
+            MfaService svc,
+            HttpContext ctx,
+            CancellationToken ct) =>
+        {
+            if (ResolveUserId(ctx) is not { } userId)
+                return UnauthorizedSubject(ctx);
+
+            var ok = await svc.DisableAsync(userId, req, ct);
+            if (!ok)
+                return Results.Problem(
+                    detail: "Código inválido. Informe um código válido para desativar a verificação em duas etapas.",
+                    statusCode: 400,
+                    extensions: ctx.ProblemExtensions());
+
+            return Results.NoContent();
+        }).RequireAuthorization();
+    }
+
+    private static Guid? ResolveUserId(HttpContext ctx)
+    {
+        var userIdStr = ctx.User.FindFirstValue(ClaimTypes.NameIdentifier)
+                        ?? ctx.User.FindFirstValue("sub");
+        return Guid.TryParse(userIdStr, out var userId) ? userId : null;
+    }
+
+    private static IResult UnauthorizedSubject(HttpContext ctx)
+        => Results.Problem(
+            detail: "Token sem subject válido.",
+            statusCode: 401,
+            extensions: ctx.ProblemExtensions());
 }
 
 public sealed record LogoutRequest(string RefreshToken);
