@@ -29,6 +29,12 @@ internal sealed class CloudTestContext : IDisposable
     public MfaService Mfa { get; }
     public MfaSecretProtector MfaProtector { get; }
 
+    /// <summary>Enviador fake: os testes de reset pescam o token do "email" capturado aqui.</summary>
+    public FakeEmailSender Email { get; }
+
+    /// <summary>PasswordResetService com relógio real (testes de expiração/cooldown criam o seu).</summary>
+    public PasswordResetService PasswordReset { get; }
+
     /// <summary>Relógio fixo compartilhado por MfaService e pelas sessões TOTP dos testes.</summary>
     public static readonly DateTimeOffset FixedNow = DateTimeOffset.FromUnixTimeSeconds(1_700_000_000);
 
@@ -67,6 +73,8 @@ internal sealed class CloudTestContext : IDisposable
         Accounts = new AccountService(Db, Tokens, _config, NullLogger<AccountService>.Instance);
         Secrets = new SecretsService(Db, Rbac, Audit, NullLogger<SecretsService>.Instance);
         Mfa = new MfaService(Db, MfaProtector, NullLogger<MfaService>.Instance) { UtcNow = () => FixedNow };
+        Email = new FakeEmailSender();
+        PasswordReset = new PasswordResetService(Db, Email, NullLogger<PasswordResetService>.Instance);
     }
 
     /// <summary>TokenService com o relógio fixo — para validar TOTP determinístico no login dos testes.</summary>

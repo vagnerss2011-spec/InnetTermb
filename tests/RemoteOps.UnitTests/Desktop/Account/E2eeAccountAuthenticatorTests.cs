@@ -79,6 +79,44 @@ public sealed class E2eeAccountAuthenticatorTests
                 Stored.WrappedAmkPwd, Stored.AmkKeyVersion,
                 new[] { new AccountWorkspace("ws-1", Stored.WorkspaceName, "Owner") }));
         }
+
+        // ── Recuperação (Fase 4) ──────────────────────────────────────────────
+        // O token real chega por email; aqui é uma constante que o fake aceita.
+        public const string ResetToken = "reset-token-fake";
+
+        public string? LastForgotEmail { get; private set; }
+        public ResetPasswordRequest? Reset { get; private set; }
+
+        public Task ForgotPasswordAsync(string email, CancellationToken ct = default)
+        {
+            LastForgotEmail = email;
+            return Task.CompletedTask;
+        }
+
+        public Task<byte[]> GetResetContextAsync(string token, CancellationToken ct = default)
+            => Stored is null || token != ResetToken
+                ? throw new CloudSyncException(HttpStatusCode.BadRequest)
+                // reset-context devolve o escrow de RECUPERAÇÃO (nunca muda no reset).
+                : Task.FromResult(Stored.WrappedAmkRec);
+
+        public Task ResetPasswordAsync(ResetPasswordRequest request, CancellationToken ct = default)
+        {
+            if (Stored is null || request.Token != ResetToken)
+            {
+                throw new CloudSyncException(HttpStatusCode.BadRequest);
+            }
+
+            Reset = request;
+            // Aplica no "servidor": a senha nova passa a valer (re-embrulha só o escrow por senha).
+            Stored = Stored with
+            {
+                AuthHash = request.NewAuthHash,
+                Argon2Salt = request.NewArgon2Salt,
+                Argon2Params = request.NewArgon2Params,
+                WrappedAmkPwd = request.NewWrappedAmkPwd,
+            };
+            return Task.CompletedTask;
+        }
     }
 
     /// <summary>A PROVA: device B, só com a senha, recupera a AMK criada no device A.</summary>
@@ -222,6 +260,54 @@ public sealed class E2eeAccountAuthenticatorTests
 
         Assert.Null(session.RecoveryKey);
         Assert.Equal("ws-1", Assert.Single(session.Workspaces).Id);
+    }
+
+    /// <summary>
+    /// PROVA da Fase 4 na camada do orquestrador: esqueci a senha → reset com a chave de recuperação
+    /// (exibida no registro) + senha nova → a senha NOVA recupera a MESMA AMK e a ANTIGA para de logar.
+    /// O cofre está intacto (a AMK não mudou) e o servidor nunca viu a AMK.
+    /// </summary>
+    [Fact]
+    public async Task ResetWithRecoveryKey_RewrapsAmk_NewPasswordRecoversSameAmk_OldFails()
+    {
+        var server = new FakeAccountServer();
+        var deviceA = new E2eeAccountAuthenticator(server, DeviceA, "PC-A");
+        AccountSession registered = await deviceA.RegisterAsync("op@innet.tec.br", Password.ToCharArray(), "NOC");
+
+        const string newPwd = "senha-nova-999"; // pragma: allowlist secret
+        var deviceB = new E2eeAccountAuthenticator(server, DeviceB, "PC-B");
+
+        await deviceB.RequestPasswordResetAsync("op@innet.tec.br");
+        Assert.Equal("op@innet.tec.br", server.LastForgotEmail);
+
+        await deviceB.ResetPasswordWithRecoveryKeyAsync(
+            FakeAccountServer.ResetToken, registered.RecoveryKey!, newPwd.ToCharArray());
+
+        // A senha NOVA loga e recupera a MESMA AMK — o cofre continua decifrável.
+        AccountSession loggedIn = await deviceB.LoginAsync("op@innet.tec.br", newPwd.ToCharArray());
+        Assert.Equal(registered.Amk, loggedIn.Amk);
+
+        // A senha ANTIGA não loga mais.
+        await Assert.ThrowsAsync<CloudSyncException>(
+            () => deviceB.LoginAsync("op@innet.tec.br", Password.ToCharArray()));
+    }
+
+    /// <summary>Chave de recuperação errada: a AMK não abre (o núcleo lança) — o reset nem sobe.</summary>
+    [Fact]
+    public async Task ResetWithWrongRecoveryKey_Throws_AndDoesNotReset()
+    {
+        var server = new FakeAccountServer();
+        var deviceA = new E2eeAccountAuthenticator(server, DeviceA, "PC-A");
+        await deviceA.RegisterAsync("op@innet.tec.br", Password.ToCharArray(), "NOC");
+
+        var deviceB = new E2eeAccountAuthenticator(server, DeviceB, "PC-B");
+        string wrongRecovery = RecoveryKeyCodec.Generate();
+
+        await Assert.ThrowsAnyAsync<CryptographicException>(() =>
+            deviceB.ResetPasswordWithRecoveryKeyAsync(
+                FakeAccountServer.ResetToken, wrongRecovery, "qualquer-senha-8".ToCharArray()));
+
+        Assert.Null(server.Reset); // nada foi enviado ao servidor
     }
 
     /// <summary>Sessão descartada (janela fechada sem consumir) → a AMK sai da memória zerada.</summary>

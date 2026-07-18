@@ -25,4 +25,25 @@ public interface IAccountAuthenticator
     /// </summary>
     Task<AccountSession> LoginAsync(
         string email, char[] password, string? totpCode = null, CancellationToken ct = default);
+
+    // ── Recuperação de senha por email (spec Fase 4) ──────────────────────────
+
+    /// <summary>
+    /// "Esqueci a senha": dispara o email de recuperação. Não sinaliza se a conta existe
+    /// (anti-enumeração) — a UI mostra a MESMA mensagem em qualquer caso.
+    /// </summary>
+    Task RequestPasswordResetAsync(string email, CancellationToken ct = default);
+
+    /// <summary>
+    /// Conclui o reset: o token do email autoriza o ACESSO e a chave de recuperação reabre o COFRE. O
+    /// núcleo desembrulha a AMK com a chave de recuperação e a re-embrulha sob a senha nova (a AMK não
+    /// muda → segredos intactos). Lança <c>CryptographicException</c> se a chave de recuperação estiver
+    /// errada e <c>CloudSyncException</c> se o token for inválido/expirado.
+    ///
+    /// <para>Não devolve sessão de propósito: o reset revoga todas as sessões no servidor; o operador
+    /// entra de novo pela tela de login (que já trata 2FA). O <paramref name="newPassword"/> é do
+    /// CHAMADOR, que o zera depois (a implementação NÃO toma posse).</para>
+    /// </summary>
+    Task ResetPasswordWithRecoveryKeyAsync(
+        string token, string recoveryKey, char[] newPassword, CancellationToken ct = default);
 }

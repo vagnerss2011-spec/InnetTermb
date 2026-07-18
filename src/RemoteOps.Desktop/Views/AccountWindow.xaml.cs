@@ -46,6 +46,19 @@ public partial class AccountWindow : Window
         }
     }
 
+    /// <summary>
+    /// "Esqueci a senha": abre a recuperação (reusa o autenticador via <see cref="AccountViewModel.CreateRecoveryFlow"/>)
+    /// como diálogo modal. Voltou com sucesso → recado no login, com a senha nova já valendo.
+    /// </summary>
+    private void ForgotPassword_Click(object sender, RoutedEventArgs e)
+    {
+        var recovery = new PasswordRecoveryWindow(Vm.CreateRecoveryFlow()) { Owner = this };
+        if (recovery.ShowDialog() == true)
+        {
+            Vm.NotifyPasswordReset();
+        }
+    }
+
     /// <summary>Lê a senha como char[] via SecureString/BSTR (nunca retorna string). O VM zera depois.</summary>
     private static char[] ReadSecure(PasswordBox box)
     {

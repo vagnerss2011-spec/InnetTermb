@@ -63,6 +63,10 @@
                            Foreground="{DynamicResource Brush.Status.Error}"/>
             </Border>
 
+            <TextBlock Text="{Binding StatusMessage}" Style="{DynamicResource Text.Caption}"
+                       TextWrapping="Wrap" Margin="0,0,0,10"
+                       Visibility="{Binding HasStatus, Converter={StaticResource BoolToVis}}"/>
+
             <Button x:Name="SubmitButton" Content="{Binding SubmitButtonText}"
                     Style="{DynamicResource Button.Primary}" IsDefault="True"
                     IsEnabled="{Binding IsIdle}" Click="Submit_Click"
@@ -70,6 +74,11 @@
 
             <Button Content="Não tenho conta — criar uma" Style="{DynamicResource Button.Ghost}"
                     Command="{Binding SwitchToRegisterCommand}" IsEnabled="{Binding IsIdle}"
+                    HorizontalAlignment="Center" Padding="8,4"
+                    Visibility="{Binding IsLoginMode, Converter={StaticResource BoolToVis}}"/>
+
+            <Button Content="Esqueci a senha" Style="{DynamicResource Button.Ghost}"
+                    Click="ForgotPassword_Click" IsEnabled="{Binding IsIdle}"
                     HorizontalAlignment="Center" Padding="8,4"
                     Visibility="{Binding IsLoginMode, Converter={StaticResource BoolToVis}}"/>
             <Button Content="Já tenho conta — entrar" Style="{DynamicResource Button.Ghost}"

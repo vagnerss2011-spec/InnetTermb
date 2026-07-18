@@ -57,6 +57,16 @@ services:
       # bridge usar outra sub-rede, ajuste TRUSTED_PROXY_CIDR (lista CIDR separada por
       # vírgula). Vazio = default 172.16.0.0/12 + 10.0.0.0/8. Ver runbook §Troubleshooting.
       TRUSTED_PROXY_CIDR: ${TRUSTED_PROXY_CIDR:-}
+      # ── SMTP (recuperação de senha por email, Fase 4) ──
+      # Opcional. Smtp__Host VAZIO = a API LOGA o email de recuperação em vez de enviar
+      # (dev/primeiro boot). Preencha para os emails saírem de verdade. A senha vem por
+      # referência ao .env do operador — nenhum segredo mora aqui.
+      Smtp__Host: ${SMTP_HOST:-}
+      Smtp__Port: ${SMTP_PORT:-587}
+      Smtp__Username: ${SMTP_USERNAME:-}
+      Smtp__Password: ${SMTP_PASSWORD:-}
+      Smtp__From: ${SMTP_FROM:-}
+      Smtp__UseSsl: ${SMTP_USE_SSL:-true}
     # Sem `ports:`: quem fala com a internet é o Caddy, sempre em HTTPS.
     # O healthcheck da API vem do HEALTHCHECK do Dockerfile (curl em /health) e
     # aparece no `docker compose ps` — não precisa ser redeclarado aqui.

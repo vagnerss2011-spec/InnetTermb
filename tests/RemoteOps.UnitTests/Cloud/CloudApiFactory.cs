@@ -21,6 +21,12 @@ internal sealed class CloudApiFactory : WebApplicationFactory<cloud::Program>
 {
     private readonly string _dbName = $"remoteops-api-{Guid.NewGuid()}";
 
+    /// <summary>
+    /// Enviador fake injetado no lugar do real: os testes de recuperação pescam o token do "email".
+    /// Inofensivo para os demais testes (nenhum outro endpoint envia email).
+    /// </summary>
+    public FakeEmailSender Email { get; } = new();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(Environments.Development);
@@ -43,6 +49,13 @@ internal sealed class CloudApiFactory : WebApplicationFactory<cloud::Program>
             foreach (var d in doomed) services.Remove(d);
 
             services.AddDbContext<AppDbContext>(o => o.UseInMemoryDatabase(_dbName));
+
+            // Troca o IEmailSender real pelo fake capturável (singleton para o teste ler o que "saiu").
+            var emailDescriptors = services
+                .Where(d => d.ServiceType == typeof(RemoteOps.Cloud.Email.IEmailSender))
+                .ToList();
+            foreach (var d in emailDescriptors) services.Remove(d);
+            services.AddSingleton<RemoteOps.Cloud.Email.IEmailSender>(Email);
         });
     }
 }

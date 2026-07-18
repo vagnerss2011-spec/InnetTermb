@@ -113,6 +113,8 @@ public static class AuthEndpoints
             return Results.NoContent();
         }).RequireAuthorization();
 
+        MapPasswordRecoveryEndpoints(group);
+
         group.MapPost("/refresh", async (
             [FromBody] RefreshRequest req,
             TokenService svc,
@@ -209,6 +211,61 @@ public static class AuthEndpoints
 
             return Results.NoContent();
         }).RequireAuthorization();
+    }
+
+    /// <summary>
+    /// Recuperação de senha por email (spec Fase 4). Todos ANÔNIMOS e rate-limited (grupo /auth).
+    /// FRONTEIRA E2EE: o token do email dá ACESSO; só a chave de recuperação (no cliente) reabre o
+    /// cofre. Ver PasswordResetService.
+    /// </summary>
+    private static void MapPasswordRecoveryEndpoints(RouteGroupBuilder group)
+    {
+        // ── POST /auth/password/forgot ────────────────────────────────────────
+        group.MapPost("/password/forgot", async (
+            [FromBody] ForgotPasswordRequest req,
+            PasswordResetService svc,
+            CancellationToken ct) =>
+        {
+            // SEMPRE 202, exista ou não a conta (anti-enumeração). O trabalho real (ou nenhum) roda
+            // dentro do serviço; a resposta é indistinguível.
+            await svc.RequestAsync(req.Email, ct);
+            return Results.Accepted();
+        }).AllowAnonymous();
+
+        // ── POST /auth/password/reset-context ─────────────────────────────────
+        group.MapPost("/password/reset-context", async (
+            [FromBody] ResetContextRequest req,
+            PasswordResetService svc,
+            HttpContext ctx,
+            CancellationToken ct) =>
+        {
+            var wrappedRec = await svc.GetResetContextAsync(req.Token, ct);
+            if (wrappedRec is null)
+                return Results.Problem(
+                    detail: "Código de recuperação inválido ou expirado.",
+                    statusCode: 400,
+                    extensions: ctx.ProblemExtensions());
+
+            return Results.Ok(new ResetContextResponse(wrappedRec));
+        }).AllowAnonymous();
+
+        // ── POST /auth/password/reset ─────────────────────────────────────────
+        group.MapPost("/password/reset", async (
+            [FromBody] ResetPasswordRequest req,
+            PasswordResetService svc,
+            HttpContext ctx,
+            CancellationToken ct) =>
+        {
+            // Material novo inválido LANÇA ArgumentException → 400 (CloudExceptionHandler).
+            var ok = await svc.ResetAsync(req, ct);
+            if (!ok)
+                return Results.Problem(
+                    detail: "Código de recuperação inválido ou expirado.",
+                    statusCode: 400,
+                    extensions: ctx.ProblemExtensions());
+
+            return Results.NoContent();
+        }).AllowAnonymous();
     }
 
     private static Guid? ResolveUserId(HttpContext ctx)

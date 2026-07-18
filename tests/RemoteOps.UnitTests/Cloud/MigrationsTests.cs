@@ -87,4 +87,16 @@ public sealed class MigrationsTests
         Assert.Contains("CREATE UNIQUE INDEX", sql, StringComparison.Ordinal);
         Assert.Contains("secret_envelopes", sql, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void MigrationDeReset_CriaTabelaComHashUnico()
+    {
+        using var db = OfflineNpgsqlContext();
+        var sql = db.GetService<IMigrator>().GenerateScript();
+
+        // A tabela de tokens de reset (Fase 4) e o índice ÚNICO no hash: sem a unicidade
+        // dois tokens poderiam colidir de hash e o uso-único deixaria de valer.
+        Assert.Matches("CREATE TABLE \"?password_reset_tokens\"? \\(", sql);
+        Assert.Matches("CREATE UNIQUE INDEX .*password_reset_tokens.*TokenHash", sql);
+    }
 }

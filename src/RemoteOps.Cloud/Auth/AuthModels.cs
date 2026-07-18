@@ -115,3 +115,32 @@ public sealed record ChangePasswordRequest(
     string NewArgon2Salt,
     Argon2Params NewArgon2Params,
     string NewWrappedAmkPwd);
+
+// ── Recuperação de senha por email (spec Fase 4) ────────────────────────────
+
+/// <summary>
+/// "Esqueci a senha": dispara o email de recuperação. A resposta é SEMPRE 202, exista ou não a conta
+/// (anti-enumeração) — este record não carrega nada de volta.
+/// </summary>
+public sealed record ForgotPasswordRequest(string Email);
+
+/// <summary>
+/// Troca o token do email pelo escrow de recuperação (<c>wrappedAmkRec</c>), para o cliente
+/// desembrulhar a AMK com a chave de recuperação. O blob é opaco: inútil sem a chave de recuperação.
+/// </summary>
+public sealed record ResetContextRequest(string Token);
+
+/// <summary>Escrow de recuperação (base64) devolvido ao portador de um token de reset válido.</summary>
+public sealed record ResetContextResponse(string WrappedAmkRec);
+
+/// <summary>
+/// Conclui o reset: como o <c>password/change</c>, mas autorizado pelo TOKEN do email em vez do
+/// AuthHash antigo. O cliente já abriu a AMK com a chave de recuperação e a re-embrulhou sob a senha
+/// nova — o servidor só valida o token e grava o material novo. A AMK não muda.
+/// </summary>
+public sealed record ResetPasswordRequest(
+    string Token,
+    string NewAuthHash,
+    string NewArgon2Salt,
+    Argon2Params NewArgon2Params,
+    string NewWrappedAmkPwd);

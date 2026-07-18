@@ -72,6 +72,14 @@ public sealed class AccountViewModelTests
                 email, "ws-1", new byte[32], Tokens,
                 new[] { new AccountWorkspace("ws-1", "NOC", "Owner") }));
         }
+
+        // Recuperação (Fase 4): o AccountViewModel não a usa — a tela de reset é o PasswordRecoveryViewModel.
+        public Task RequestPasswordResetAsync(string email, CancellationToken ct = default)
+            => Task.CompletedTask;
+
+        public Task ResetPasswordWithRecoveryKeyAsync(
+            string token, string recoveryKey, char[] newPassword, CancellationToken ct = default)
+            => Task.CompletedTask;
     }
 
     private static AccountViewModel NewVm(FakeAuthenticator auth, Action<string>? copy = null)

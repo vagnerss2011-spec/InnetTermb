@@ -18,6 +18,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<AuditEventEntity> AuditEvents => Set<AuditEventEntity>();
     public DbSet<DeviceEntity> Devices => Set<DeviceEntity>();
     public DbSet<RefreshTokenEntity> RefreshTokens => Set<RefreshTokenEntity>();
+    public DbSet<PasswordResetTokenEntity> PasswordResetTokens => Set<PasswordResetTokenEntity>();
 
     protected override void OnModelCreating(ModelBuilder model)
     {
@@ -153,6 +154,18 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.HasIndex(x => x.UserId);
             e.Property(x => x.TokenHash).HasMaxLength(256).IsRequired();
             e.HasOne(x => x.User).WithMany(x => x.RefreshTokens).HasForeignKey(x => x.UserId);
+        });
+
+        model.Entity<PasswordResetTokenEntity>(e =>
+        {
+            e.ToTable("password_reset_tokens");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.TokenHash).IsUnique();
+            e.HasIndex(x => x.UserId);
+            e.Property(x => x.TokenHash).HasMaxLength(256).IsRequired();
+            // Sem navegação inversa em UserEntity: os tokens de reset são efêmeros e
+            // consultados sempre pelo hash, nunca varridos por usuário na aplicação.
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId);
         });
     }
 }

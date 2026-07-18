@@ -132,4 +132,39 @@ public sealed class E2eeAccountAuthenticator : IAccountAuthenticator
             new TokenSet(login.AccessToken, login.RefreshToken, login.ExpiresAt),
             workspaces);
     }
+
+    // ── Recuperação de senha por email (spec Fase 4) ──────────────────────────
+
+    public Task RequestPasswordResetAsync(string email, CancellationToken ct = default)
+        => _api.ForgotPasswordAsync(email, ct);
+
+    public async Task ResetPasswordWithRecoveryKeyAsync(
+        string token, string recoveryKey, char[] newPassword, CancellationToken ct = default)
+    {
+        // 1) Escrow de recuperação (opaco), autorizado pelo token do email. Só o portador do token o
+        //    obtém — mas ele é inútil sem a chave de recuperação (é aí que mora a fronteira E2EE:
+        //    email comprometido dá ACESSO, não o cofre).
+        byte[] wrappedRec = await _api.GetResetContextAsync(token, ct);
+
+        // 2) A chave de recuperação abre a AMK LOCALMENTE (o servidor nunca a vê). Chave errada faz o
+        //    AES-GCM lançar CryptographicException — a UI traduz pra "chave de recuperação inválida".
+        byte[] amk = _keys.UnwrapAmkWithRecoveryKey(recoveryKey, wrappedRec);
+        try
+        {
+            // 3) Re-embrulha a MESMA AMK sob a senha nova. A AMK não muda → os SecretEnvelope seguem
+            //    decifráveis e o escrow de recuperação continua válido. O char[] entra direto no núcleo
+            //    (o chamador o zera; aqui NÃO tomamos posse).
+            (byte[] newSalt, Argon2Params newParams, byte[] newWrappedPwd, byte[] newAuthHash) =
+                _keys.RewrapForNewPassword(amk, newPassword);
+
+            // 4) Conclui o reset. O servidor só valida o token e grava o material novo — nunca vê a AMK.
+            await _api.ResetPasswordAsync(
+                new ResetPasswordRequest(token, newAuthHash, newSalt, newParams, newWrappedPwd), ct);
+        }
+        finally
+        {
+            // A AMK não sobrevive a esta chamada: o reset revoga as sessões e o operador loga de novo.
+            CryptographicOperations.ZeroMemory(amk);
+        }
+    }
 }
