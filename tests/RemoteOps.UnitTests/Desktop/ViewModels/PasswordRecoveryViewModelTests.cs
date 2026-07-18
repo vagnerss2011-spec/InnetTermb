@@ -194,7 +194,7 @@ public sealed class PasswordRecoveryViewModelTests
     {
         var auth = new FakeAuthenticator();
         var vm = new PasswordRecoveryViewModel(auth); // Token/RecoveryKey vazios → falha de validação
-        var pwd = "novasenha1".ToCharArray();
+        var pwd = "novasenha1".ToCharArray(); // pragma: allowlist secret
 
         await vm.SubmitResetAsync(pwd, "novasenha1".ToCharArray());
 

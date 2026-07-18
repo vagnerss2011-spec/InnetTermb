@@ -383,7 +383,7 @@ public sealed class AccountContractsWireTests
     public void ResetPasswordRequest_DeserializesIntoServerShape()
     {
         var client = new ResetPasswordRequest(
-            Token: "reset-token-abc",
+            Token: "reset-token-abc", // pragma: allowlist secret
             NewAuthHash: new byte[32],
             NewArgon2Salt: new byte[16],
             NewArgon2Params: Argon2Params.Default,
