@@ -39,6 +39,13 @@ public sealed class AccountWindowRenderTests
                 email, "ws-1", new byte[32],
                 new TokenSet("access", "refresh", DateTimeOffset.UtcNow.AddHours(1)),
                 new[] { new AccountWorkspace("ws-1", "NOC", "Owner") }));
+
+        public Task RequestPasswordResetAsync(string email, CancellationToken ct = default)
+            => Task.CompletedTask;
+
+        public Task ResetPasswordWithRecoveryKeyAsync(
+            string token, string recoveryKey, char[] newPassword, CancellationToken ct = default)
+            => Task.CompletedTask;
     }
 
     private static Exception? RenderWith(AccountViewModel vm) => StaThreadRunner.Run(() =>
@@ -144,5 +151,12 @@ public sealed class AccountWindowRenderTests
         public Task<AccountSession> LoginAsync(
             string email, char[] password, string? totpCode = null, CancellationToken ct = default)
             => Task.FromException<AccountSession>(new MfaRequiredException());
+
+        public Task RequestPasswordResetAsync(string email, CancellationToken ct = default)
+            => Task.CompletedTask;
+
+        public Task ResetPasswordWithRecoveryKeyAsync(
+            string token, string recoveryKey, char[] newPassword, CancellationToken ct = default)
+            => Task.CompletedTask;
     }
 }

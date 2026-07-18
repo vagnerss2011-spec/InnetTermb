@@ -79,6 +79,32 @@ public sealed record KdfResponse(byte[] Argon2Salt, Argon2Params Argon2Params);
 public sealed record E2eeLoginRequest(
     string Email, byte[] AuthHash, string DeviceId, string DeviceName, string? TotpCode = null);
 
+// ── Recuperação de senha por email (spec Fase 4) ────────────────────────────────────────
+
+/// <summary><c>POST /auth/password/forgot</c>: dispara o email. Resposta sempre 202 (anti-enumeração).</summary>
+public sealed record ForgotPasswordRequest(string Email);
+
+/// <summary>
+/// <c>POST /auth/password/reset-context</c>: troca o token do email pelo escrow de recuperação
+/// (<c>wrappedAmkRec</c>), pra o cliente abrir a AMK com a chave de recuperação. O blob é opaco.
+/// </summary>
+public sealed record ResetContextRequest(string Token);
+
+/// <summary>Escrow de recuperação (base64 no fio → byte[] aqui) devolvido a um token de reset válido.</summary>
+public sealed record ResetContextResponse(byte[] WrappedAmkRec);
+
+/// <summary>
+/// <c>POST /auth/password/reset</c>: conclui o reset. Como o registro, TUDO aqui é público ou opaco —
+/// o cliente já abriu a AMK com a chave de recuperação e a re-embrulhou sob a senha nova. O token do
+/// email é a autorização (no lugar do AuthHash antigo). A AMK não muda.
+/// </summary>
+public sealed record ResetPasswordRequest(
+    string Token,
+    byte[] NewAuthHash,
+    byte[] NewArgon2Salt,
+    Argon2Params NewArgon2Params,
+    byte[] NewWrappedAmkPwd);
+
 // ── 2FA / TOTP (spec Fase 3) — espelhos das mensagens de MFA do backend ─────────────────
 
 /// <summary>

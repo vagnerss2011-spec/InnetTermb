@@ -54,6 +54,36 @@ public sealed class AccountApiClient : IAccountApi
         return await ReadOrThrowAsync<E2eeLoginResponse>(resp, ct);
     }
 
+    public async Task ForgotPasswordAsync(string email, CancellationToken ct = default)
+    {
+        // Sempre 202 se der certo; um erro (rede/servidor) é o único motivo de exceção — o endpoint
+        // não distingue conta existente de inexistente, então não há o que ler no corpo.
+        using HttpResponseMessage resp = await _http.PostAsJsonAsync(
+            "/auth/password/forgot", new ForgotPasswordRequest(email), s_json, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            throw new CloudSyncException(resp.StatusCode);
+        }
+    }
+
+    public async Task<byte[]> GetResetContextAsync(string token, CancellationToken ct = default)
+    {
+        using HttpResponseMessage resp = await _http.PostAsJsonAsync(
+            "/auth/password/reset-context", new ResetContextRequest(token), s_json, ct);
+        ResetContextResponse ctx = await ReadOrThrowAsync<ResetContextResponse>(resp, ct);
+        return ctx.WrappedAmkRec;
+    }
+
+    public async Task ResetPasswordAsync(ResetPasswordRequest request, CancellationToken ct = default)
+    {
+        using HttpResponseMessage resp = await _http.PostAsJsonAsync(
+            "/auth/password/reset", request, s_json, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            throw new CloudSyncException(resp.StatusCode);
+        }
+    }
+
     /// <summary>
     /// Lê o corpo do 401 e vê se é o ProblemDetails estruturado do 2FA. Tolerante: corpo não-JSON,
     /// vazio ou sem o campo → trata como 401 comum (não-MFA). Nunca loga o corpo.

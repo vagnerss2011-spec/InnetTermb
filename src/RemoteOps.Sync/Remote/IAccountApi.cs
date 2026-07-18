@@ -16,4 +16,15 @@ public interface IAccountApi
 
     /// <summary>Autentica pelo authHash e devolve tokens + o escrow da AMK por senha.</summary>
     Task<E2eeLoginResponse> LoginAsync(E2eeLoginRequest request, CancellationToken ct = default);
+
+    // ── Recuperação de senha por email (spec Fase 4) ────────────────────────────
+
+    /// <summary>Dispara o email de recuperação. Não sinaliza se a conta existe (anti-enumeração).</summary>
+    Task ForgotPasswordAsync(string email, CancellationToken ct = default);
+
+    /// <summary>Troca o token do email pelo escrow de recuperação (<c>wrappedAmkRec</c>).</summary>
+    Task<byte[]> GetResetContextAsync(string token, CancellationToken ct = default);
+
+    /// <summary>Conclui o reset com o material novo que o cliente já computou (a AMK não muda).</summary>
+    Task ResetPasswordAsync(ResetPasswordRequest request, CancellationToken ct = default);
 }
