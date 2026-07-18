@@ -194,4 +194,112 @@ public sealed class PasswordResetServiceTests
 
         Assert.Null(await ctx.PasswordReset.GetResetContextAsync(raw, default));
     }
+
+    // ── ResetAsync (material opaco; o round-trip cripto real está na classe abaixo) ──
+
+    private static ResetPasswordRequest ValidReset(string token, byte[]? newAuthHash = null, byte[]? newWrapped = null) =>
+        new(
+            Token: token,
+            NewAuthHash: Convert.ToBase64String(newAuthHash ?? Rand(32)),
+            NewArgon2Salt: Convert.ToBase64String(Rand(16)),
+            NewArgon2Params: new Argon2Params(65536, 3, 1, 32),
+            NewWrappedAmkPwd: Convert.ToBase64String(newWrapped ?? Rand(60)));
+
+    [Fact]
+    public async Task Reset_Rewraps_KeepsRecoveryEscrow_AndIsSingleUse()
+    {
+        using var ctx = new CloudTestContext();
+        var wrappedRec = Rand(60);
+        var email = await SeedE2eeAccountAsync(ctx, "operador@test.local", wrappedRec);
+        await ctx.PasswordReset.RequestAsync(email, default);
+        var raw = ExtractToken(ctx.Email.Last!.TextBody);
+
+        var newAuthHash = Rand(32);
+        var newWrapped = Rand(60);
+        var ok = await ctx.PasswordReset.ResetAsync(ValidReset(raw, newAuthHash, newWrapped), default);
+        Assert.True(ok);
+
+        var user = ctx.Db.Users.Single();
+        Assert.Equal(newWrapped, user.WrappedAmkPwd);
+        Assert.True(PasswordHasher.Verify(Convert.ToBase64String(newAuthHash), user.AuthHashHash));
+
+        // A AMK não muda: escrow de recuperação e versão intocados.
+        Assert.Equal(wrappedRec, user.WrappedAmkRec);
+        Assert.Equal(1, user.AmkKeyVersion);
+
+        // Token consumido → uso único: um segundo reset com o mesmo token falha.
+        Assert.NotNull(ctx.Db.PasswordResetTokens.Single().UsedAt);
+        Assert.False(await ctx.PasswordReset.ResetAsync(ValidReset(raw), default));
+    }
+
+    [Fact]
+    public async Task Reset_Fails_ForInvalidToken_WithoutMutating()
+    {
+        using var ctx = new CloudTestContext();
+        var email = await SeedE2eeAccountAsync(ctx, "operador@test.local");
+        var before = ctx.Db.Users.Single().WrappedAmkPwd;
+
+        Assert.False(await ctx.PasswordReset.ResetAsync(ValidReset("nao-existe"), default));
+        Assert.Equal(before, ctx.Db.Users.Single().WrappedAmkPwd);
+    }
+
+    [Fact]
+    public async Task Reset_Fails_ForExpiredToken()
+    {
+        using var ctx = new CloudTestContext();
+        var email = await SeedE2eeAccountAsync(ctx, "operador@test.local");
+
+        var now = CloudTestContext.FixedNow;
+        var svc = new PasswordResetService(ctx.Db, ctx.Email, NullLogger<PasswordResetService>.Instance)
+        {
+            UtcNow = () => now,
+        };
+        await svc.RequestAsync(email, default);
+        var raw = ExtractToken(ctx.Email.Last!.TextBody);
+
+        now += TimeSpan.FromMinutes(31);
+        Assert.False(await svc.ResetAsync(ValidReset(raw), default));
+    }
+
+    [Fact]
+    public async Task Reset_RevokesAllRefreshTokens()
+    {
+        using var ctx = new CloudTestContext();
+        var email = await SeedE2eeAccountAsync(ctx, "operador@test.local");
+        await ctx.PasswordReset.RequestAsync(email, default);
+        var raw = ExtractToken(ctx.Email.Last!.TextBody);
+
+        // O registro emitiu uma sessão → há refresh token(s) ativos.
+        Assert.NotEmpty(ctx.Db.RefreshTokens);
+        Assert.All(ctx.Db.RefreshTokens, r => Assert.Null(r.RevokedAt));
+
+        Assert.True(await ctx.PasswordReset.ResetAsync(ValidReset(raw), default));
+
+        // Reset desloga todo device: nenhum refresh token da conta segue válido.
+        Assert.All(ctx.Db.RefreshTokens, r => Assert.NotNull(r.RevokedAt));
+    }
+
+    [Fact]
+    public async Task Reset_InvalidMaterial_Throws_AndDoesNotConsumeTokenNorMutate()
+    {
+        using var ctx = new CloudTestContext();
+        var email = await SeedE2eeAccountAsync(ctx, "operador@test.local");
+        await ctx.PasswordReset.RequestAsync(email, default);
+        var raw = ExtractToken(ctx.Email.Last!.TextBody);
+        var before = ctx.Db.Users.Single().WrappedAmkPwd;
+
+        // AuthHash com tamanho errado (16B em vez de 32B): validação ANTES de mutar.
+        var bad = new ResetPasswordRequest(
+            Token: raw,
+            NewAuthHash: Convert.ToBase64String(Rand(16)),
+            NewArgon2Salt: Convert.ToBase64String(Rand(16)),
+            NewArgon2Params: new Argon2Params(65536, 3, 1, 32),
+            NewWrappedAmkPwd: Convert.ToBase64String(Rand(60)));
+
+        await Assert.ThrowsAsync<ArgumentException>(() => ctx.PasswordReset.ResetAsync(bad, default));
+
+        // Nada mutado; token NÃO consumido (o operador pode tentar de novo com material válido).
+        Assert.Equal(before, ctx.Db.Users.Single().WrappedAmkPwd);
+        Assert.Null(ctx.Db.PasswordResetTokens.Single().UsedAt);
+    }
 }
