@@ -22,6 +22,19 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ### Adicionado
 
+- **Cloud sync (Fase 4) — recuperação de senha por email, sem furar o E2EE:** tela "Esqueci a
+  senha" com recuperação de **dois fatores** por design — o **código do email** restaura o
+  ACESSO (autoriza trocar a prova de senha sem o AuthHash antigo) e a **chave de recuperação**
+  reabre o COFRE (desembrulha a AMK e a re-embrulha sob a senha nova; a AMK não muda, os segredos
+  seguem decifráveis). O servidor nunca vê a AMK/senha/chave — só valida um token de uso único
+  (SHA-256, TTL 30 min) e grava o material que o cliente já computou. Endpoints anônimos
+  `/auth/password/{forgot,reset-context,reset}` (`/forgot` sempre 202 — anti-enumeração), envio de
+  email **plugável** (`IEmailSender`: `LoggingEmailSender` por padrão, `SmtpEmailSender` quando
+  `Smtp:Host` está configurado — o operador pluga o SMTP pelo `.env`, o servidor nunca embute a
+  credencial). Reset revoga todas as sessões. Prova cripto ponta a ponta (segredo selado antes do
+  reset volta a abrir; email sem a chave de recuperação é inútil). Quem perde senha **e** chave de
+  recuperação continua irrecuperável por design — a UI diz isso.
+
 - **NDesk — operador descobre o `sessionId` pelo status do ticket (`ADR-020`):** o
   `GET /ndesk/tickets/{id}` passa a devolver o `sessionId` ao criador do ticket (campo novo,
   opcional, em `contracts/ndesk-ticket.schema.json` e `NDeskTicket`), destravando o fluxo real
