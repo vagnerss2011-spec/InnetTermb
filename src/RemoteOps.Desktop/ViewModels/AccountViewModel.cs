@@ -246,6 +246,19 @@ public sealed class AccountViewModel : BaseViewModel
         }
     }
 
+    /// <summary>
+    /// Cria o fluxo de "Esqueci a senha" reusando o MESMO autenticador (a View abre a janela). Manter
+    /// a construção aqui evita expor o autenticador — o VM continua sendo o único que o conhece.
+    /// </summary>
+    public PasswordRecoveryViewModel CreateRecoveryFlow() => new(_authenticator);
+
+    /// <summary>Reset de senha concluído (via recuperação): recado no login com a senha nova já valendo.</summary>
+    public void NotifyPasswordReset()
+    {
+        ErrorMessage = string.Empty;
+        StatusMessage = "Senha redefinida. Entre com a sua nova senha.";
+    }
+
     /// <summary>Transfere a posse da sessão (a AMK deixa de ser responsabilidade da UI).</summary>
     public AccountSession? TakeSession()
     {
