@@ -79,6 +79,17 @@ public sealed class AccountContractsWireTests
 
     private sealed record ServerKdfResponse(string Argon2Salt, ServerArgon2Params Argon2Params);
 
+    // Recuperação de senha (Fase 4) — espelho de Auth/AuthModels.cs deste branch.
+    private sealed record ServerForgotPasswordRequest(string Email);
+    private sealed record ServerResetContextRequest(string Token);
+    private sealed record ServerResetContextResponse(string WrappedAmkRec);
+    private sealed record ServerResetPasswordRequest(
+        string Token,
+        string NewAuthHash,
+        string NewArgon2Salt,
+        ServerArgon2Params NewArgon2Params,
+        string NewWrappedAmkPwd);
+
     // ── /auth/register ───────────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -326,5 +337,67 @@ public sealed class AccountContractsWireTests
         Assert.NotNull(client);
         Assert.Equal(salt, client!.Argon2Salt);
         Assert.Equal(Argon2Params.Default, client.Argon2Params);
+    }
+
+    // ── /auth/password/{forgot,reset-context,reset} (Fase 4) ───────────────────────────────
+
+    [Fact]
+    public void ForgotPasswordRequest_DeserializesIntoServerShape()
+    {
+        var client = new ForgotPasswordRequest("op@innet.tec.br");
+
+        var server = JsonSerializer.Deserialize<ServerForgotPasswordRequest>(
+            JsonSerializer.Serialize(client, s_web), s_web);
+
+        Assert.Equal("op@innet.tec.br", server!.Email);
+    }
+
+    [Fact]
+    public void ResetContextRequest_DeserializesIntoServerShape()
+    {
+        var client = new ResetContextRequest("reset-token-abc");
+
+        var server = JsonSerializer.Deserialize<ServerResetContextRequest>(
+            JsonSerializer.Serialize(client, s_web), s_web);
+
+        Assert.Equal("reset-token-abc", server!.Token);
+    }
+
+    /// <summary>O escrow de recuperação: string base64 no servidor → byte[] no cliente, byte a byte.</summary>
+    [Fact]
+    public void ResetContextResponse_FromServerShape_BindsOnClient()
+    {
+        var server = new ServerResetContextResponse(Convert.ToBase64String([1, 2, 3, 4]));
+
+        var client = JsonSerializer.Deserialize<ResetContextResponse>(
+            JsonSerializer.Serialize(server, s_web), s_web);
+
+        Assert.Equal(new byte[] { 1, 2, 3, 4 }, client!.WrappedAmkRec);
+    }
+
+    /// <summary>
+    /// O reset do cliente tem que cair INTEIRO nos campos do servidor: token + material novo
+    /// (authHash/salt/wrappedAmkPwd em base64 + params). Um campo renomeado aqui = 400 em campo.
+    /// </summary>
+    [Fact]
+    public void ResetPasswordRequest_DeserializesIntoServerShape()
+    {
+        var client = new ResetPasswordRequest(
+            Token: "reset-token-abc",
+            NewAuthHash: new byte[32],
+            NewArgon2Salt: new byte[16],
+            NewArgon2Params: Argon2Params.Default,
+            NewWrappedAmkPwd: [9, 8, 7]);
+
+        var server = JsonSerializer.Deserialize<ServerResetPasswordRequest>(
+            JsonSerializer.Serialize(client, s_web), s_web);
+
+        Assert.NotNull(server);
+        Assert.Equal("reset-token-abc", server!.Token);
+        Assert.Equal(Convert.ToBase64String(new byte[32]), server.NewAuthHash);
+        Assert.Equal(Convert.ToBase64String(new byte[16]), server.NewArgon2Salt);
+        Assert.Equal(Convert.ToBase64String([9, 8, 7]), server.NewWrappedAmkPwd);
+        Assert.Equal(65536, server.NewArgon2Params.MemoryKib);
+        Assert.Equal(32, server.NewArgon2Params.OutputBytes);
     }
 }
