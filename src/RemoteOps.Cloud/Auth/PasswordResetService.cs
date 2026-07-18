@@ -84,8 +84,18 @@ public sealed class PasswordResetService(
         });
         await db.SaveChangesAsync(ct);
 
-        await email.SendAsync(BuildRecoveryEmail(user.Email, rawToken), ct);
-        logger.LogInformation("Password reset token issued for user {UserId}", user.Id);
+        // Falha de envio (SMTP fora do ar) NÃO pode virar 500 no /forgot: isso quebraria o "sempre 202"
+        // e viraria oráculo de enumeração (500 só pra conta existente). Loga e engole — o token já está
+        // salvo; o operador conserta o SMTP e o usuário tenta de novo.
+        try
+        {
+            await email.SendAsync(BuildRecoveryEmail(user.Email, rawToken), ct);
+            logger.LogInformation("Password reset token issued for user {UserId}", user.Id);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "Password reset token saved but email failed for user {UserId}", user.Id);
+        }
     }
 
     // ── POST /auth/password/reset-context ──────────────────────────────────────

@@ -7,6 +7,7 @@ using RemoteOps.Cloud.Audit;
 using RemoteOps.Cloud.Auth;
 using RemoteOps.Cloud.Configuration;
 using RemoteOps.Cloud.Data;
+using RemoteOps.Cloud.Email;
 using RemoteOps.Cloud.Errors;
 using RemoteOps.Cloud.Hubs;
 using RemoteOps.Cloud.Rbac;
@@ -85,6 +86,9 @@ builder.Services.AddSignalR();
 builder.Services.AddScoped<TokenService>();
 builder.Services.AddScoped<AccountService>();
 builder.Services.AddScoped<MfaService>();
+builder.Services.AddScoped<PasswordResetService>();
+// Enviador de email (recuperação de senha, Fase 4): SMTP se configurado, senão log (dev/CI).
+builder.Services.AddEmailSender(builder.Configuration);
 // Protetor do segredo TOTP em repouso: sem estado próprio, derivado da config → singleton.
 builder.Services.AddSingleton<MfaSecretProtector>();
 builder.Services.AddScoped<PermissionEvaluator>();
@@ -116,6 +120,11 @@ using (var scope = app.Services.CreateScope())
     var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DatabaseBootstrapper");
     DatabaseBootstrapper.MigrateIfRelational(db, logger);
 }
+
+// Deixa explícito no log de startup se os emails de recuperação vão SAIR (SMTP) ou só ir pro log.
+app.Logger.LogInformation(
+    "Recuperação de senha por email: enviador = {Sender}",
+    EmailServiceSetup.SmtpConfigured(app.Configuration) ? "SMTP" : "Log (Smtp:Host não configurado)");
 
 // ── Middlewares ──────────────────────────────────────────────────────────────
 // PRIMEIRO de tudo: reescreve o RemoteIpAddress a partir do X-Forwarded-For do proxy
