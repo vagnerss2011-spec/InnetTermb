@@ -18,8 +18,8 @@ public sealed class PasswordResetServiceTests
 {
     private static byte[] Rand(int n) => RandomNumberGenerator.GetBytes(n);
 
-    /// <summary>Registra uma conta E2EE com blobs opacos aleatórios; devolve o email usado.</summary>
-    private static async Task<string> SeedE2eeAccountAsync(CloudTestContext ctx, string email) =>
+    /// <summary>Registra uma conta E2EE com blobs opacos aleatórios (ou um wrappedRec dado); devolve o email.</summary>
+    private static async Task<string> SeedE2eeAccountAsync(CloudTestContext ctx, string email, byte[]? wrappedRec = null) =>
         (await ctx.Accounts.RegisterAsync(
             new RegisterRequest(
                 Email: email,
@@ -27,7 +27,7 @@ public sealed class PasswordResetServiceTests
                 Argon2Params: new Argon2Params(65536, 3, 1, 32),
                 AuthHash: Convert.ToBase64String(Rand(32)),
                 WrappedAmkPwd: Convert.ToBase64String(Rand(60)),
-                WrappedAmkRec: Convert.ToBase64String(Rand(60)),
+                WrappedAmkRec: Convert.ToBase64String(wrappedRec ?? Rand(60)),
                 AmkKeyVersion: 1,
                 DeviceId: Guid.NewGuid().ToString(),
                 DeviceName: "Device A",
@@ -120,5 +120,78 @@ public sealed class PasswordResetServiceTests
         Assert.Equal(2, ctx.Email.Sent.Count);
         Assert.Single(ctx.Db.PasswordResetTokens);
         Assert.Equal(Sha256Hex(ExtractToken(ctx.Email.Last!.TextBody)), ctx.Db.PasswordResetTokens.Single().TokenHash);
+    }
+
+    // ── GetResetContextAsync ──────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Context_ReturnsWrappedAmkRec_ForValidToken()
+    {
+        using var ctx = new CloudTestContext();
+        var wrappedRec = Rand(60);
+        var email = await SeedE2eeAccountAsync(ctx, "operador@test.local", wrappedRec);
+
+        await ctx.PasswordReset.RequestAsync(email, default);
+        var raw = ExtractToken(ctx.Email.Last!.TextBody);
+
+        var context = await ctx.PasswordReset.GetResetContextAsync(raw, default);
+
+        // O cliente precisa exatamente do wrapped_amk_rec para abrir a AMK com a chave de recuperação.
+        Assert.Equal(Convert.ToBase64String(wrappedRec), context);
+    }
+
+    [Fact]
+    public async Task Context_DoesNotConsumeToken()
+    {
+        using var ctx = new CloudTestContext();
+        var email = await SeedE2eeAccountAsync(ctx, "operador@test.local");
+        await ctx.PasswordReset.RequestAsync(email, default);
+        var raw = ExtractToken(ctx.Email.Last!.TextBody);
+
+        Assert.NotNull(await ctx.PasswordReset.GetResetContextAsync(raw, default));
+        Assert.NotNull(await ctx.PasswordReset.GetResetContextAsync(raw, default));
+        Assert.Null(ctx.Db.PasswordResetTokens.Single().UsedAt);
+    }
+
+    [Fact]
+    public async Task Context_ReturnsNull_ForUnknownToken()
+    {
+        using var ctx = new CloudTestContext();
+        await SeedE2eeAccountAsync(ctx, "operador@test.local");
+
+        Assert.Null(await ctx.PasswordReset.GetResetContextAsync("token-que-nao-existe", default));
+    }
+
+    [Fact]
+    public async Task Context_ReturnsNull_ForExpiredToken()
+    {
+        using var ctx = new CloudTestContext();
+        var email = await SeedE2eeAccountAsync(ctx, "operador@test.local");
+
+        var now = CloudTestContext.FixedNow;
+        var svc = new PasswordResetService(ctx.Db, ctx.Email, NullLogger<PasswordResetService>.Instance)
+        {
+            UtcNow = () => now,
+        };
+        await svc.RequestAsync(email, default);
+        var raw = ExtractToken(ctx.Email.Last!.TextBody);
+
+        now += TimeSpan.FromMinutes(31); // TTL do token = 30 min
+        Assert.Null(await svc.GetResetContextAsync(raw, default));
+    }
+
+    [Fact]
+    public async Task Context_ReturnsNull_ForUsedToken()
+    {
+        using var ctx = new CloudTestContext();
+        var email = await SeedE2eeAccountAsync(ctx, "operador@test.local");
+        await ctx.PasswordReset.RequestAsync(email, default);
+        var raw = ExtractToken(ctx.Email.Last!.TextBody);
+
+        // Marca como consumido (simula um reset concluído).
+        ctx.Db.PasswordResetTokens.Single().UsedAt = CloudTestContext.FixedNow;
+        await ctx.Db.SaveChangesAsync();
+
+        Assert.Null(await ctx.PasswordReset.GetResetContextAsync(raw, default));
     }
 }
