@@ -4,6 +4,8 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-07-18
+
 ### Alterado
 
 - **Merge de `origin/main` (NDesk #37-#41) em `feature/gui-termius-nav`:** reconcilia a
@@ -22,6 +24,16 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ### Adicionado
 
+- **Cloud sync E2EE (Fases 1–4) — conta multi-device com cofre portável (OPT-IN):** o headline do
+  1.3.0. "Logo numa conta em qualquer PC e tenho tudo, com as senhas dos equipamentos decifráveis",
+  com o servidor NUNCA vendo nada em claro. Núcleo cripto (Fase 1): senha →Argon2id→ MasterKey
+  →HKDF→ (AuthHash pro servidor + KEK no device); AMK (raiz portável do cofre) com escrow por senha
+  e por chave de recuperação; sync de `SecretEnvelope` cifrados. Sync robusto (Fase 2): auto-refresh
+  da lista pós-pull, push-ao-fechar/Alt+F4, botão forçar-sync + status no shell, validação de
+  integridade no boot. 2FA/TOTP (Fase 3, RFC 6238, não participa da cripto do cofre). Recuperação
+  por email (Fase 4, abaixo). Tudo atrás da flag `REMOTEOPS_CLOUD_SYNC_ENABLED` (default OFF) +
+  `REMOTEOPS_CLOUD_URL` (https) — sem elas, o app é bit a bit o local de sempre (ADR-002). Backend
+  ASP.NET Core + Postgres (`RemoteOps.Cloud`), deployável em Debian atrás de Caddy/HTTPS.
 - **Cloud sync (Fase 4) — recuperação de senha por email, sem furar o E2EE:** tela "Esqueci a
   senha" com recuperação de **dois fatores** por design — o **código do email** restaura o
   ACESSO (autoriza trocar a prova de senha sem o AuthHash antigo) e a **chave de recuperação**
