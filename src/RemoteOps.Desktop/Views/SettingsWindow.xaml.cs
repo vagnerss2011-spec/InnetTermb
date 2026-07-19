@@ -56,10 +56,24 @@ public partial class SettingsWindow : Window
     {
         // DataContext pode ainda ser null quando o SelectionChanged inicial dispara dentro de
         // InitializeComponent (antes do ctor setar o DataContext); o 'as' evita NRE.
-        if (e.AddedItems.Count > 0
-            && e.AddedItems[0] is System.Windows.Controls.TabItem { Header: "Novidades" })
+        if (e.AddedItems.Count == 0 || e.AddedItems[0] is not System.Windows.Controls.TabItem tab)
+        {
+            return;
+        }
+
+        if (tab.Header as string == "Novidades")
         {
             (DataContext as SettingsViewModel)?.Changelog?.MarkAllSeen();
+        }
+
+        // Na aba Conta o único salvar é "Aplicar e reiniciar" (validado); esconde o "Salvar" global
+        // para não haver dois botões de salvar ambíguos (um deles sem validação da URL). GlobalSaveBar
+        // pode ser null no SelectionChanged inicial dentro de InitializeComponent.
+        if (GlobalSaveBar is not null)
+        {
+            GlobalSaveBar.Visibility = tab.Header as string == "Conta"
+                ? System.Windows.Visibility.Collapsed
+                : System.Windows.Visibility.Visible;
         }
     }
 

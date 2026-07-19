@@ -33,9 +33,15 @@ public sealed class CloudConfigTests
     // ── Resolver: Configurações vencem ─────────────────────────────────────────
 
     [Fact]
-    public void Settings_TakePrecedence_OverEnv()
+    public void ConfiguredSettings_TakePrecedence_OverEnv()
     {
-        var settings = new AppSettings { CloudSyncEnabled = true, CloudServerUrl = "https://das-settings.com" };
+        // Configurou pela GUI (Configured=true) → a GUI manda, mesmo com env apontando pra outro lugar.
+        var settings = new AppSettings
+        {
+            CloudSyncConfigured = true,
+            CloudSyncEnabled = true,
+            CloudServerUrl = "https://das-settings.com",
+        };
         var env = Env((CloudConfig.UrlEnvVar, "https://do-env.com"), (CloudConfig.EnabledEnvVar, "true"));
 
         var (enabled, url) = CloudConfig.Resolve(settings, env);
@@ -45,9 +51,9 @@ public sealed class CloudConfigTests
     }
 
     [Fact]
-    public void FallsBackToEnv_WhenSettingsEmpty()
+    public void FallsBackToEnv_WhenNeverConfiguredViaGui()
     {
-        var settings = new AppSettings(); // CloudSyncEnabled=false, CloudServerUrl=null
+        var settings = new AppSettings(); // CloudSyncConfigured=false → env manda
         var env = Env((CloudConfig.EnabledEnvVar, "true"), (CloudConfig.UrlEnvVar, "https://do-env.com"));
 
         var (enabled, url) = CloudConfig.Resolve(settings, env);
@@ -57,17 +63,23 @@ public sealed class CloudConfigTests
     }
 
     [Fact]
-    public void EnabledIsTrue_IfEitherSourceEnables()
+    public void ConfiguredDisable_OverridesEnv()
     {
-        // Settings liga mesmo sem env.
-        var (e1, _) = CloudConfig.Resolve(
-            new AppSettings { CloudSyncEnabled = true }, Env());
-        Assert.True(e1);
+        // O fix do achado #7: quem configurou pela GUI consegue DESLIGAR mesmo com a env var ligada.
+        var settings = new AppSettings { CloudSyncConfigured = true, CloudSyncEnabled = false };
+        var env = Env((CloudConfig.EnabledEnvVar, "true"));
 
-        // Env liga mesmo com settings default.
-        var (e2, _) = CloudConfig.Resolve(
-            new AppSettings(), Env((CloudConfig.EnabledEnvVar, "true")));
-        Assert.True(e2);
+        var (enabled, _) = CloudConfig.Resolve(settings, env);
+
+        Assert.False(enabled);
+    }
+
+    [Fact]
+    public void ConfiguredEnable_WorksWithoutEnv()
+    {
+        var (enabled, _) = CloudConfig.Resolve(
+            new AppSettings { CloudSyncConfigured = true, CloudSyncEnabled = true }, Env());
+        Assert.True(enabled);
     }
 
     [Fact]
@@ -84,7 +96,7 @@ public sealed class CloudConfigTests
     [InlineData("ftp://x.com")]
     public void NonHttpsUrl_IsRejected(string bad)
     {
-        var settings = new AppSettings { CloudSyncEnabled = true, CloudServerUrl = bad };
+        var settings = new AppSettings { CloudSyncConfigured = true, CloudSyncEnabled = true, CloudServerUrl = bad };
 
         var (enabled, url) = CloudConfig.Resolve(settings, Env());
 

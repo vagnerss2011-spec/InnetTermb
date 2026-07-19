@@ -139,21 +139,34 @@ public sealed class SettingsViewModel : BaseViewModel
 
     private void Save()
     {
-        var flags = new Dictionary<string, bool>(_settings.Flags, StringComparer.OrdinalIgnoreCase)
+        Persist(markCloudConfigured: false);
+        Saved?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Grava as settings SEMPRE relendo a base do disco: outro gravador (ex.: MarkAllSeen da aba
+    /// Novidades) pode ter mudado o arquivo com a janela aberta; um snapshot cacheado do ctor
+    /// reverteria essa gravação (o badge de novidades voltava). <paramref name="markCloudConfigured"/>
+    /// só é true no "Aplicar e reiniciar" — é o que faz a GUI vencer a env var da nuvem.
+    /// </summary>
+    private void Persist(bool markCloudConfigured)
+    {
+        AppSettings disk = _store.Load();
+        var flags = new Dictionary<string, bool>(disk.Flags, StringComparer.OrdinalIgnoreCase)
         {
             [FeatureFlagNames.RdpEnabled] = RdpEnabled,
             [FeatureFlagNames.NdeskEnabled] = NdeskEnabled,
         };
-        _settings = _settings with
+        _settings = disk with
         {
             Flags = flags,
             WinBoxExePath = WinBoxExePath,
             WinBoxSha256 = WinBoxSha256,
             CloudSyncEnabled = CloudSyncEnabled,
             CloudServerUrl = string.IsNullOrWhiteSpace(CloudServerUrl) ? null : CloudServerUrl.Trim(),
+            CloudSyncConfigured = markCloudConfigured || disk.CloudSyncConfigured,
         };
         _store.Save(_settings);
-        Saved?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
@@ -176,7 +189,7 @@ public sealed class SettingsViewModel : BaseViewModel
         }
 
         CloudConfigError = string.Empty;
-        Save();
+        Persist(markCloudConfigured: true); // a GUI passa a mandar na nuvem (vence a env var).
         RestartRequested?.Invoke(this, EventArgs.Empty);
     }
 

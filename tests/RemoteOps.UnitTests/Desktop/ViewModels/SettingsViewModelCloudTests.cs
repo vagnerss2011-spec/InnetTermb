@@ -44,6 +44,22 @@ public sealed class SettingsViewModelCloudTests
 
         Assert.True(store.Saved.CloudSyncEnabled);
         Assert.Equal("https://sync.exemplo.com", store.Saved.CloudServerUrl);
+        // "Salvar" global NÃO marca configurado — só "Aplicar e reiniciar" faz a GUI vencer a env var.
+        Assert.False(store.Saved.CloudSyncConfigured);
+    }
+
+    [Fact]
+    public void Save_ReloadsFromDisk_PreservingOtherWriters()
+    {
+        // Achado #19: Save relê do disco, não reverte o que outro gravador (ex.: MarkAllSeen da aba
+        // Novidades) escreveu com a janela aberta.
+        var store = new FakeStore(new AppSettings { LastSeenChangelogVersion = "1.0.0" });
+        var vm = new SettingsViewModel(store);
+        store.Save(new AppSettings { LastSeenChangelogVersion = "1.3.2" }); // disco muda com a janela aberta
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal("1.3.2", store.Saved.LastSeenChangelogVersion);
     }
 
     [Fact]
@@ -75,6 +91,7 @@ public sealed class SettingsViewModelCloudTests
         Assert.True(restarted);
         Assert.True(store.Saved.CloudSyncEnabled);
         Assert.Equal("https://innetsync.innetsolutions.net.br", store.Saved.CloudServerUrl);
+        Assert.True(store.Saved.CloudSyncConfigured); // "Aplicar e reiniciar" marca configurado
     }
 
     [Theory]
@@ -108,5 +125,6 @@ public sealed class SettingsViewModelCloudTests
         Assert.False(vm.HasCloudConfigError);
         Assert.True(restarted);
         Assert.False(store.Saved.CloudSyncEnabled);
+        Assert.True(store.Saved.CloudSyncConfigured); // desligar pela GUI também é "configurar" (fix #7)
     }
 }

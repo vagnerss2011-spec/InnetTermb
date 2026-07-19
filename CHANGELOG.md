@@ -4,6 +4,36 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-07-19
+
+### Corrigido
+
+Rodada de correções a partir de uma revisão adversarial multi-agente (Fable) do UI de nuvem — 19
+achados confirmados, os relevantes corrigidos:
+
+- **"Salvar e reiniciar" fechava o app e não reabria (crash de UX):** o relaunch acontecia ANTES de
+  o processo liberar o mutex de instância única → a nova instância se via como 2ª e saía. Agora o
+  `App.RestartApplication` libera o mutex, relança com atraso curto (evita corrida no SQLCipher) e só
+  então encerra. Botão renomeado para "Aplicar e reiniciar".
+- **`Button.Primary` sem cor de hover/pressed (HIGH):** as triggers do template setavam
+  `Chrome.Background` direto, vencendo o `Background` das variantes — todo CTA primário ficava escuro
+  com rótulo quase invisível no hover (~1.5:1). Movido pra `Style.Triggers` (Background via
+  TemplateBinding); Primary/Danger voltam a sobrepor. Foco por teclado do Primary também ganhou anel
+  visível.
+- **`SingleInstanceGuard` derrubava o app com "Erro fatal" ao fechar+reabrir rápido:** o listener só
+  engolia `ObjectDisposedException`; um `Dispatcher.Invoke` durante o shutdown lançava
+  `TaskCanceledException`. Catch ampliado (ativação de janela é best-effort).
+- **Configurações — abas quebravam em 2 fileiras e "pulavam"; aba Conta cortada:** janela para
+  640×560, headers encurtados ("Ferramentas", "Problemas").
+- **Config de nuvem:** `CloudConfig` ganhou `CloudSyncConfigured` — a GUI passa a VENCER a env var
+  (inclusive pra DESLIGAR); o "Salvar" global some na aba Conta (só "Aplicar e reiniciar", que valida
+  o HTTPS — antes dava pra salvar URL inválida em silêncio); `Save` relê do disco (não reverte mais o
+  `LastSeenChangelogVersion` de outro gravador).
+- **"Esqueci a senha":** status/erro movidos pro topo (a orientação "informe o código abaixo"
+  apontava errado); nota da chave de recuperação passou a superfície neutra (não parece mais erro).
+- Acabamentos: contraste do texto de erro (Text.Primary sobre superfície crítica), espaçamentos na
+  grade de 4px, altura dos `PasswordBox` herdando do tema, gap entre os botões-fantasma do login.
+
 ## [1.3.1] - 2026-07-19
 
 ### Adicionado

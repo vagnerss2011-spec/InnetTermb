@@ -38,16 +38,11 @@
                                           RecognizesAccessKey="True"/>
                     </Border>
                     <ControlTemplate.Triggers>
-                        <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource Brush.Bg.Hover}"/>
-                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Brush.Border.Strong}"/>
-                        </Trigger>
-                        <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource Brush.Bg.Selected}"/>
-                        </Trigger>
-                        <Trigger Property="IsKeyboardFocused" Value="True">
-                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Brush.Accent.Base}"/>
-                        </Trigger>
+                        <!-- Só o que é intrínseco ao Chrome fica aqui. Hover/pressed/foco foram pro
+                             Style.Triggers (setando Background/BorderBrush do Button, que o Chrome lê
+                             por TemplateBinding): setar Chrome.Background direto no template vencia o
+                             Background das variantes Primary/Danger, deixando o botão primário escuro
+                             com o texto claro por cima (ilegível) no hover. -->
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter TargetName="Chrome" Property="Opacity" Value="0.45"/>
                         </Trigger>
@@ -55,6 +50,18 @@
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{DynamicResource Brush.Bg.Hover}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border.Strong}"/>
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+                <Setter Property="Background" Value="{DynamicResource Brush.Bg.Selected}"/>
+            </Trigger>
+            <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter Property="BorderBrush" Value="{DynamicResource Brush.Accent.Base}"/>
+            </Trigger>
+        </Style.Triggers>
     </Style>
 
     <Style x:Key="Button.Primary" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
@@ -69,6 +76,11 @@
             </Trigger>
             <Trigger Property="IsPressed" Value="True">
                 <Setter Property="Background" Value="{DynamicResource Brush.Accent.Pressed}"/>
+            </Trigger>
+            <!-- Foco por teclado: a borda accent do estilo base era invisível (accent sobre accent).
+                 Um anel escuro (OnAccent) sobre o preenchimento accent é visível na navegação por Tab. -->
+            <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter Property="BorderBrush" Value="{DynamicResource Brush.Text.OnAccent}"/>
             </Trigger>
         </Style.Triggers>
     </Style>
