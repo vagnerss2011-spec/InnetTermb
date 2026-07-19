@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.3.0",
+      "date": "2026-07-18",
+      "highlights": [
+        "Sincronização na nuvem (opcional, criptografada de ponta a ponta): agora dá pra ter uma CONTA e acessar os seus hosts e as senhas dos equipamentos de qualquer PC — logou no notebook e está tudo lá, decifrável. O servidor NUNCA vê a sua senha nem os dados em claro: tudo é cifrado no seu computador antes de subir (E2EE). Inclui verificação em duas etapas (2FA por app autenticador) e recuperação de senha por email — com um detalhe de segurança importante: o email restaura o ACESSO, mas quem reabre o cofre é a sua CHAVE DE RECUPERAÇÃO (aquela que o app mostra uma vez, ao criar a conta). Sem ela, nem o servidor consegue abrir seus dados — então guarde-a bem. O recurso é OPT-IN: enquanto você não configurar e criar uma conta, o RemoteOps segue 100% local, exatamente como antes. Para ligar, defina as variáveis de ambiente REMOTEOPS_CLOUD_SYNC_ENABLED=true e REMOTEOPS_CLOUD_URL=https://<seu-servidor> e reabra o app."
+      ]
+    },
+    {
       "version": "1.2.26",
       "date": "2026-07-16",
       "highlights": [
