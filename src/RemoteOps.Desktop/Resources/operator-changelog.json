@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.3.1",
+      "date": "2026-07-19",
+      "highlights": [
+        "Ligar a sincronização na nuvem ficou fácil: agora existe a seção 'Sincronização na nuvem' em Configurações → Conta. Você marca 'Ativar sincronização na nuvem', cola o endereço do servidor (https://…) e clica em 'Salvar e reiniciar'. Antes era preciso mexer em variáveis de ambiente do Windows e reiniciar a máquina — agora é um campo e um botão, e o app reinicia sozinho. Na primeira vez, a tela de Criar conta / Entrar aparece ao abrir. (Quem já usava as variáveis de ambiente continua funcionando: elas valem como alternativa.)"
+      ]
+    },
+    {
       "version": "1.3.0",
       "date": "2026-07-18",
       "highlights": [

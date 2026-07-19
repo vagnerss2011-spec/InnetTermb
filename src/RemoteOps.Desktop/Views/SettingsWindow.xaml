@@ -34,7 +34,32 @@
                 </StackPanel>
             </TabItem>
             <TabItem Header="Conta">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="12">
+                    <TextBlock Text="Sincronização na nuvem" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <TextBlock Text="Tenha sua conta e as senhas dos equipamentos em qualquer PC, cifradas de ponta a ponta (o servidor nunca vê nada em claro). Opcional: enquanto estiver desligada, o RemoteOps é 100% local."
+                               Foreground="{DynamicResource Brush.Text.Secondary}"
+                               FontSize="11" TextWrapping="Wrap" Margin="0,0,0,10"/>
+
+                    <CheckBox Content="Ativar sincronização na nuvem" IsChecked="{Binding CloudSyncEnabled}" Margin="0,0,0,10"/>
+
+                    <TextBlock Text="Endereço do servidor (https://…)" FontSize="11"
+                               Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="0,0,0,2"/>
+                    <TextBox Text="{Binding CloudServerUrl, UpdateSourceTrigger=PropertyChanged}"
+                             IsEnabled="{Binding CloudSyncEnabled}" Margin="0,0,0,6"/>
+
+                    <TextBlock Text="{Binding CloudConfigError}" TextWrapping="Wrap" Margin="0,0,0,6"
+                               Foreground="{DynamicResource Brush.Status.Error}"
+                               Visibility="{Binding HasCloudConfigError, Converter={StaticResource BoolToVis}}"/>
+
+                    <Button Content="Salvar e reiniciar" Command="{Binding SaveAndRestartCommand}"
+                            Style="{DynamicResource Button.Primary}" HorizontalAlignment="Left" Padding="10,4"/>
+                    <TextBlock Text="O RemoteOps reinicia para aplicar. Na primeira vez, a tela de Criar conta / Entrar aparece ao abrir."
+                               Foreground="{DynamicResource Brush.Text.Tertiary}"
+                               FontSize="11" Margin="0,8,0,14" TextWrapping="Wrap"/>
+
+                    <Separator Margin="0,0,0,12"/>
+
                     <TextBlock Text="Verificação em duas etapas (2FA)" FontWeight="SemiBold" Margin="0,0,0,4"/>
                     <TextBlock Text="Exige um código do seu aplicativo autenticador ao entrar na conta da nuvem. Protege o acesso ao servidor; não altera a senha do cofre."
                                Foreground="{DynamicResource Brush.Text.Secondary}"
@@ -47,6 +72,7 @@
                                Foreground="{DynamicResource Brush.Text.Tertiary}"
                                FontSize="11" Margin="0,8,0,0" TextWrapping="Wrap"/>
                 </StackPanel>
+                </ScrollViewer>
             </TabItem>
             <TabItem Header="Ferramentas externas">
                 <StackPanel Margin="12">

@@ -4,6 +4,20 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-07-19
+
+### Adicionado
+
+- **Sincronização na nuvem configurável pela GUI (Configurações → Conta):** fim da dependência de
+  variável de ambiente + reboot do Windows. Nova seção com checkbox "Ativar sincronização na nuvem"
+  + campo do endereço do servidor (HTTPS) + botão "Salvar e reiniciar" (o app se relança sozinho via
+  `Environment.ProcessPath`; a conta é ativada no startup, por ordem técnica AMK→cofre→banco).
+  `AppSettings` ganha `CloudSyncEnabled`/`CloudServerUrl`; `CloudConfig.Resolve(settings, getEnv)`
+  centraliza a precedência **Configurações → env var (fallback, compat)**, HTTPS-only (fail-closed,
+  ADR-013). `App.TryBuildAccountConfig` passa a ler as settings. Coberto por testes do resolvedor
+  (round-trip + precedência + rejeição de não-HTTPS), do VM (persistência + validação + restart) e
+  o render STA das Configurações já percorre a aba nova.
+
 ## [1.3.0] - 2026-07-18
 
 ### Alterado

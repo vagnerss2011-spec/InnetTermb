@@ -17,6 +17,9 @@ public sealed class SettingsViewModel : BaseViewModel
     private bool _ndeskEnabled;
     private string? _winBoxExePath;
     private string? _winBoxSha256;
+    private bool _cloudSyncEnabled;
+    private string _cloudServerUrl = string.Empty;
+    private string _cloudConfigError = string.Empty;
     private string _updateStatus = string.Empty;
     private UpdateCheckResult? _lastCheck;
 
@@ -37,8 +40,11 @@ public sealed class SettingsViewModel : BaseViewModel
         _ndeskEnabled = _settings.Flags.TryGetValue(FeatureFlagNames.NdeskEnabled, out bool nd) && nd;
         _winBoxExePath = _settings.WinBoxExePath;
         _winBoxSha256 = _settings.WinBoxSha256;
+        _cloudSyncEnabled = _settings.CloudSyncEnabled;
+        _cloudServerUrl = _settings.CloudServerUrl ?? string.Empty;
 
         SaveCommand = new RelayCommand(Save);
+        SaveAndRestartCommand = new RelayCommand(SaveAndRestart);
         CheckForUpdatesCommand = new RelayCommand(
             () => _ = CheckForUpdatesAsync(),
             () => _updateService != null);
@@ -67,6 +73,21 @@ public sealed class SettingsViewModel : BaseViewModel
     /// <summary>True quando há um WinBox configurado (habilita "Re-fixar hash").</summary>
     public bool HasWinBox => !string.IsNullOrWhiteSpace(_winBoxExePath);
 
+    /// <summary>Liga a sincronização na nuvem (opt-in). Só passa a valer ao reiniciar o app.</summary>
+    public bool CloudSyncEnabled { get => _cloudSyncEnabled; set => Set(ref _cloudSyncEnabled, value); }
+
+    /// <summary>Endereço HTTPS do servidor de sync. Vazio = usa a env var (compat) ou fica sem nuvem.</summary>
+    public string CloudServerUrl { get => _cloudServerUrl; set => Set(ref _cloudServerUrl, value); }
+
+    /// <summary>Mensagem de validação do endereço da nuvem (ex.: URL não-HTTPS). Vazia = ok.</summary>
+    public string CloudConfigError
+    {
+        get => _cloudConfigError;
+        private set { Set(ref _cloudConfigError, value); RaisePropertyChanged(nameof(HasCloudConfigError)); }
+    }
+
+    public bool HasCloudConfigError => !string.IsNullOrEmpty(_cloudConfigError);
+
     /// <summary>Aba "Novidades" (pode ser null em testes que não injetam os filhos).</summary>
     public ChangelogViewModel? Changelog { get; }
 
@@ -85,6 +106,7 @@ public sealed class SettingsViewModel : BaseViewModel
     }
 
     public RelayCommand SaveCommand { get; }
+    public RelayCommand SaveAndRestartCommand { get; }
     public RelayCommand CheckForUpdatesCommand { get; }
     public RelayCommand ApplyUpdateCommand { get; }
     public RelayCommand ManageMfaCommand { get; }
@@ -100,6 +122,12 @@ public sealed class SettingsViewModel : BaseViewModel
 
     /// <summary>Disparado após persistir; a janela fecha e avisa "requer reinício" se necessário.</summary>
     public event EventHandler? Saved;
+
+    /// <summary>
+    /// Pedido de reiniciar o app pra aplicar a config de nuvem (a conta é ativada no startup). O
+    /// code-behind faz o relaunch — VM não toca em processo.
+    /// </summary>
+    public event EventHandler? RestartRequested;
 
     /// <summary>Fixa o WinBox escolhido (caminho + hash calculado). A UI zera nada — dados não sensíveis.</summary>
     public void SetWinBox(string path, string sha256)
@@ -121,9 +149,35 @@ public sealed class SettingsViewModel : BaseViewModel
             Flags = flags,
             WinBoxExePath = WinBoxExePath,
             WinBoxSha256 = WinBoxSha256,
+            CloudSyncEnabled = CloudSyncEnabled,
+            CloudServerUrl = string.IsNullOrWhiteSpace(CloudServerUrl) ? null : CloudServerUrl.Trim(),
         };
         _store.Save(_settings);
         Saved?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Salva a config de nuvem e pede o reinício (a conta só é ativada no próximo startup). Valida o
+    /// endereço ANTES: nuvem ligada exige HTTPS (fail-closed, ADR-013). Não dispara o Saved (que
+    /// fecharia a janela) quando a validação falha — o operador vê o erro e corrige.
+    /// </summary>
+    private void SaveAndRestart()
+    {
+        if (CloudSyncEnabled)
+        {
+            string url = (CloudServerUrl ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(url)
+                || !Uri.TryCreate(url, UriKind.Absolute, out Uri? parsed)
+                || parsed.Scheme != Uri.UriSchemeHttps)
+            {
+                CloudConfigError = "Informe um endereço HTTPS válido (ex.: https://sync.suaempresa.com).";
+                return;
+            }
+        }
+
+        CloudConfigError = string.Empty;
+        Save();
+        RestartRequested?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>Verifica o feed e habilita "Baixar e instalar" quando há versão nova.</summary>

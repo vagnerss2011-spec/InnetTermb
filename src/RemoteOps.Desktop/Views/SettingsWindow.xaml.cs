@@ -15,10 +15,28 @@ public partial class SettingsWindow : Window
         DataContext = viewModel;
         viewModel.Saved += (_, _) => Close();
         viewModel.MfaSetupRequested += OnMfaSetupRequested;
+        viewModel.RestartRequested += (_, _) => RestartApp();
         if (initialTab is not null)
         {
             SelectTabByHeader(initialTab);
         }
+    }
+
+    /// <summary>
+    /// Relança o app e encerra o atual — a config de nuvem só é aplicada no startup (a conta é
+    /// ativada antes do cofre/banco). Best-effort: se o relaunch falhar, ao menos não deixa dois
+    /// processos; o operador reabre à mão.
+    /// </summary>
+    private static void RestartApp()
+    {
+        string? exe = Environment.ProcessPath;
+        if (!string.IsNullOrEmpty(exe))
+        {
+            try { System.Diagnostics.Process.Start(exe); }
+            catch (Exception) { /* relaunch best-effort; o Shutdown abaixo ainda encerra */ }
+        }
+
+        Application.Current.Shutdown();
     }
 
     /// <summary>Abre a janela de 2FA (modal). O IMfaApi autenticado vem do VM (null nunca chega aqui:
