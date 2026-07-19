@@ -111,10 +111,14 @@ public partial class App : Application
             var fileStore = new FileVaultStore(vaultPath);
             var legacyKeyRing = new WorkspaceKeyRing(fileStore, new DpapiKeyProtector());
 
+            // Config de nuvem: Configurações (GUI) primeiro, env var como fallback (compat). Lê o
+            // MESMO settings.json que a GUI grava (o JsonSettingsStore default aponta pro mesmo path).
+            AppSettings cloudSettings = new JsonSettingsStore().Load();
+
             // Conta E2EE (Fase 1): resolve a AMK ANTES de montar o cofre — é ela que decide a raiz.
             // Devolve null quando não há conta configurada/logada: aí o cofre segue na raiz DPAPI e
             // o app é exatamente o de hoje (offline-first, ADR-002 — nuvem é opt-in, nunca requisito).
-            CredentialVault? activated = await TryActivateAccountAsync(dataDir, fileStore, legacyKeyRing);
+            CredentialVault? activated = await TryActivateAccountAsync(dataDir, fileStore, legacyKeyRing, cloudSettings);
             if (activated is null && await IsVaultAmkRootedAsync(fileStore))
             {
                 // Cofre já vinculado a uma conta e sem AMK em mãos (o operador saiu da conta e
@@ -533,9 +537,9 @@ public partial class App : Application
     /// se perde é o sync. Nunca há um caminho em que o RemoteOps não abre por causa da nuvem.</para>
     /// </summary>
     private async Task<CredentialVault?> TryActivateAccountAsync(
-        string dataDir, FileVaultStore fileStore, WorkspaceKeyRing legacyKeyRing)
+        string dataDir, FileVaultStore fileStore, WorkspaceKeyRing legacyKeyRing, AppSettings settings)
     {
-        if (TryBuildAccountConfig(dataDir) is not { } config)
+        if (TryBuildAccountConfig(dataDir, settings) is not { } config)
         {
             return null; // sem nuvem configurada: modo local, exatamente como antes.
         }
@@ -709,25 +713,16 @@ public partial class App : Application
     /// em claro. URL http:// não "avisa e segue" — simplesmente não liga a conta (fail-closed no
     /// transporte, fail-open no app).</para>
     /// </summary>
-    private static AccountConfig? TryBuildAccountConfig(string dataDir)
+    private static AccountConfig? TryBuildAccountConfig(string dataDir, AppSettings settings)
     {
-        if (!string.Equals(
-                Environment.GetEnvironmentVariable("REMOTEOPS_CLOUD_SYNC_ENABLED"),
-                "true",
-                StringComparison.OrdinalIgnoreCase))
+        // Configurações (GUI) primeiro, env var como fallback — regra única e testada em CloudConfig.
+        (bool enabled, Uri? url) = CloudConfig.Resolve(settings, Environment.GetEnvironmentVariable);
+        if (!enabled || url is null)
         {
             return null;
         }
 
-        string? url = Environment.GetEnvironmentVariable("REMOTEOPS_CLOUD_URL");
-        if (string.IsNullOrWhiteSpace(url)
-            || !Uri.TryCreate(url, UriKind.Absolute, out Uri? parsed)
-            || parsed.Scheme != Uri.UriSchemeHttps)
-        {
-            return null;
-        }
-
-        return new AccountConfig(parsed, GetOrCreateDeviceId(dataDir));
+        return new AccountConfig(url, GetOrCreateDeviceId(dataDir));
     }
 
     private void OnSyncStatusChanged(SyncStatus status)

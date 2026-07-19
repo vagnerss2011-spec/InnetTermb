@@ -19,4 +19,17 @@ public sealed record AppSettings
 
     /// <summary>Última versão de changelog que o operador já viu (badge "novidades"); null = nunca viu.</summary>
     public string? LastSeenChangelogVersion { get; init; }
+
+    /// <summary>
+    /// Liga a sincronização na nuvem (opt-in, ADR-002). Substitui a env var
+    /// <c>REMOTEOPS_CLOUD_SYNC_ENABLED</c> — que continua valendo como fallback (ver <see cref="CloudConfig"/>).
+    /// Só passa a valer no PRÓXIMO início do app (a conta é ativada no startup, antes do cofre/banco).
+    /// </summary>
+    public bool CloudSyncEnabled { get; init; }
+
+    /// <summary>
+    /// Endereço HTTPS do servidor de sync (ex.: <c>https://sync.suaempresa.com</c>). Substitui a env
+    /// var <c>REMOTEOPS_CLOUD_URL</c> (fallback). HTTP é ignorado (fail-closed, ADR-013).
+    /// </summary>
+    public string? CloudServerUrl { get; init; }
 }
