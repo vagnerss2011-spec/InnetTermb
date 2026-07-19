@@ -437,6 +437,47 @@ public partial class App : Application
         base.OnExit(e);
     }
 
+    /// <summary>
+    /// Relança o app e encerra este (aplicar config de nuvem: a conta é ativada no startup, antes do
+    /// cofre/banco). Vive AQUI, e não na janela, porque é este objeto que segura o mutex de instância
+    /// única — o segredo do fix.
+    ///
+    /// <para><b>Ordem que evita o "fecha e não reabre":</b> (1) libera o mutex ANTES de relançar,
+    /// senão a nova instância se vê como 2ª, sinaliza a que morre e SAI (era o bug do primeiro
+    /// "Salvar e reiniciar"). (2) Relança com um atraso curto, para ESTE processo encerrar e soltar o
+    /// banco local (SQLCipher, <c>Pooling=False</c>) antes de a nova instância abri-lo — sem o atraso,
+    /// as duas disputavam o <c>sync-local.db</c> (o motivo do próprio SingleInstanceGuard existir).</para>
+    /// </summary>
+    public void RestartApplication()
+    {
+        // Libera o mutex já (idempotente: OnExit vê null e não re-dispõe).
+        _singleInstance?.Dispose();
+        _singleInstance = null;
+
+        string? exe = Environment.ProcessPath;
+        if (!string.IsNullOrEmpty(exe))
+        {
+            try
+            {
+                // cmd espera 2s (este processo já saiu) e relança destacado, sem janela de console.
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    Arguments = $"/c timeout /t 2 /nobreak >nul & start \"\" \"{exe}\"",
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
+                };
+                System.Diagnostics.Process.Start(psi);
+            }
+            catch (Exception)
+            {
+                // Relaunch best-effort: se falhar, ao menos não deixa dois processos; o operador reabre.
+            }
+        }
+
+        Shutdown();
+    }
+
     // Traz a janela principal para frente quando uma 2ª instância tentou abrir (roda na UI thread).
     private void BringMainWindowToFront()
     {

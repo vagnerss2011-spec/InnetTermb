@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "version": "1.3.2",
+      "date": "2026-07-19",
+      "highlights": [
+        "Correções na configuração da nuvem e no visual (a partir de uma revisão a fundo): (1) o botão 'Salvar e reiniciar' fechava o app e não reabria — corrigido, agora chama-se 'Aplicar e reiniciar' e reinicia de verdade; (2) os botões principais do app ficavam escuros com o texto quase invisível ao passar o mouse — corrigido em todas as telas; (3) as abas das Configurações 'pulavam' e a aba Conta ficava cortada — a janela foi redimensionada e reorganizada; (4) na aba Conta, o 'Salvar' global some (só fica o 'Aplicar e reiniciar', que valida o endereço) — antes dava pra salvar um endereço inválido sem aviso; (5) agora dá pra DESLIGAR a nuvem pela tela mesmo se você tinha ligado por variável de ambiente; (6) a tela de 'Esqueci a senha' teve o texto de orientação reposicionado e o aviso da chave de recuperação deixou de parecer uma mensagem de erro; e vários outros acabamentos (contraste, espaçamentos, altura dos campos)."
+      ]
+    },
+    {
       "version": "1.3.1",
       "date": "2026-07-19",
       "highlights": [

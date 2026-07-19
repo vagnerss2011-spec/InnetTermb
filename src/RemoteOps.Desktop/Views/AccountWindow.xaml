@@ -30,7 +30,7 @@
                      IsEnabled="{Binding IsIdle}" Margin="0,0,0,10"/>
 
             <TextBlock Text="Senha" Style="{DynamicResource Text.Caption}" Margin="0,0,0,2"/>
-            <PasswordBox x:Name="PasswordField" Height="28" IsEnabled="{Binding IsIdle}" Margin="0,0,0,10"/>
+            <PasswordBox x:Name="PasswordField" IsEnabled="{Binding IsIdle}" Margin="0,0,0,10"/>
 
             <!-- ── Desafio de 2FA (login): aparece quando o backend responde mfa_required ── -->
             <StackPanel Visibility="{Binding IsMfaChallenge, Converter={StaticResource BoolToVis}}">
@@ -44,7 +44,7 @@
 
             <StackPanel Visibility="{Binding IsRegisterMode, Converter={StaticResource BoolToVis}}">
                 <TextBlock Text="Confirmar senha" Style="{DynamicResource Text.Caption}" Margin="0,0,0,2"/>
-                <PasswordBox x:Name="ConfirmPasswordField" Height="28" IsEnabled="{Binding IsIdle}" Margin="0,0,0,10"/>
+                <PasswordBox x:Name="ConfirmPasswordField" IsEnabled="{Binding IsIdle}" Margin="0,0,0,10"/>
 
                 <TextBlock Text="Nome do workspace" Style="{DynamicResource Text.Caption}" Margin="0,0,0,2"/>
                 <TextBox x:Name="WorkspaceField" Text="{Binding WorkspaceName, UpdateSourceTrigger=PropertyChanged}"
@@ -60,7 +60,7 @@
                     BorderThickness="1" CornerRadius="{DynamicResource Radius.Control}"
                     Padding="10,6" Margin="0,0,0,10">
                 <TextBlock Text="{Binding ErrorMessage}" TextWrapping="Wrap"
-                           Foreground="{DynamicResource Brush.Status.Error}"/>
+                           Foreground="{DynamicResource Brush.Text.Primary}"/>
             </Border>
 
             <TextBlock Text="{Binding StatusMessage}" Style="{DynamicResource Text.Caption}"
@@ -79,7 +79,7 @@
 
             <Button Content="Esqueci a senha" Style="{DynamicResource Button.Ghost}"
                     Click="ForgotPassword_Click" IsEnabled="{Binding IsIdle}"
-                    HorizontalAlignment="Center" Padding="8,4"
+                    HorizontalAlignment="Center" Padding="8,4" Margin="0,2,0,0"
                     Visibility="{Binding IsLoginMode, Converter={StaticResource BoolToVis}}"/>
             <Button Content="Já tenho conta — entrar" Style="{DynamicResource Button.Ghost}"
                     Command="{Binding SwitchToLoginCommand}" IsEnabled="{Binding IsIdle}"

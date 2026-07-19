@@ -23,8 +23,10 @@ public static class CloudConfig
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(getEnv);
 
-        bool enabled = settings.CloudSyncEnabled
-            || string.Equals(getEnv(EnabledEnvVar), "true", StringComparison.OrdinalIgnoreCase);
+        // Configurou pela GUI → a GUI manda (inclusive DESLIGAR). Nunca configurou → env como fallback.
+        bool enabled = settings.CloudSyncConfigured
+            ? settings.CloudSyncEnabled
+            : string.Equals(getEnv(EnabledEnvVar), "true", StringComparison.OrdinalIgnoreCase);
 
         string? raw = !string.IsNullOrWhiteSpace(settings.CloudServerUrl)
             ? settings.CloudServerUrl

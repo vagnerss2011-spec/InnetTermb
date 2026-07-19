@@ -1,7 +1,7 @@
 <Window x:Class="RemoteOps.Desktop.Views.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Configurações" Height="480" Width="520"
+        Title="Configurações" Height="560" Width="640"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
         Background="{DynamicResource Brush.Bg.App}"
         Foreground="{DynamicResource Brush.Text.Primary}"
@@ -11,7 +11,7 @@
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
     </Window.Resources>
     <DockPanel Margin="16">
-        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
+        <StackPanel x:Name="GlobalSaveBar" DockPanel.Dock="Bottom" Orientation="Horizontal"
                     HorizontalAlignment="Right" Margin="0,12,0,0">
             <TextBlock Text="{Binding UpdateStatus}" VerticalAlignment="Center"
                        Foreground="{DynamicResource Brush.Text.Secondary}" Margin="0,0,12,0"/>
@@ -34,29 +34,29 @@
                 </StackPanel>
             </TabItem>
             <TabItem Header="Conta">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <StackPanel Margin="12">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="12">
+                <StackPanel>
                     <TextBlock Text="Sincronização na nuvem" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                    <TextBlock Text="Tenha sua conta e as senhas dos equipamentos em qualquer PC, cifradas de ponta a ponta (o servidor nunca vê nada em claro). Opcional: enquanto estiver desligada, o RemoteOps é 100% local."
+                    <TextBlock Text="Tenha sua conta e as senhas dos equipamentos em qualquer PC, cifradas de ponta a ponta. Opcional: desligada, o RemoteOps é 100% local."
                                Foreground="{DynamicResource Brush.Text.Secondary}"
-                               FontSize="11" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                               FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8"/>
 
-                    <CheckBox Content="Ativar sincronização na nuvem" IsChecked="{Binding CloudSyncEnabled}" Margin="0,0,0,10"/>
+                    <CheckBox Content="Ativar sincronização na nuvem" IsChecked="{Binding CloudSyncEnabled}" Margin="0,0,0,8"/>
 
                     <TextBlock Text="Endereço do servidor (https://…)" FontSize="11"
                                Foreground="{DynamicResource Brush.Text.Tertiary}" Margin="0,0,0,2"/>
                     <TextBox Text="{Binding CloudServerUrl, UpdateSourceTrigger=PropertyChanged}"
-                             IsEnabled="{Binding CloudSyncEnabled}" Margin="0,0,0,6"/>
+                             IsEnabled="{Binding CloudSyncEnabled}" Margin="0,0,0,8"/>
 
-                    <TextBlock Text="{Binding CloudConfigError}" TextWrapping="Wrap" Margin="0,0,0,6"
+                    <TextBlock Text="{Binding CloudConfigError}" TextWrapping="Wrap" Margin="0,0,0,8"
                                Foreground="{DynamicResource Brush.Status.Error}"
                                Visibility="{Binding HasCloudConfigError, Converter={StaticResource BoolToVis}}"/>
 
-                    <Button Content="Salvar e reiniciar" Command="{Binding SaveAndRestartCommand}"
+                    <Button Content="Aplicar e reiniciar" Command="{Binding SaveAndRestartCommand}"
                             Style="{DynamicResource Button.Primary}" HorizontalAlignment="Left" Padding="10,4"/>
                     <TextBlock Text="O RemoteOps reinicia para aplicar. Na primeira vez, a tela de Criar conta / Entrar aparece ao abrir."
                                Foreground="{DynamicResource Brush.Text.Tertiary}"
-                               FontSize="11" Margin="0,8,0,14" TextWrapping="Wrap"/>
+                               FontSize="11" Margin="0,8,0,12" TextWrapping="Wrap"/>
 
                     <Separator Margin="0,0,0,12"/>
 
@@ -74,7 +74,7 @@
                 </StackPanel>
                 </ScrollViewer>
             </TabItem>
-            <TabItem Header="Ferramentas externas">
+            <TabItem Header="Ferramentas">
                 <StackPanel Margin="12">
                     <TextBlock Text="WinBox" FontWeight="SemiBold" Margin="0,0,0,4"/>
                     <TextBlock Text="Aponte o executável do WinBox. O RemoteOps calcula e fixa o SHA-256; no launch, valida o arquivo (fail-closed se o hash divergir)."
@@ -159,7 +159,7 @@
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
-            <TabItem Header="Reportar problema">
+            <TabItem Header="Problemas">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="12">
                     <StackPanel DataContext="{Binding BugReport}">
                         <TextBlock Text="Título" FontWeight="SemiBold" Margin="0,0,0,4"/>

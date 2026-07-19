@@ -74,7 +74,15 @@ public sealed class SingleInstanceGuard : IDisposable
                 }
                 catch (ObjectDisposedException)
                 {
-                    return;
+                    return; // guard disposto: encerra a thread.
+                }
+                catch (Exception)
+                {
+                    // onActivate (Dispatcher.Invoke) pode lançar durante o shutdown do app
+                    // (TaskCanceledException/InvalidOperationException com o dispatcher encerrando)
+                    // quando uma 2ª instância sinaliza no meio de um fechamento. Ativar a janela é
+                    // best-effort — nunca vale escalar pro handler de AppDomain e mostrar "Erro fatal"
+                    // num fechamento limpo. Se _disposed já é true, o while sai no próximo teste.
                 }
             }
         })
