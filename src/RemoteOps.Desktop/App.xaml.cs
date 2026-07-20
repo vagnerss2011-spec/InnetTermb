@@ -520,6 +520,12 @@ public partial class App : Application
         // string; era ele, sozinho, que deixava o device B com a lista vazia até o relaunch.
         _syncSession.Orchestrator.ChangesApplied += OnSyncChangesApplied;
 
+        // Estado do canal na barra de sync. O sinal vem da thread do SignalR (Reconnected/Closed), daí
+        // o mesmo marshalling do StatusChanged. Assina ANTES do StartAsync: o connect roda em fundo e
+        // um canal que sobe rápido levantaria o evento antes de haver quem escutasse.
+        _syncSession.Hints.RealTimeChanged += OnSyncRealTimeChanged;
+        OnSyncRealTimeChanged(_syncSession.Hints.IsRealTime);
+
         // Fase 2, item B: liga o "Sincronizar agora" ao orquestrador DESTA sessão (push+pull), o que
         // também habilita os botões no shell (HasCloud vira true). Marshala pro Dispatcher — toca
         // binding de UI. StartSyncSession roda na UI thread hoje, mas o Invoke deixa isso explícito.
@@ -782,6 +788,19 @@ public partial class App : Application
             vm.SyncStatus = FormatStatus(status);
             vm.Browser.Sync.Apply(status);
         });
+    }
+
+    private void OnSyncRealTimeChanged(bool isRealTime)
+    {
+        WorkspaceViewModel? vm = _workspaceViewModel;
+        if (vm is null)
+        {
+            return;
+        }
+
+        // Mesmo marshalling do OnSyncStatusChanged: o evento nasce na thread do SignalR e aqui se toca
+        // binding de UI. Nada do estado do canal vai pro log — a URL do hub leva o JWT (ADR-013).
+        Dispatcher.Invoke(() => vm.Browser.Sync.SetRealTime(isRealTime));
     }
 
     private static string FormatStatus(SyncStatus status) => status.State switch

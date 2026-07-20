@@ -86,6 +86,28 @@
                                VerticalAlignment="Center"/>
                 </StackPanel>
 
+                <!-- Como as alterações da outra ponta chegam: "Tempo real" (canal de hints) ou
+                     "Periódico" (só no próximo tick do laço). Fica aqui porque "Sincronizado" tem a
+                     mesma cara nos dois casos, e é a única pista do operador em campo — a URL do hub
+                     leva o JWT e não pode ir pro log (ADR-013). Escondido sem nuvem: ali o modo do
+                     canal não quer dizer nada. Tooltip próprio, senão o do status cobriria os dois. -->
+                <StackPanel Orientation="Horizontal"
+                            DockPanel.Dock="Left"
+                            VerticalAlignment="Center"
+                            Margin="10,0,0,0"
+                            Visibility="{Binding HasCloud, Converter={StaticResource BoolToVis}}"
+                            ToolTip="{Binding ChannelDetail}">
+                    <TextBlock Text="·"
+                               Style="{DynamicResource Text.Caption}"
+                               Foreground="{DynamicResource Brush.Text.Tertiary}"
+                               Margin="0,0,10,0"
+                               VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding ChannelText}"
+                               Style="{DynamicResource Text.Caption}"
+                               Foreground="{DynamicResource Brush.Text.Tertiary}"
+                               VerticalAlignment="Center"/>
+                </StackPanel>
+
                 <!-- "Sincronizar agora": push+pull. Desabilita sozinho quando não há nuvem. -->
                 <Button DockPanel.Dock="Right"
                         Command="{Binding SyncNowCommand}"

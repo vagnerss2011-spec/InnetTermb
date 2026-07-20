@@ -9,6 +9,18 @@ public sealed class SyncSessionTests
     private static SyncOrchestrator Orchestrator(FakeCloudSyncApi api)
         => new("ws-1", new FakeOutbox(), api, new FakeRemoteChangeApplier(), new FakeSyncMetadataStore());
 
+    // A barra de sync precisa assinar o RealTimeChanged do canal, mas quem monta o canal é a factory —
+    // sem este acesso o Desktop teria que construir um canal por fora só pra conseguir escutá-lo.
+    [Fact]
+    public async Task Session_Exposes_The_Hint_Channel()
+    {
+        var hints = new FakeSyncHintChannel();
+        await using var session = new SyncSession(
+            Orchestrator(new FakeCloudSyncApi()), hints, "ws-1", TimeSpan.FromHours(1));
+
+        Assert.Same(hints, session.Hints);
+    }
+
     [Fact]
     public async Task Hint_For_Workspace_Triggers_Sync()
     {

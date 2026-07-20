@@ -86,6 +86,13 @@ public sealed class SyncSession : IAsyncDisposable
     public SyncOrchestrator Orchestrator => _orchestrator;
 
     /// <summary>
+    /// Canal de hints desta sessão, para quem precisa OBSERVAR o estado do tempo real (a barra de sync
+    /// assina o <see cref="ISyncHintChannel.RealTimeChanged"/>). Quem monta o canal é a factory, então
+    /// sem isto o Desktop teria que construir um segundo canal só para escutá-lo.
+    /// </summary>
+    public ISyncHintChannel Hints => _hints;
+
+    /// <summary>
     /// Inicia o laço de fundo (sync imediato + por intervalo) e dispara o connect do canal de hints.
     /// Retorna assim que ambos estão EM CURSO — não espera o canal subir, porque ele é best-effort e
     /// pode demorar (ou nunca conseguir, em rede que bloqueia WebSocket).
