@@ -40,7 +40,12 @@ public sealed class VelopackUpdateService : IUpdateService
     {
         if (_lastCheckedUpdateInfo is not { } info)
         {
-            return; // nada a aplicar — nenhuma checagem encontrou pacote novo
+            // Lança em vez de retornar em silêncio: o chamador trata exceção como "não deu"
+            // (TryApplyUpdateAsync → false) e MOSTRA o aviso ao operador. Retornar aqui fazia o caminho
+            // de erro parecer sucesso — o operador clicava "sim, atualizar", nada acontecia, e ninguém
+            // contava a ele. É o padrão de falha silenciosa que este app já pagou caro.
+            throw new InvalidOperationException(
+                "Nenhuma atualização verificada para aplicar — refaça a verificação.");
         }
 
         await _manager.DownloadUpdatesAsync(info, progress: null, ct);

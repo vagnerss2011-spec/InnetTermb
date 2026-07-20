@@ -167,13 +167,20 @@ internal static class AppCompositionRoot
         // Indicador de sync + "Sincronizar agora" (Fase 2, item B). Nasce SEM controlador (offline —
         // comando desabilitado); o App liga o controlador quando a sessão de sync sobe.
         services.AddSingleton<ViewModels.SyncStatusViewModel>(_ => new ViewModels.SyncStatusViewModel());
+
+        // Aviso discreto de versão nova na barra de status. GetService (não Required): sem serviço de
+        // update — build rodando fora do pacote instalado — a VM nasce inerte e o indicador nunca acende.
+        services.AddSingleton<ViewModels.UpdateNotificationViewModel>(sp =>
+            new ViewModels.UpdateNotificationViewModel(sp.GetService<IUpdateService>()));
+
         services.AddSingleton<ViewModels.BrowserViewModel>(sp => new ViewModels.BrowserViewModel(
             sp.GetRequiredService<ViewModels.HostsViewModel>(),
             sp.GetRequiredService<ViewModels.KeychainViewModel>(),
             sp.GetRequiredService<ViewModels.LogsViewModel>(),
             sp.GetService<Changelog.IChangelogSource>(),
             sp.GetService<ISettingsStore>(),
-            sp.GetRequiredService<ViewModels.SyncStatusViewModel>()));
+            sp.GetRequiredService<ViewModels.SyncStatusViewModel>(),
+            sp.GetRequiredService<ViewModels.UpdateNotificationViewModel>()));
         services.AddSingleton<ViewModels.WorkspaceViewModel>();
 
         // validateOnBuild: false — ISshConnectionFactory/ITelnetConnectionFactory são internal

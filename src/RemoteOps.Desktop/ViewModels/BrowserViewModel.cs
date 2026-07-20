@@ -19,7 +19,8 @@ public sealed class BrowserViewModel : BaseViewModel
         LogsViewModel logs,
         IChangelogSource? changelogSource = null,
         ISettingsStore? settingsStore = null,
-        SyncStatusViewModel? sync = null)
+        SyncStatusViewModel? sync = null,
+        UpdateNotificationViewModel? update = null)
     {
         Hosts = hosts;
         Keychain = keychain;
@@ -27,6 +28,7 @@ public sealed class BrowserViewModel : BaseViewModel
         _changelogSource = changelogSource;
         _settingsStore = settingsStore;
         Sync = sync ?? new SyncStatusViewModel();
+        Update = update ?? new UpdateNotificationViewModel(updateService: null);
         ShowHostsCommand = new RelayCommand(() => ActiveSection = BrowserSection.Hosts);
         ShowKeychainCommand = new RelayCommand(() => { ActiveSection = BrowserSection.Keychain; _ = keychain.LoadAsync(); });
         ShowLogsCommand = new RelayCommand(() => ActiveSection = BrowserSection.Logs);
@@ -42,6 +44,10 @@ public sealed class BrowserViewModel : BaseViewModel
     /// <summary>Estado do cloud sync + "Sincronizar agora" no shell (Fase 2, item B). Nunca null: sem
     /// nuvem, é um <see cref="SyncStatusViewModel"/> desabilitado que só mostra "Offline".</summary>
     public SyncStatusViewModel Sync { get; }
+
+    /// <summary>Aviso discreto de versão nova na barra de status. Nunca null: sem serviço de update
+    /// (build fora do pacote instalado), é uma VM inerte que nunca acende.</summary>
+    public UpdateNotificationViewModel Update { get; }
 
     public BrowserSection ActiveSection
     {

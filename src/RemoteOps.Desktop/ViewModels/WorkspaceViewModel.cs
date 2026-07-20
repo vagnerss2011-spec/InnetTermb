@@ -71,26 +71,10 @@ public sealed class WorkspaceViewModel : BaseViewModel
     public string AppVersionText =>
         $"RemoteOps Desktop {typeof(WorkspaceViewModel).Assembly.GetName().Version?.ToString(3) ?? "?"}";
 
-    /// <summary>
-    /// Verificação silenciosa (startup): null quando o serviço não existe (ZIP portátil,
-    /// Debug) ou a rede falha — nunca lança, nunca bloqueia a abertura do app.
-    /// </summary>
-    public async Task<UpdateCheckResult?> CheckForUpdatesQuietAsync()
-    {
-        if (_updateService is null)
-        {
-            return null;
-        }
-
-        try
-        {
-            return await _updateService.CheckForUpdatesAsync();
-        }
-        catch (Exception)
-        {
-            return null;
-        }
-    }
+    // A verificação de atualização vive agora no UpdateNotificationViewModel, que além de checar
+    // mantém o estado do indicador da barra de status e o carimbo da última checagem boa. Manter aqui
+    // um segundo caminho de checagem (o antigo CheckForUpdatesQuietAsync) só criaria duas fontes de
+    // verdade divergindo com o tempo — a aplicação, essa sim, continua sendo daqui.
 
     /// <summary>Baixa e aplica (Velopack reinicia o app em sucesso); false em falha.</summary>
     public async Task<bool> TryApplyUpdateAsync(UpdateCheckResult update)

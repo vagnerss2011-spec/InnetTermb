@@ -108,6 +108,38 @@
                                VerticalAlignment="Center"/>
                 </StackPanel>
 
+                <!-- Aviso de versão nova. DISCRETO e persistente, nunca modal: um diálogo que rouba
+                     foco pode pipocar enquanto o operador digita num equipamento em produção, e o
+                     Enter destinado ao roteador viraria "sim, atualizar agora". Aqui só acende; o
+                     clique (e a hora) são dele. Invisível quando não há atualização. -->
+                <!-- ATENÇÃO ao DataContext: este Border inteiro está com DataContext="{Binding Sync}"
+                     (linha 49). Um binding simples "Update.X" aqui resolveria como Sync.Update.X —
+                     propriedade que não existe no SyncStatusViewModel — e falharia EM SILÊNCIO (o WPF
+                     não lança em binding quebrado, só registra no trace), deixando o indicador
+                     invisível para sempre. Por isso o RelativeSource sobe até o UserControl, cujo
+                     DataContext é o BrowserViewModel. -->
+                <Button x:Name="UpdateIndicator"
+                        DockPanel.Dock="Left"
+                        Command="{Binding DataContext.Update.ApplyCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                        Style="{DynamicResource Button.Ghost}"
+                        Padding="0"
+                        Margin="10,0,0,0"
+                        VerticalAlignment="Center"
+                        ToolTip="{Binding DataContext.Update.LastCheckText, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                        Visibility="{Binding DataContext.Update.HasUpdate, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVis}}">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="·"
+                                   Style="{DynamicResource Text.Caption}"
+                                   Foreground="{DynamicResource Brush.Text.Tertiary}"
+                                   Margin="0,0,10,0"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding DataContext.Update.UpdateText, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                   Style="{DynamicResource Text.Caption}"
+                                   Foreground="{DynamicResource Brush.Accent.Base}"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+
                 <!-- "Sincronizar agora": push+pull. Desabilita sozinho quando não há nuvem. -->
                 <Button DockPanel.Dock="Right"
                         Command="{Binding SyncNowCommand}"
