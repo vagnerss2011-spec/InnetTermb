@@ -4,6 +4,27 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-07-19
+
+### Corrigido
+
+Reportado em campo logo após a v1.4.0: **o app não abria — o operador precisou reiniciar o Windows**.
+Duas falhas em série, ambas corrigidas (camadas com modos de falha diferentes, como no sync).
+
+- **Fechamento sem teto pendurava o processo.** `App.OnExit` bloqueava a UI thread em
+  `_syncSession.DisposeAsync().AsTask().GetAwaiter().GetResult()` — sem limite. Esse descarte espera o
+  `HubConnection` fechar, e a `InfiniteRetryPolicy` introduzida na v1.4.0 deixa a conexão **sempre**
+  tentando reconectar (antes ela desistia em ~42s e ficava inerte, então descartar era trivial): a
+  v1.4.0 tornou o travamento mais provável. Agora o descarte roda em `Task.Run` com teto de 3s — o
+  mesmo padrão que o `FlushOutboxOnClose` já usava e que esta linha não tinha.
+- **Processo pendurado tornava o app irrecuperável, em silêncio.** Um RemoteOps travado continua
+  segurando o mutex de instância única, então toda nova tentativa de abrir encerrava **sem exibir
+  nada** (`App.OnStartup`): clicar no ícone não produzia efeito algum e a única saída aparente era
+  reiniciar o computador. `SingleInstanceGuard` ganhou um **handshake de ativação** — a segunda
+  instância agora espera a confirmação de que a janela existente realmente veio para frente. Sem
+  confirmação, ela mostra uma mensagem acionável ("finalize RemoteOps.Desktop.exe no Gerenciador de
+  Tarefas; não é preciso reiniciar o computador") em vez de desaparecer.
+
 ## [1.4.0] - 2026-07-19
 
 ### Corrigido

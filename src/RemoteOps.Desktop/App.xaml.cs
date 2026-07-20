@@ -81,9 +81,26 @@ public partial class App : Application
         _singleInstance = new SingleInstanceGuard();
         if (!_singleInstance.IsFirstInstance)
         {
-            _singleInstance.SignalExistingInstance();
+            // Espera a CONFIRMAÇÃO de que a instância existente trouxe a janela pra frente. Sem isso,
+            // um RemoteOps com a UI pendurada (que segue segurando o mutex) fazia esta instância
+            // encerrar em silêncio: o operador clicava no ícone, não aparecia nada, e a única saída que
+            // ele achava era reiniciar o Windows. Aqui o silêncio vira uma mensagem acionável.
+            bool ativou = _singleInstance.SignalExistingInstanceAndWait(ActivateExistingTimeout);
             _singleInstance.Dispose();
             _singleInstance = null;
+
+            if (!ativou)
+            {
+                MessageBox.Show(
+                    "O RemoteOps já está em execução, mas a janela não respondeu.\n\n" +
+                    "Abra o Gerenciador de Tarefas (Ctrl+Shift+Esc), finalize o processo " +
+                    "\"RemoteOps.Desktop.exe\" e abra o app de novo.\n\n" +
+                    "Não é preciso reiniciar o computador.",
+                    "RemoteOps",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+
             Shutdown();
             return;
         }
@@ -366,6 +383,17 @@ public partial class App : Application
     // Teto do flush-ao-fechar: encurta a janela de perda dos últimos segundos SEM travar o fechamento
     // se a rede estiver fora. O outbox é durável — o que não subir agora sobe no próximo boot.
     private static readonly TimeSpan FlushOnCloseTimeout = TimeSpan.FromSeconds(4);
+
+    // Quanto a 2ª instância espera a 1ª confirmar que trouxe a janela pra frente. Generoso o bastante
+    // pra uma janela minimizada num app ocupado, curto o bastante pra não parecer que o clique no ícone
+    // foi ignorado.
+    private static readonly TimeSpan ActivateExistingTimeout = TimeSpan.FromSeconds(3);
+
+    // Teto do descarte da sessão de sync no fechamento. Curto de propósito: a esta altura o outbox já
+    // foi drenado (FlushOutboxOnClose) e não há nada a salvar — só resta soltar o WebSocket e o laço.
+    // O que este teto compra é a garantia de que o processo MORRE; ver o comentário no OnExit.
+    private static readonly TimeSpan SyncDisposeOnCloseTimeout = TimeSpan.FromSeconds(3);
+
     private bool _outboxFlushed;
 
     private void OnSessionEnding(object sender, SessionEndingCancelEventArgs e)
@@ -429,13 +457,26 @@ public partial class App : Application
             _syncSession.Hints.RealTimeChanged -= OnSyncRealTimeChanged;
         }
 
-        try
+        // Teto no descarte da sessão, pelo MESMO motivo (e com o mesmo padrão) do FlushOutboxOnClose:
+        // este DisposeAsync espera o HubConnection fechar e o laço de sync terminar, e bloquear a UI
+        // thread nele SEM LIMITE já pendurou o processo em campo. Um RemoteOps pendurado é pior do que
+        // parece: ele continua segurando o mutex de instância única, então toda tentativa de reabrir o
+        // app encerra em silêncio (App.OnStartup) e o operador só recupera reiniciando o Windows.
+        //
+        // O Task.Run tira o await do contexto da UI (continuação presa numa thread bloqueada = deadlock)
+        // e o Wait com teto garante que o encerramento SEMPRE avança. Se estourar, a task pendente morre
+        // junto com o processo — nada aqui precisa sobreviver ao fechamento.
+        SyncSession? closing = _syncSession;
+        if (closing is not null)
         {
-            _syncSession?.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        }
-        catch (Exception)
-        {
-            // shutdown best-effort
+            try
+            {
+                Task.Run(() => closing.DisposeAsync().AsTask()).Wait(SyncDisposeOnCloseTimeout);
+            }
+            catch (Exception)
+            {
+                // shutdown best-effort
+            }
         }
 
         // Zera a AMK que a raiz do cofre mantém viva — o processo pode demorar a morrer.
