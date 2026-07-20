@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -34,6 +35,11 @@ public sealed class SyncStatusViewModelTests
                 throw new InvalidOperationException("falha simulada");
             }
         }
+
+        public Task<IReadOnlyList<SyncConflictItem>> GetConflictsAsync(int limit, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<SyncConflictItem>>([]);
+
+        public Task DismissConflictsAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
 
     [Fact]
@@ -51,7 +57,11 @@ public sealed class SyncStatusViewModelTests
     [InlineData(SyncState.Offline, 0, "Offline")]
     [InlineData(SyncState.Syncing, 0, "Sincronizando…")]
     [InlineData(SyncState.Synced, 0, "Sincronizado")]
-    [InlineData(SyncState.Synced, 3, "Sincronizado (3 conflito(s))")]
+    // MUDANÇA DE CONTRATO deliberada (v1.4.3), não enfraquecimento: a contagem SAIU do status e virou
+    // um aviso próprio e clicável ("N alterações não subiram" → ConflictText), coberto em
+    // SyncStatusConflictTests. Aqui ela dizia "conflito(s)" — jargão que não explica nada — e sugeria
+    // trabalho pendente sem oferecer ação alguma.
+    [InlineData(SyncState.Synced, 3, "Sincronizado")]
     [InlineData(SyncState.Error, 0, "Erro de sincronização")]
     public void Apply_Maps_State_To_PtBr_Text(SyncState state, int conflicts, string expected)
     {

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -12,4 +13,10 @@ namespace RemoteOps.Desktop.ViewModels;
 public interface ISyncController
 {
     Task SyncNowAsync(CancellationToken ct = default);
+
+    /// <summary>Conflitos registrados, do mais recente para o mais antigo — para a UI EXPLICAR.</summary>
+    Task<IReadOnlyList<SyncConflictItem>> GetConflictsAsync(int limit, CancellationToken ct = default);
+
+    /// <summary>Dispensa os conflitos ("já vi"). Não desliga a detecção: conflito novo volta a aparecer.</summary>
+    Task DismissConflictsAsync(CancellationToken ct = default);
 }

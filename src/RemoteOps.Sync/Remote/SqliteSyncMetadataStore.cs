@@ -1,3 +1,5 @@
+using System.Globalization;
+
 using Microsoft.Data.Sqlite;
 
 using RemoteOps.Contracts.Sync;
@@ -109,6 +111,58 @@ public sealed class SqliteSyncMetadataStore : ISyncMetadataStore
         using SqliteCommand cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT COUNT(*) FROM conflicts";
         return Convert.ToInt32(await cmd.ExecuteScalarAsync(ct));
+    }
+
+    public async Task<IReadOnlyList<StoredConflict>> GetConflictsAsync(
+        int limit, CancellationToken ct = default)
+    {
+        using SqliteConnection conn = await _workspace.OpenConnectionAsync(ct);
+        await EnsureSchemaAsync(conn, ct);
+
+        using SqliteCommand cmd = conn.CreateCommand();
+        // rowid como desempate: detected_at é string ISO, e uma rajada de conflitos do MESMO ciclo
+        // carimba praticamente o mesmo instante — sem o desempate a ordem sairia ao acaso.
+        cmd.CommandText = """
+            SELECT entity_type, entity_id, detected_at, base_version, current_version, reason
+            FROM conflicts
+            ORDER BY detected_at DESC, rowid DESC
+            LIMIT $limit;
+            """;
+        cmd.Parameters.AddWithValue("$limit", limit);
+
+        var result = new List<StoredConflict>();
+        using SqliteDataReader reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            DateTimeOffset detectedAt = !reader.IsDBNull(2)
+                && DateTimeOffset.TryParse(
+                    reader.GetString(2),
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.RoundtripKind,
+                    out DateTimeOffset parsed)
+                ? parsed
+                : DateTimeOffset.MinValue;
+
+            result.Add(new StoredConflict(
+                EntityType: reader.GetString(0),
+                EntityId: reader.GetString(1),
+                DetectedAt: detectedAt,
+                BaseVersion: reader.IsDBNull(3) ? 0 : reader.GetInt32(3),
+                CurrentVersion: reader.IsDBNull(4) ? 0 : reader.GetInt32(4),
+                Reason: reader.IsDBNull(5) ? string.Empty : reader.GetString(5)));
+        }
+
+        return result;
+    }
+
+    public async Task ClearConflictsAsync(CancellationToken ct = default)
+    {
+        using SqliteConnection conn = await _workspace.OpenConnectionAsync(ct);
+        await EnsureSchemaAsync(conn, ct);
+
+        using SqliteCommand cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM conflicts";
+        await cmd.ExecuteNonQueryAsync(ct);
     }
 
     // ── Canal de segredos ────────────────────────────────────────────────────────────────

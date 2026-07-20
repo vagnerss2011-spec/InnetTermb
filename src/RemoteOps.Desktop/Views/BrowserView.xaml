@@ -112,6 +112,31 @@
                      foco pode pipocar enquanto o operador digita num equipamento em produção, e o
                      Enter destinado ao roteador viraria "sim, atualizar agora". Aqui só acende; o
                      clique (e a hora) são dele. Invisível quando não há atualização. -->
+                <!-- Aviso do que NÃO subiu. Aqui o binding é direto (sem RelativeSource) de propósito:
+                     HasConflicts/ConflictText/ShowConflictsCommand são da SyncStatusViewModel, que É o
+                     DataContext deste Border. Invisível quando não há nada. -->
+                <Button x:Name="ConflictIndicator"
+                        DockPanel.Dock="Left"
+                        Command="{Binding ShowConflictsCommand}"
+                        Style="{DynamicResource Button.Ghost}"
+                        Padding="0"
+                        Margin="10,0,0,0"
+                        VerticalAlignment="Center"
+                        ToolTip="Ver o que não subiu para a nuvem"
+                        Visibility="{Binding HasConflicts, Converter={StaticResource BoolToVis}}">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="·"
+                                   Style="{DynamicResource Text.Caption}"
+                                   Foreground="{DynamicResource Brush.Text.Tertiary}"
+                                   Margin="0,0,10,0"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding ConflictText}"
+                                   Style="{DynamicResource Text.Caption}"
+                                   Foreground="{DynamicResource Brush.Status.Pending}"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+
                 <!-- ATENÇÃO ao DataContext: este Border inteiro está com DataContext="{Binding Sync}"
                      (linha 49). Um binding simples "Update.X" aqui resolveria como Sync.Update.X —
                      propriedade que não existe no SyncStatusViewModel — e falharia EM SILÊNCIO (o WPF

@@ -1,3 +1,4 @@
+using System.Linq;
 using RemoteOps.Contracts.Sync;
 using RemoteOps.Sync.Remote;
 
@@ -37,6 +38,18 @@ internal sealed class FakeSyncMetadataStore : ISyncMetadataStore
     public Task RecordConflictsAsync(IReadOnlyList<ConflictDetail> conflicts, CancellationToken ct = default)
     {
         Conflicts.AddRange(conflicts);
+        return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyList<StoredConflict>> GetConflictsAsync(int limit, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<StoredConflict>>(Conflicts
+            .Select(c => new StoredConflict(c.EntityType, c.EntityId, DateTimeOffset.UtcNow, c.BaseVersion, c.CurrentVersion, c.Reason))
+            .Take(limit)
+            .ToList());
+
+    public Task ClearConflictsAsync(CancellationToken ct = default)
+    {
+        Conflicts.Clear();
         return Task.CompletedTask;
     }
 
