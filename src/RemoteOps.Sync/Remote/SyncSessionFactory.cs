@@ -22,7 +22,13 @@ public sealed record SyncSessionOptions
     /// <summary>Arquivo que guarda apenas o envelopeId dos tokens (não o token).</summary>
     public required string TokenRefPath { get; init; }
 
-    public TimeSpan Interval { get; init; } = TimeSpan.FromMinutes(2);
+    /// <summary>
+    /// Teto de atraso quando o canal de hints está morto (rede que bloqueia WebSocket). Era 2 min, o
+    /// que fazia o operador concluir que o sync tinha travado e reiniciar o app. 45s é rede de
+    /// segurança, não o caminho principal — o tempo real vem dos hints. Opção de CÓDIGO: não vai à
+    /// tela de Configurações, porque ninguém tem como escolher isto melhor que o default.
+    /// </summary>
+    public TimeSpan Interval { get; init; } = TimeSpan.FromSeconds(45);
 
     public int PageSize { get; init; } = 200;
 
@@ -85,7 +91,7 @@ public static class SyncSessionFactory
 
         // Fase 2, item A: liga o push-ao-mudar à MESMA fonte que o orquestrador drena (o outbox do
         // workspace). Uma edição local levanta LocalChangePushed nesse ISyncClient → a sessão debounça
-        // e sincroniza — sem esperar o tick de ~2 min.
+        // e sincroniza — sem esperar o tick do laço.
         return new SyncSession(
             orchestrator, hints, options.WorkspaceId, options.Interval,
             localChanges: options.Workspace.SyncClient);
