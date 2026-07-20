@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
 using RemoteOps.Sync.Remote;
@@ -33,7 +35,17 @@ public sealed class SyncStatusViewModel : BaseViewModel
     {
         _controller = controller;
         SyncNowCommand = new RelayCommand(_ => _ = RunSyncNowAsync(), _ => CanSyncNow);
+        ShowConflictsCommand = new RelayCommand(_ => ConflictsRequested?.Invoke(this, EventArgs.Empty));
     }
+
+    /// <summary>
+    /// Pedido de abrir a lista do que não subiu. A VM não abre janela — quem faz isso é a janela
+    /// principal (mesma divisão do aviso de atualização).
+    /// </summary>
+    public event EventHandler? ConflictsRequested;
+
+    /// <summary>Comando do aviso clicável "N alterações não subiram".</summary>
+    public RelayCommand ShowConflictsCommand { get; }
 
     /// <summary>Comando do botão/ícone "Sincronizar agora" (push+pull). Desabilitado sem nuvem ou ocupado.</summary>
     public RelayCommand SyncNowCommand { get; }
@@ -62,9 +74,10 @@ public sealed class SyncStatusViewModel : BaseViewModel
             return _state switch
             {
                 SyncState.Offline => "Offline",
-                SyncState.Synced => _conflictCount > 0
-                    ? $"Sincronizado ({_conflictCount} conflito(s))"
-                    : "Sincronizado",
+                // A contagem saiu daqui: virou um aviso PRÓPRIO e clicável na barra (ConflictText).
+                // Embutida no status, ela dizia "conflito(s)" — jargão que não explica nada — e ainda
+                // dava a impressão de trabalho pendente sem oferecer nenhuma ação.
+                SyncState.Synced => "Sincronizado",
                 SyncState.Error => "Erro de sincronização",
                 _ => "Offline",
             };
@@ -78,9 +91,7 @@ public sealed class SyncStatusViewModel : BaseViewModel
         SyncState.Offline => HasCloud
             ? "Sem sincronização no momento. Clique para sincronizar agora."
             : "Nuvem não configurada — o RemoteOps está trabalhando só neste computador.",
-        SyncState.Synced => _conflictCount > 0
-            ? $"Sincronizado, mas há {_conflictCount} conflito(s) a resolver."
-            : "Tudo sincronizado com a nuvem.",
+        SyncState.Synced => "Tudo sincronizado com a nuvem.",
         SyncState.Error => "Não foi possível sincronizar. Verifique a conexão e clique para tentar de novo.",
         _ => "Offline",
     };
@@ -129,6 +140,61 @@ public sealed class SyncStatusViewModel : BaseViewModel
         _controller = controller;
         RaisePropertyChanged(nameof(HasCloud));
         SyncNowCommand.RaiseCanExecuteChanged();
+    }
+
+    /// <summary>Há conflitos registrados? Controla a visibilidade do aviso clicável na barra.</summary>
+    public bool HasConflicts => _conflictCount > 0;
+
+    /// <summary>
+    /// Texto do aviso na barra. Fala do EFEITO ("não subiu"), não do jargão ("conflito"): o operador
+    /// precisa entender que perdeu uma edição, não que existe um estado interno chamado conflito.
+    /// </summary>
+    public string ConflictText => _conflictCount switch
+    {
+        <= 0 => string.Empty,
+        1 => "1 alteração não subiu",
+        _ => $"{_conflictCount} alterações não subiram",
+    };
+
+    /// <summary>Carrega os conflitos para exibição. NUNCA lança: falha vira lista vazia.</summary>
+    public async Task<IReadOnlyList<SyncConflictItem>> LoadConflictsAsync(int limit = 200)
+    {
+        if (_controller is not { } controller)
+        {
+            return [];
+        }
+
+        try
+        {
+            return await controller.GetConflictsAsync(limit);
+        }
+        catch (Exception)
+        {
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// Dispensa os conflitos e zera o indicador. É isto que faz o contador significar PENDÊNCIA: antes
+    /// era um total histórico que só crescia e nunca voltava a zero, exibido como trabalho a fazer.
+    /// </summary>
+    public async Task DismissConflictsAsync()
+    {
+        if (_controller is not { } controller)
+        {
+            return;
+        }
+
+        try
+        {
+            await controller.DismissConflictsAsync();
+            _conflictCount = 0;
+            RaiseAllStatusProps();
+        }
+        catch (Exception)
+        {
+            // Falhou ao limpar: o indicador segue mostrando o que existe — melhor do que mentir zero.
+        }
     }
 
     /// <summary>Reflete o estado vindo do orquestrador (Offline/Syncing/Synced/Error + conflitos).</summary>
@@ -184,6 +250,8 @@ public sealed class SyncStatusViewModel : BaseViewModel
         RaisePropertyChanged(nameof(IsError));
         RaisePropertyChanged(nameof(StatusText));
         RaisePropertyChanged(nameof(StatusDetail));
+        RaisePropertyChanged(nameof(HasConflicts));
+        RaisePropertyChanged(nameof(ConflictText));
         SyncNowCommand.RaiseCanExecuteChanged();
     }
 }

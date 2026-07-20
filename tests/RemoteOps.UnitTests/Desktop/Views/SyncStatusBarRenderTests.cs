@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -24,6 +25,11 @@ public sealed class SyncStatusBarRenderTests
     private sealed class NoopController : ISyncController
     {
         public Task SyncNowAsync(CancellationToken ct = default) => Task.CompletedTask;
+
+        public Task<IReadOnlyList<SyncConflictItem>> GetConflictsAsync(int limit, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<SyncConflictItem>>([]);
+
+        public Task DismissConflictsAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
 
     private static SessionLauncher NewLauncher() =>

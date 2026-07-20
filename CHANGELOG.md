@@ -4,6 +4,41 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ## [Unreleased]
 
+## [1.4.3] - 2026-07-20
+
+### Corrigido
+
+Reportado em campo: **"nesta máquina aparecem 18 conflitos, na outra não aparece nada — como resolver?"**
+A investigação mostrou que o número não representava trabalho pendente e que não havia como resolvê-lo.
+
+- **A contagem era um log histórico cumulativo apresentado como pendência.**
+  `GetConflictCountAsync` é `SELECT COUNT(*) FROM conflicts`, e **não existia nenhum `DELETE` dessa
+  tabela em todo o código**: cada push rejeitado gravava uma linha para sempre. O número só crescia,
+  nunca voltava a zero, e incluía cicatrizes de bugs já corrigidos (o `baseVersion` fixo em `0`, por
+  exemplo, fazia todo update conflitar). A assimetria entre máquinas é consequência disso — a tabela
+  é local e só registra no device cujo push foi **rejeitado**.
+- **Não havia caminho de resolução.** O comentário da política dizia "o usuário resolve depois"
+  (`SyncOrchestrator.cs:198-202`), mas esse "depois" nunca foi construído: nenhuma tela, comando ou
+  ação em lugar nenhum.
+- **A perda de edição era silenciosa.** Com a política *record & advance*, a alteração local que
+  conflitou é pulada e a versão do servidor sobrescreve a local — sem o operador jamais saber qual.
+
+### Adicionado
+
+- **Aviso clicável na barra de status**, com linguagem de efeito em vez de jargão: "18 alterações não
+  subiram" (antes: "Sincronizado (18 conflito(s))" — a contagem saiu do texto de status).
+- **Janela "Alterações que não subiram"**: lista tipo, data e motivo de cada item em pt-BR, explicando
+  que a versão da nuvem prevaleceu para não sobrescrever o trabalho do outro computador, e que a
+  alteração local foi descartada — para o operador refazer se ainda importar.
+- **Ação "Já vi, pode limpar"**: `ClearConflictsAsync` no store e no orquestrador. Com ela a contagem
+  passa a significar **pendência**, não histórico. Não desliga a detecção — conflito novo volta a
+  aparecer (coberto por teste).
+
+**Nota de honestidade de design:** a janela não oferece "manter a minha versão". Quando o conflito é
+exibido, a alteração local **já foi descartada** e a versão do servidor já sobrescreveu a local;
+oferecer essa escolha seria mentir. O que a tela faz é explicar o que se perdeu e permitir dispensar
+o aviso.
+
 ## [1.4.2] - 2026-07-20
 
 ### Adicionado

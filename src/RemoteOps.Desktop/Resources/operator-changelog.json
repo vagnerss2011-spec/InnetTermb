@@ -1,6 +1,15 @@
 {
   "entries": [
     {
+      "version": "1.4.3",
+      "date": "2026-07-20",
+      "highlights": [
+        "Os 'conflitos' que apareciam na barra agora dão pra VER e LIMPAR. Antes o app mostrava um número (ex.: 'Sincronizado (18 conflito(s))') que só crescia, nunca voltava a zero, não tinha tela nenhuma e não oferecia ação — e ainda incluía marcas de problemas antigos já corrigidos. Por isso uma máquina mostrava 18 e a outra 0: cada computador guarda o próprio histórico.",
+        "Agora o aviso fala o que realmente aconteceu ('18 alterações não subiram') e é clicável. A tela lista cada item: o que era, quando foi e por quê — em português, sem jargão. O botão 'Já vi, pode limpar' zera o aviso, e o número passa a significar pendência de verdade.",
+        "Importante entender o que acontece por baixo: quando você altera um equipamento que já tinha sido alterado em outro computador, a versão da nuvem prevalece e a alteração feita aqui é descartada (o app nunca mescla senha sozinho, por segurança). Antes isso acontecia em silêncio; agora a tela mostra o que se perdeu, para você refazer se ainda importar."
+      ]
+    },
+    {
       "version": "1.4.2",
       "date": "2026-07-20",
       "highlights": [

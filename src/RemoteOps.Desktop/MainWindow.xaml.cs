@@ -52,6 +52,10 @@ public partial class MainWindow : Window
         // O clique no indicador da barra é o ÚNICO caminho para o diálogo de atualização.
         viewModel.Browser.Update.ApplyRequested += async (_, check) => await ConfirmAndApplyUpdateAsync(check);
 
+        // Clique no aviso "N alterações não subiram" → lista do que se perdeu.
+        viewModel.Browser.Sync.ConflictsRequested += (_, _) =>
+            new SyncConflictsWindow(viewModel.Browser.Sync) { Owner = this }.ShowDialog();
+
         Loaded += async (_, _) =>
         {
             // O watch é armado ANTES dos awaits, de propósito. Se ficasse depois, bastava o

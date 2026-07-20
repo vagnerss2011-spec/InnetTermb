@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -22,4 +24,18 @@ public sealed class OrchestratorSyncController : ISyncController
     }
 
     public Task SyncNowAsync(CancellationToken ct = default) => _orchestrator.SyncOnceAsync(ct);
+
+    // A tradução para o tipo da UI acontece AQUI, na fronteira: é o que mantém a VM sem dependência
+    // de RemoteOps.Sync.Remote (mesmo racional do ISyncController).
+    public async Task<IReadOnlyList<SyncConflictItem>> GetConflictsAsync(
+        int limit, CancellationToken ct = default)
+    {
+        IReadOnlyList<StoredConflict> stored = await _orchestrator.GetConflictsAsync(limit, ct);
+        return stored
+            .Select(c => new SyncConflictItem(c.EntityType, c.EntityId, c.DetectedAt, c.Reason))
+            .ToList();
+    }
+
+    public Task DismissConflictsAsync(CancellationToken ct = default)
+        => _orchestrator.ClearConflictsAsync(ct);
 }

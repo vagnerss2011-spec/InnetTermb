@@ -46,6 +46,18 @@ public sealed class SyncOrchestrator
     public event Action<SyncStatus>? StatusChanged;
 
     /// <summary>
+    /// Lista os conflitos registrados, para a UI poder EXPLICAR ao operador o que aconteceu. Passagem
+    /// direta ao metadata store: o orquestrador já é dono desse estado, e expor por aqui evita vazar o
+    /// store inteiro para a camada de apresentação.
+    /// </summary>
+    public Task<IReadOnlyList<StoredConflict>> GetConflictsAsync(int limit, CancellationToken ct = default)
+        => _metadata.GetConflictsAsync(limit, ct);
+
+    /// <summary>Dispensa os conflitos registrados ("já vi"). NÃO desliga a detecção.</summary>
+    public Task ClearConflictsAsync(CancellationToken ct = default)
+        => _metadata.ClearConflictsAsync(ct);
+
+    /// <summary>
     /// Disparado quando um pull REALMENTE gravou algo nas tabelas locais que a UI lê (Fase 2). É o
     /// gatilho que faltava: até aqui o sync só mexia numa string de status, e a lista de hosts do
     /// device B ficava vazia no 1º launch porque nada mandava a VM recarregar quando os dados
