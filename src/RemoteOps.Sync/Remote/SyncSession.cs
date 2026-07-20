@@ -26,6 +26,8 @@ public sealed class SyncSession : IAsyncDisposable
     private readonly Timer? _pushTimer;
     private readonly object _pushGate = new();
 
+    private readonly TimeSpan _errorRetry;
+
     private CancellationTokenSource? _cts;
     private Task? _loop;
     private bool _disposed;
@@ -36,7 +38,8 @@ public sealed class SyncSession : IAsyncDisposable
         string workspaceId,
         TimeSpan interval,
         ISyncClient? localChanges = null,
-        TimeSpan? pushDebounce = null)
+        TimeSpan? pushDebounce = null,
+        TimeSpan? errorRetry = null)
     {
         _orchestrator = orchestrator;
         _hints = hints;
@@ -44,6 +47,11 @@ public sealed class SyncSession : IAsyncDisposable
         _interval = interval;
         _localChanges = localChanges;
         _pushDebounce = pushDebounce ?? TimeSpan.FromSeconds(1.5);
+
+        // Um ciclo que termina em Error esperava o intervalo INTEIRO antes de tentar de novo, então um
+        // blip de rede custava minutos de atraso. Com o retry curto o erro transitório se resolve em
+        // segundos, e o backoff evita martelar um servidor que está fora de verdade.
+        _errorRetry = errorRetry ?? TimeSpan.FromSeconds(5);
         _hints.WorkspaceChanged += OnHintAsync;
 
         if (_localChanges is not null)
@@ -225,12 +233,51 @@ public sealed class SyncSession : IAsyncDisposable
 
     private async Task RunLoopAsync(CancellationToken ct)
     {
+        int consecutiveErrors = 0;
+
         while (!ct.IsCancellationRequested)
         {
-            await _orchestrator.SyncOnceAsync(ct);
+            bool failed;
             try
             {
-                await Task.Delay(_interval, ct);
+                await _orchestrator.SyncOnceAsync(ct);
+
+                // SyncOnceAsync engole erro de rede e sai em Error em vez de relançar, então o estado
+                // do orquestrador é a única leitura confiável de "o ciclo deu certo?".
+                failed = _orchestrator.Status.State == SyncState.Error;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception)
+            {
+                // Este laço é a REDE DE SEGURANÇA do canal de hints — ele NÃO pode morrer. O erro de
+                // rede já vem tratado (Error), mas um assinante de StatusChanged que lança (ex.:
+                // Dispatcher.Invoke durante o shutdown) escapa por SetStatus e encerraria o polling em
+                // silêncio: o device pararia de sincronizar sem nenhum sinal, até reiniciar o app. Ver
+                // docs/superpowers/specs/2026-07-19-sync-tempo-real-resiliente-design.md.
+                failed = true;
+            }
+
+            // Backoff só enquanto der erro; o primeiro sucesso volta ao intervalo normal.
+            TimeSpan delay;
+            if (failed)
+            {
+                consecutiveErrors++;
+                double factor = Math.Pow(2, Math.Min(consecutiveErrors - 1, 3)); // 1x, 2x, 4x, 8x
+                var backoff = TimeSpan.FromMilliseconds(_errorRetry.TotalMilliseconds * factor);
+                delay = backoff < _interval ? backoff : _interval;
+            }
+            else
+            {
+                consecutiveErrors = 0;
+                delay = _interval;
+            }
+
+            try
+            {
+                await Task.Delay(delay, ct);
             }
             catch (OperationCanceledException)
             {

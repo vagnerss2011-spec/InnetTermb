@@ -57,4 +57,49 @@ public sealed class SyncSessionTests
         // O laço por intervalo roda mesmo com o canal de hints indisponível (rede sem WebSocket).
         Assert.NotEmpty(api.Pulls);
     }
+
+    // O laço é a REDE DE SEGURANÇA do canal de hints: ele não pode morrer por causa de um assinante
+    // que lançou. Antes deste teste, uma exceção de StatusChanged (ex.: Dispatcher em shutdown)
+    // encerrava o polling em silêncio e o device parava de sincronizar até reiniciar.
+    [Fact]
+    public async Task Polling_Loop_Survives_Subscriber_Exception()
+    {
+        var api = new FakeCloudSyncApi();
+        var hints = new FakeSyncHintChannel();
+        SyncOrchestrator orchestrator = Orchestrator(api);
+        bool threwOnce = false;
+        orchestrator.StatusChanged += _ =>
+        {
+            if (!threwOnce)
+            {
+                threwOnce = true;
+                throw new InvalidOperationException("assinante quebrado");
+            }
+        };
+
+        await using var session = new SyncSession(
+            orchestrator, hints, "ws-1", TimeSpan.FromMilliseconds(20),
+            errorRetry: TimeSpan.FromMilliseconds(10));
+        await session.StartAsync();
+
+        // Se o laço tivesse morrido, os pulls parariam no primeiro ciclo.
+        await WaitUntilAsync(() => api.Pulls.Count >= 2);
+        Assert.True(api.Pulls.Count >= 2);
+    }
+
+    internal static async Task WaitUntilAsync(Func<bool> condition, int timeoutMs = 5000)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        while (sw.ElapsedMilliseconds < timeoutMs)
+        {
+            if (condition())
+            {
+                return;
+            }
+
+            await Task.Delay(10);
+        }
+
+        throw new TimeoutException("condição não satisfeita no tempo esperado");
+    }
 }
