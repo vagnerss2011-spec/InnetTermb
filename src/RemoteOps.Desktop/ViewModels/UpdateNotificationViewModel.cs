@@ -59,6 +59,12 @@ public sealed class UpdateNotificationViewModel : BaseViewModel
         : "Ainda não foi possível verificar atualizações.";
 
     /// <summary>
+    /// Tooltip do aviso: diz o que ACONTECE ao clicar antes de informar quando foi a última checagem.
+    /// Sem isso o operador via um destaque na barra sem saber que era clicável nem o que faria.
+    /// </summary>
+    public string HintText => $"Clique para baixar e instalar. {LastCheckText}";
+
+    /// <summary>
     /// Verifica e atualiza o indicador. NUNCA lança: é chamado pelo timer periódico, e uma exceção
     /// escapando aqui mataria a verificação de vez — o mesmo tipo de falha silenciosa que já derrubou
     /// o laço de sync (ver v1.4.0). Falha de rede preserva o que já se sabia, em vez de "apagar" um
@@ -87,6 +93,7 @@ public sealed class UpdateNotificationViewModel : BaseViewModel
             RaisePropertyChanged(nameof(HasUpdate));
             RaisePropertyChanged(nameof(UpdateText));
             RaisePropertyChanged(nameof(LastCheckText));
+            RaisePropertyChanged(nameof(HintText));
             ApplyCommand.RaiseCanExecuteChanged();
         }
         catch (Exception)

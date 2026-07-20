@@ -4,6 +4,28 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ## [Unreleased]
 
+## [1.4.4] - 2026-07-20
+
+### Corrigido
+
+Reportado em campo: **"a sugestão de atualização deveria aparecer para quem está com o sistema aberto;
+não apareceu na outra máquina"**. A investigação mostrou que a v1.4.2 (rodando naquela máquina) estava
+correta — o indicador e o timer foram verificados na própria tag. Duas causas reais, ambas de grau:
+
+- **Intervalo longo demais: 3h → 30min.** Uma versão publicada de manhã só seria anunciada à tarde, o
+  que na prática é indistinguível de "não funciona". O custo de checar é um GET no feed público.
+- **O aviso era discreto demais para cumprir a função.** Era uma legenda do mesmo tamanho e peso do
+  resto da barra; o operador simplesmente não a viu. Virou uma pílula com fundo de acento, borda,
+  seta e peso semibold — continua sem roubar foco (é um botão na barra, não um modal), mas salta aos
+  olhos. Decisão de formato reconfirmada com o operador antes de mudar: ele optou por manter o
+  discreto e torná-lo mais visível, em vez de voltar ao diálogo modal.
+- **O tooltip não dizia o que o clique faz.** Agora abre com "Clique para baixar e instalar" antes da
+  data da última verificação.
+
+**Nota:** máquinas em versões **anteriores à 1.4.2 não têm verificação periódica alguma** — nelas a
+checagem só roda na abertura da janela, por construção. A primeira atualização até a 1.4.2+ precisa
+ser manual; a partir daí o app se anuncia sozinho.
+
 ## [1.4.3] - 2026-07-20
 
 ### Corrigido
