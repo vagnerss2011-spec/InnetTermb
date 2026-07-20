@@ -108,6 +108,31 @@
                                VerticalAlignment="Center"/>
                 </StackPanel>
 
+                <!-- Aviso de versão nova. DISCRETO e persistente, nunca modal: um diálogo que rouba
+                     foco pode pipocar enquanto o operador digita num equipamento em produção, e o
+                     Enter destinado ao roteador viraria "sim, atualizar agora". Aqui só acende; o
+                     clique (e a hora) são dele. Invisível quando não há atualização. -->
+                <Button DockPanel.Dock="Left"
+                        Command="{Binding Update.ApplyCommand}"
+                        Style="{DynamicResource Button.Ghost}"
+                        Padding="0"
+                        Margin="10,0,0,0"
+                        VerticalAlignment="Center"
+                        ToolTip="{Binding Update.LastCheckText}"
+                        Visibility="{Binding Update.HasUpdate, Converter={StaticResource BoolToVis}}">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="·"
+                                   Style="{DynamicResource Text.Caption}"
+                                   Foreground="{DynamicResource Brush.Text.Tertiary}"
+                                   Margin="0,0,10,0"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding Update.UpdateText}"
+                                   Style="{DynamicResource Text.Caption}"
+                                   Foreground="{DynamicResource Brush.Accent.Base}"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+
                 <!-- "Sincronizar agora": push+pull. Desabilita sozinho quando não há nuvem. -->
                 <Button DockPanel.Dock="Right"
                         Command="{Binding SyncNowCommand}"

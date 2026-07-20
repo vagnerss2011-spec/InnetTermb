@@ -4,6 +4,38 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-07-20
+
+### Adicionado
+
+- **Aviso de versão nova enquanto o app está aberto.** Indicador discreto e persistente na barra de
+  status ("· Atualização 1.4.3 disponível"), clicável, que abre o diálogo de instalar já existente.
+  O `ToolTip` mostra o horário da última verificação bem-sucedida. Ver
+  `docs/superpowers/specs/2026-07-20-aviso-atualizacao-nao-intrusivo-design.md`.
+
+### Corrigido
+
+- **A verificação de atualização só acontecia uma vez, na abertura do app.** Como o RemoteOps é um
+  console de operação que fica aberto o dia inteiro, uma versão publicada durante o expediente nunca
+  era anunciada — o operador só saberia se fechasse e reabrisse. Agora há re-verificação periódica
+  (a cada 3h) enquanto o app está aberto.
+- **Aviso de atualização deixou de ser modal.** Antes, `MainWindow.Loaded` abria um diálogo Sim/Não
+  que rouba foco. Num console de rede isso é risco operacional: se aparecer enquanto o operador digita
+  num equipamento em produção, as teclas vão para o diálogo e um `Enter` destinado ao roteador
+  confirmaria "atualizar agora", reiniciando o app no meio de uma manutenção. O diálogo agora só abre
+  por clique do operador.
+- **Falha de verificação deixou de ser indistinguível de "está atualizado".** O caminho antigo
+  (`CheckForUpdatesQuietAsync`) engolia a exceção e devolvia `null`, sem deixar rastro na UI. O
+  indicador agora carrega o horário da última checagem boa, e uma falha posterior não apaga um aviso
+  já detectado.
+
+### Removido
+
+- `WorkspaceViewModel.CheckForUpdatesQuietAsync` — a verificação passou a viver no
+  `UpdateNotificationViewModel` (que também guarda o estado do indicador). Manter os dois caminhos
+  daria duas fontes de verdade divergindo com o tempo. A **aplicação** da atualização segue no
+  `WorkspaceViewModel` e segue coberta por testes.
+
 ## [1.4.1] - 2026-07-19
 
 ### Corrigido

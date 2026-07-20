@@ -1,6 +1,15 @@
 {
   "entries": [
     {
+      "version": "1.4.2",
+      "date": "2026-07-20",
+      "highlights": [
+        "O RemoteOps agora avisa quando sai versão nova mesmo com o app aberto. Antes ele só verificava UMA vez, na hora de abrir — então quem deixa o app aberto o dia inteiro nunca ficava sabendo de nada. Agora ele reverifica de tempos em tempos enquanto você trabalha.",
+        "O aviso aparece como um item discreto na barra de status (ao lado de 'Sincronizado'): 'Atualização 1.4.3 disponível'. Ele FICA lá até você decidir. Não pisca, não rouba o teclado e não interrompe — importante porque um diálogo pipocando no meio de uma manutenção em roteador poderia receber o Enter que era pro equipamento. Você clica quando estiver num bom momento e aí sim vem a confirmação de instalar.",
+        "Passando o mouse no aviso, ele mostra quando foi a última verificação bem-sucedida — assim 'não aparecer nada' deixa de significar duas coisas ao mesmo tempo ('está atualizado' e 'não consegui verificar')."
+      ]
+    },
+    {
       "version": "1.4.1",
       "date": "2026-07-19",
       "highlights": [

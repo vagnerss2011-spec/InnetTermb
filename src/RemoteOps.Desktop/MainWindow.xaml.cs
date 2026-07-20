@@ -3,8 +3,10 @@ using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using RemoteOps.Desktop.Credentials;
 using RemoteOps.Desktop.Infrastructure;
+using RemoteOps.Desktop.Update;
 using RemoteOps.Desktop.ViewModels;
 using RemoteOps.Desktop.Views;
 
@@ -47,11 +49,20 @@ public partial class MainWindow : Window
         TabsHost.ItemsSource = _tabItems;
         TabsHost.SelectionChanged += TabsHost_SelectionChanged;
 
+        // O clique no indicador da barra é o ÚNICO caminho para o diálogo de atualização.
+        viewModel.Browser.Update.ApplyRequested += async (_, check) => await ConfirmAndApplyUpdateAsync(check);
+
         Loaded += async (_, _) =>
         {
             await viewModel.InitializeAsync();
-            await PromptUpdateIfAvailableAsync();
+            await viewModel.Browser.Update.CheckAsync();
+            StartUpdateWatch();
         };
+
+        // Parar o timer no fechamento não é higiene opcional: recurso que não solta pendura o processo,
+        // e processo pendurado segura o mutex de instância única — o app deixa de abrir até o operador
+        // reiniciar o Windows (foi o que aconteceu na v1.4.0; ver CHANGELOG 1.4.1).
+        Closed += (_, _) => _updateWatch?.Stop();
 
         viewModel.Browser.SettingsRequested += (_, _) => OpenSettings();
         // "Verificar atualizações" abre já na aba Atualização (onde estão "Verificar agora" / "Baixar
@@ -69,15 +80,33 @@ public partial class MainWindow : Window
 
     private WorkspaceViewModel Vm => (WorkspaceViewModel)DataContext;
 
-    /// <summary>
-    /// Check de atualização no startup (não bloqueia a abertura): se houver versão nova,
-    /// pergunta ao operador e aplica na hora (Velopack baixa e reinicia). "Depois" deixa
-    /// o caminho manual em Configurações → Atualização.
-    /// </summary>
-    private async Task PromptUpdateIfAvailableAsync()
+    // Re-verificação periódica enquanto o app está aberto. Antes a checagem só rodava no Loaded — e
+    // como este é um console de operação que fica aberto o dia inteiro, uma versão publicada durante o
+    // expediente NUNCA era anunciada. Intervalo é opção de código (YAGNI: não vai à tela).
+    private static readonly TimeSpan UpdateWatchInterval = TimeSpan.FromHours(3);
+    private DispatcherTimer? _updateWatch;
+
+    private void StartUpdateWatch()
     {
-        var check = await Vm.CheckForUpdatesQuietAsync();
-        if (check is not { UpdateAvailable: true, AvailableVersion: { } available })
+        // DispatcherTimer (e não Timer de fundo): o tick escreve em propriedades ligadas a binding,
+        // então já nasce na UI thread e dispensa marshalling.
+        _updateWatch = new DispatcherTimer { Interval = UpdateWatchInterval };
+        _updateWatch.Tick += async (_, _) => await Vm.Browser.Update.CheckAsync();
+        _updateWatch.Start();
+    }
+
+    /// <summary>
+    /// Confirma e aplica a atualização — disparado SÓ pelo clique do operador no indicador da barra de
+    /// status (<c>UpdateNotificationViewModel.ApplyRequested</c>).
+    ///
+    /// <para>Antes isto era um diálogo automático no <c>Loaded</c>. Virou clique por um motivo de
+    /// segurança operacional: um modal que rouba foco num console de rede pode aparecer enquanto o
+    /// operador digita num equipamento em produção, e o <c>Enter</c> destinado ao roteador confirmaria
+    /// "atualizar agora", reiniciando o app no meio de uma manutenção.</para>
+    /// </summary>
+    private async Task ConfirmAndApplyUpdateAsync(UpdateCheckResult check)
+    {
+        if (check.AvailableVersion is not { } available)
         {
             return;
         }

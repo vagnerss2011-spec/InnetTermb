@@ -10,15 +10,14 @@ public sealed class WorkspaceViewModelUpdateTests
 {
     private sealed class FakeUpdateService : IUpdateService
     {
-        public bool ThrowOnCheck;
         public bool ThrowOnApply;
         public UpdateCheckResult? Applied;
 
+        // Só serve para produzir o UpdateCheckResult que os testes de APLICAÇÃO precisam ter em mãos;
+        // o comportamento de checagem em si é coberto em UpdateNotificationViewModelTests.
         public Task<UpdateCheckResult> CheckForUpdatesAsync(CancellationToken ct = default)
-            => ThrowOnCheck
-                ? throw new InvalidOperationException("offline")
-                : Task.FromResult(UpdateCheckResultFactory.Create(
-                    AppVersion.Parse("1.1.1"), AppVersion.Parse("1.2.0"), minimumRequiredVersion: null));
+            => Task.FromResult(UpdateCheckResultFactory.Create(
+                AppVersion.Parse("1.1.1"), AppVersion.Parse("1.2.0"), minimumRequiredVersion: null));
 
         public Task ApplyUpdateAsync(UpdateCheckResult update, CancellationToken ct = default)
         {
@@ -38,30 +37,20 @@ public sealed class WorkspaceViewModelUpdateTests
         return new WorkspaceViewModel(browser, new TabsViewModel(), updateService: svc);
     }
 
-    [Fact]
-    public async Task QuietCheck_NoService_ReturnsNull()
-        => Assert.Null(await Build(null).CheckForUpdatesQuietAsync());
-
-    [Fact]
-    public async Task QuietCheck_ServiceThrows_ReturnsNull()
-        => Assert.Null(await Build(new FakeUpdateService { ThrowOnCheck = true }).CheckForUpdatesQuietAsync());
-
-    [Fact]
-    public async Task QuietCheck_ReturnsResult()
-    {
-        var result = await Build(new FakeUpdateService()).CheckForUpdatesQuietAsync();
-        Assert.NotNull(result);
-        Assert.True(result!.UpdateAvailable);
-    }
+    // Os testes de CheckForUpdatesQuietAsync saíram junto com o método: a verificação passou a ser
+    // responsabilidade do UpdateNotificationViewModel (que também guarda o estado do indicador e o
+    // carimbo da última checagem boa) e está coberta em UpdateNotificationViewModelTests. Manter dois
+    // caminhos de checagem daria duas fontes de verdade. A APLICAÇÃO continua sendo daqui — e continua
+    // coberta pelos dois testes abaixo.
 
     [Fact]
     public async Task TryApply_Success_CallsService()
     {
         var svc = new FakeUpdateService();
         var vm = Build(svc);
-        var check = await vm.CheckForUpdatesQuietAsync();
+        UpdateCheckResult check = await svc.CheckForUpdatesAsync();
 
-        bool ok = await vm.TryApplyUpdateAsync(check!);
+        bool ok = await vm.TryApplyUpdateAsync(check);
 
         Assert.True(ok);
         Assert.NotNull(svc.Applied);
@@ -72,8 +61,8 @@ public sealed class WorkspaceViewModelUpdateTests
     {
         var svc = new FakeUpdateService { ThrowOnApply = true };
         var vm = Build(svc);
-        var check = await vm.CheckForUpdatesQuietAsync();
+        UpdateCheckResult check = await svc.CheckForUpdatesAsync();
 
-        Assert.False(await vm.TryApplyUpdateAsync(check!));
+        Assert.False(await vm.TryApplyUpdateAsync(check));
     }
 }
