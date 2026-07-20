@@ -71,23 +71,29 @@ public sealed class UpdateNotificationViewModel : BaseViewModel
             return;
         }
 
-        UpdateCheckResult result;
         try
         {
-            result = await _updateService.CheckForUpdatesAsync();
+            UpdateCheckResult result = await _updateService.CheckForUpdatesAsync();
+
+            _lastSuccessfulCheck = DateTimeOffset.Now;
+            _pending = result;
+
+            // Dentro do try DE PROPÓSITO: BaseViewModel e RelayCommand invocam os eventos direto, então
+            // um assinante que lance propagaria daqui — e como o tick do timer é async void, a exceção
+            // acabaria no handler global, que mostra um MessageBox modal roubando o foco do teclado. Ou
+            // seja: o próprio mecanismo do aviso discreto reintroduziria o risco que ele existe pra
+            // eliminar. Hoje só o binding do WPF assina (não lança), mas o contrato "nunca lança" tem
+            // de valer por construção, não por sorte dos assinantes atuais.
+            RaisePropertyChanged(nameof(HasUpdate));
+            RaisePropertyChanged(nameof(UpdateText));
+            RaisePropertyChanged(nameof(LastCheckText));
+            ApplyCommand.RaiseCanExecuteChanged();
         }
         catch (Exception)
         {
-            return; // mantém _pending e o carimbo do último sucesso
+            // Falha de rede mantém _pending e o carimbo do último sucesso: uma checagem que não
+            // completou NÃO pode apagar um aviso legítimo já detectado.
         }
-
-        _lastSuccessfulCheck = DateTimeOffset.Now;
-        _pending = result;
-
-        RaisePropertyChanged(nameof(HasUpdate));
-        RaisePropertyChanged(nameof(UpdateText));
-        RaisePropertyChanged(nameof(LastCheckText));
-        ApplyCommand.RaiseCanExecuteChanged();
     }
 
     private void RequestApply()

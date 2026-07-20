@@ -174,6 +174,21 @@ public sealed class UpdateNotificationViewModelTests
         Assert.False(vm.ApplyCommand.CanExecute(null));
     }
 
+    // Um assinante que lança não pode escapar pelo CheckAsync: o tick do timer é async void e a
+    // exceção terminaria num MessageBox modal roubando o foco do teclado — justamente o que o aviso
+    // discreto existe para evitar.
+    [Fact]
+    public async Task Throwing_Subscriber_Does_Not_Escape()
+    {
+        var svc = new FakeUpdateService { Result = WithUpdate() };
+        var vm = new UpdateNotificationViewModel(svc);
+        vm.PropertyChanged += (_, _) => throw new InvalidOperationException("assinante quebrado");
+
+        await vm.CheckAsync(); // não pode lançar
+
+        Assert.Equal(1, svc.Checks);
+    }
+
     [Fact]
     public void Without_Update_Service_Stays_Silent()
     {

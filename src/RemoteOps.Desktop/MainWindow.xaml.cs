@@ -54,9 +54,17 @@ public partial class MainWindow : Window
 
         Loaded += async (_, _) =>
         {
+            // O watch é armado ANTES dos awaits, de propósito. Se ficasse depois, bastava o
+            // InitializeAsync lançar (o LoadAsync do store não tem try/catch) ou a primeira checagem
+            // pendurar numa rede com captive-portal — cenário já documentado em App.OnStartup, que por
+            // isso põe teto na checagem — para a lambda morrer antes de armar o timer. O app abriria
+            // normalmente e a verificação periódica simplesmente NUNCA existiria naquela sessão, sem
+            // nenhum sinal: a feature morta em silêncio, que é o defeito recorrente deste app.
+            // Não há corrida: o primeiro tick só ocorre daqui a 3h.
+            StartUpdateWatch();
+
             await viewModel.InitializeAsync();
             await viewModel.Browser.Update.CheckAsync();
-            StartUpdateWatch();
         };
 
         // Parar o timer no fechamento não é higiene opcional: recurso que não solta pendura o processo,
@@ -111,22 +119,38 @@ public partial class MainWindow : Window
             return;
         }
 
-        var answer = MessageBox.Show(
-            this,
-            $"Nova versão {available} disponível (você está na {check.CurrentVersion}).\n\n" +
-            "Baixar e instalar agora? O RemoteOps reinicia sozinho ao concluir.",
-            "Atualização disponível",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Information);
-
-        if (answer == MessageBoxResult.Yes && !await Vm.TryApplyUpdateAsync(check))
+        // Pausa a verificação periódica enquanto o diálogo está aberto e a aplicação em voo.
+        // Motivo concreto: o VelopackUpdateService aplica o ÚLTIMO resultado de checagem que ele viu
+        // (estado interno compartilhado), NÃO o objeto passado por parâmetro. Como o DispatcherTimer
+        // dispara durante o loop de mensagens de um modal, um tick podia trocar esse estado enquanto o
+        // operador lia o diálogo — e ele acabaria instalando uma versão diferente da que confirmou, ou
+        // (se a checagem nova não achasse pacote) autorizando algo que silenciosamente não aconteceria.
+        _updateWatch?.Stop();
+        try
         {
-            MessageBox.Show(
+            var answer = MessageBox.Show(
                 this,
-                "Não foi possível baixar/aplicar a atualização agora. Tente mais tarde em Configurações → Atualização.",
-                "Atualização",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
+                $"Nova versão {available} disponível (você está na {check.CurrentVersion}).\n\n" +
+                "Baixar e instalar agora? O RemoteOps reinicia sozinho ao concluir.",
+                "Atualização disponível",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Information);
+
+            if (answer == MessageBoxResult.Yes && !await Vm.TryApplyUpdateAsync(check))
+            {
+                MessageBox.Show(
+                    this,
+                    "Não foi possível baixar/aplicar a atualização agora. Tente mais tarde em Configurações → Atualização.",
+                    "Atualização",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+        }
+        finally
+        {
+            // Em caso de sucesso o Velopack reinicia o app e isto não chega a importar; no "Não" e em
+            // qualquer falha, a verificação periódica precisa voltar.
+            _updateWatch?.Start();
         }
     }
 
