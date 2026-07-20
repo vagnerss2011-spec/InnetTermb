@@ -49,20 +49,23 @@ public sealed class SyncSessionFactoryTests
     /// O intervalo é o TETO de atraso quando o canal de hints está fora (rede sem WebSocket). Com 2
     /// min o operador concluía que o sync tinha travado e reiniciava o app; 45s cabe na paciência de
     /// quem está esperando a novidade aparecer na outra ponta.
+    ///
+    /// <para>Este teste é assumidamente um DETECTOR DE MUDANÇA, não cobertura de comportamento: ele
+    /// afirma o default do record, e o número é uma decisão de produto. Quem mexer nele vai ter de
+    /// mexer aqui também — que é o ponto. Por isso não monta workspace nem cofre: pagar I/O de
+    /// SQLCipher para ler um literal seria custo sem cobertura.</para>
     /// </summary>
     [Fact]
-    public async Task Default_Interval_Is_45_Seconds()
+    public void Default_Interval_Is_45_Seconds()
     {
-        using var ctx = await SyncTestContext.CreateAsync("ws-interval");
-
         var options = new SyncSessionOptions
         {
-            Workspace = ctx.Workspace,
+            Workspace = null!,
             WorkspaceId = "00000000-0000-0000-0000-000000000001",
             CloudBaseUrl = new Uri("https://cloud.local"),
             DeviceId = Guid.NewGuid(),
-            Vault = ctx.Vault,
-            TokenRefPath = ctx.DbPath + ".tokenref",
+            Vault = null!,
+            TokenRefPath = "irrelevante.tokenref",
         };
 
         Assert.Equal(TimeSpan.FromSeconds(45), options.Interval);

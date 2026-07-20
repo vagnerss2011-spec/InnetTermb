@@ -421,6 +421,14 @@ public partial class App : Application
         // reconciliar sobre uma VM/janela já em processo de encerramento.
         _syncReload?.Dispose();
 
+        // Desassina o estado do canal ANTES do dispose: derrubar o HubConnection dispara Closed, e não
+        // há nada que a UI possa fazer com essa notificação a esta altura. O handler já usa BeginInvoke
+        // (não bloqueia), então isto é a segunda linha de defesa, não a única.
+        if (_syncSession is not null)
+        {
+            _syncSession.Hints.RealTimeChanged -= OnSyncRealTimeChanged;
+        }
+
         try
         {
             _syncSession?.DisposeAsync().AsTask().GetAwaiter().GetResult();
@@ -800,7 +808,13 @@ public partial class App : Application
 
         // Mesmo marshalling do OnSyncStatusChanged: o evento nasce na thread do SignalR e aqui se toca
         // binding de UI. Nada do estado do canal vai pro log — a URL do hub leva o JWT (ADR-013).
-        Dispatcher.Invoke(() => vm.Browser.Sync.SetRealTime(isRealTime));
+        //
+        // BeginInvoke (assíncrono), NÃO Invoke: no OnExit a UI thread BLOQUEIA esperando o
+        // DisposeAsync da sessão, que derruba o HubConnection e dispara Closed → SetRealTime(false)
+        // → este handler. Com Invoke isso seria um deadlock de fechamento — a mesma armadilha que o
+        // FlushOutboxOnClose já documenta e evita com Task.Run. Aqui o estado do canal é puramente
+        // informativo: se a janela já está indo embora, perder a última atualização não custa nada.
+        Dispatcher.BeginInvoke(() => vm.Browser.Sync.SetRealTime(isRealTime));
     }
 
     private static string FormatStatus(SyncStatus status) => status.State switch

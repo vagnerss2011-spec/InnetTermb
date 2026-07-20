@@ -86,7 +86,17 @@ public sealed class SignalRSyncHintChannel : ISyncHintChannel
         // reconexão pode acontecer antes desta chamada retornar.
         _workspaceId = workspaceId;
 
-        await _connection.StartAsync(ct);
+        // Só inicia se estiver mesmo desconectado. Se o StartAsync tiver dado certo numa tentativa
+        // anterior e SÓ o JoinWorkspace houver falhado, chamar StartAsync de novo lançaria
+        // InvalidOperationException ("cannot be started if it is not in the Disconnected state") a cada
+        // retry, para sempre: os hints até chegariam (o hub faz auto-join no OnConnectedAsync), mas
+        // IsRealTime nunca viraria true e a barra mentiria "Periódico" com o socket vivo — exatamente o
+        // que o indicador existe pra evitar. Com a guarda, o retry re-tenta só o que faltou.
+        if (_connection.State == HubConnectionState.Disconnected)
+        {
+            await _connection.StartAsync(ct);
+        }
+
         await _connection.InvokeAsync("JoinWorkspace", workspaceId, ct);
         SetRealTime(true);
     }

@@ -51,8 +51,12 @@ os dois caminhos não morrerem pelo mesmo motivo.
    justifique expor isso ao operador (YAGNI). Teto de staleness previsível mesmo com o canal morto.
 3. **Retry curto com backoff em erro:** quando o ciclo termina em `SyncState.Error`, próximo ciclo em
    intervalo curto com backoff (5s → 10s → 20s, teto no intervalo normal) em vez do intervalo cheio.
-4. **Debounce no caminho do hint:** rotear `OnHintAsync` pelo timer de debounce que já existe
-   (`SyncSession.cs:52`), em vez de chamar `SyncOnceAsync` direto. Rajada de N hints = 1 ciclo.
+4. **Debounce no caminho do hint:** `OnHintAsync` deixa de chamar `SyncOnceAsync` direto e passa a
+   rearmar uma janela curta. Rajada de N hints = 1 ciclo.
+   *Ajustado na implementação:* a intenção original era reusar o `_pushTimer` existente (1,5s), mas
+   ele **só é criado quando há fonte local de mudanças** (`_localChanges != null`) — e o hint vem do
+   servidor independentemente disso. Ficou um timer **dedicado**, sempre presente, com **500ms**:
+   curto o bastante para continuar parecendo tempo real, longo o bastante para engolir a rajada.
 
 ### Camada 2 — Tempo real resiliente (cliente + servidor)
 
@@ -84,7 +88,7 @@ Servidor: grava change → emite workspace.changed p/ Group(wsId "D")
                             │
               ┌─────────────┴─────────────┐
               ▼                           ▼
-   PC B: hint → DEBOUNCE 1,5s      (canal morto?)
+   PC B: hint → DEBOUNCE 500ms     (canal morto?)
               │                           │
               ▼                           ▼
         1 ciclo incremental      polling 45s (laço blindado)
