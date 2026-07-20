@@ -811,13 +811,18 @@ public partial class App : Application
         }
 
         string? url = Environment.GetEnvironmentVariable("REMOTEOPS_CLOUD_URL");
-        string? workspaceId = Environment.GetEnvironmentVariable("REMOTEOPS_CLOUD_WORKSPACE_ID");
         if (string.IsNullOrWhiteSpace(url)
             || !Uri.TryCreate(url, UriKind.Absolute, out Uri? baseUrl)
-            || baseUrl.Scheme != Uri.UriSchemeHttps
-            || string.IsNullOrWhiteSpace(workspaceId))
+            || baseUrl.Scheme != Uri.UriSchemeHttps)
         {
             return false; // exige HTTPS — fail-closed: URL http:// não liga o sync (ADR-013)
+        }
+
+        string? workspaceId = NormalizeWorkspaceId(
+            Environment.GetEnvironmentVariable("REMOTEOPS_CLOUD_WORKSPACE_ID"));
+        if (workspaceId is null)
+        {
+            return false;
         }
 
         options = new SyncSessionOptions
@@ -831,6 +836,19 @@ public partial class App : Application
         };
         return true;
     }
+
+    /// <summary>
+    /// Devolve o workspaceId no formato CANÔNICO ("D" minúsculo) ou <c>null</c> se não for GUID.
+    ///
+    /// <para>O grupo do SignalR é uma string case-sensitive e o servidor faz o broadcast com
+    /// <c>Guid.ToString()</c>: um id em maiúsculas vindo de variável de ambiente entraria num grupo que
+    /// nunca recebe hint — o tempo real morreria sem nenhum sinal, e o operador só veria "demora". O
+    /// caminho da CONTA já é imune (o workspaceId vem da sessão do servidor); isto cobre o caminho
+    /// legado por env var. Fail-closed: id inválido desliga o sync em vez de sincronizar contra um
+    /// workspace errado.</para>
+    /// </summary>
+    internal static string? NormalizeWorkspaceId(string? raw)
+        => Guid.TryParse(raw, out Guid id) ? id.ToString() : null;
 
     private static Guid GetOrCreateDeviceId(string dataDir)
     {
