@@ -189,6 +189,20 @@ public sealed class UpdateNotificationViewModelTests
         Assert.Equal(1, svc.Checks);
     }
 
+
+    // O tooltip precisa dizer o que ACONTECE ao clicar: um destaque na barra sem isso deixa o
+    // operador sem saber que é clicável.
+    [Fact]
+    public async Task Hint_Says_What_Clicking_Does()
+    {
+        var svc = new FakeUpdateService { Result = WithUpdate() };
+        var vm = new UpdateNotificationViewModel(svc);
+        await vm.CheckAsync();
+
+        Assert.Contains("Clique para baixar e instalar", vm.HintText, StringComparison.Ordinal);
+        Assert.Contains("Última verificação", vm.HintText, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Without_Update_Service_Stays_Silent()
     {

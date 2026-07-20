@@ -1,6 +1,15 @@
 {
   "entries": [
     {
+      "version": "1.4.4",
+      "date": "2026-07-20",
+      "highlights": [
+        "O aviso de versão nova ficou impossível de não ver e aparece muito mais rápido. Na 1.4.2 ele era uma legenda discreta, do mesmo tamanho do resto da barra — e passava batido. Agora é um destaque colorido com seta, que continua não roubando o teclado (nada de janela pipocando no meio de uma manutenção em equipamento).",
+        "A verificação com o app aberto passou de 3 horas para 30 minutos. Com 3 horas, uma versão publicada de manhã só aparecia à tarde — na prática indistinguível de não funcionar.",
+        "Passando o mouse no aviso, ele agora diz o que acontece ao clicar ('Clique para baixar e instalar') além de quando foi a última verificação."
+      ]
+    },
+    {
       "version": "1.4.3",
       "date": "2026-07-20",
       "highlights": [

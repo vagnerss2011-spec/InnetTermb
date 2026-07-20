@@ -95,7 +95,12 @@ public partial class MainWindow : Window
     // Re-verificação periódica enquanto o app está aberto. Antes a checagem só rodava no Loaded — e
     // como este é um console de operação que fica aberto o dia inteiro, uma versão publicada durante o
     // expediente NUNCA era anunciada. Intervalo é opção de código (YAGNI: não vai à tela).
-    private static readonly TimeSpan UpdateWatchInterval = TimeSpan.FromHours(3);
+    //
+    // 30min, não 3h: com 3h o operador publicava uma versão e ficava metade do expediente sem o aviso
+    // aparecer, o que na prática é indistinguível de "não funciona" — foi o que ele reportou. O custo
+    // de checar é um GET no feed público; 48 checagens/dia por máquina é irrelevante perto de ficar
+    // sem saber que existe correção disponível.
+    private static readonly TimeSpan UpdateWatchInterval = TimeSpan.FromMinutes(30);
     private DispatcherTimer? _updateWatch;
 
     private void StartUpdateWatch()

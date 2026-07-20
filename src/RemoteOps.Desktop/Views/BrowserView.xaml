@@ -108,10 +108,6 @@
                                VerticalAlignment="Center"/>
                 </StackPanel>
 
-                <!-- Aviso de versão nova. DISCRETO e persistente, nunca modal: um diálogo que rouba
-                     foco pode pipocar enquanto o operador digita num equipamento em produção, e o
-                     Enter destinado ao roteador viraria "sim, atualizar agora". Aqui só acende; o
-                     clique (e a hora) são dele. Invisível quando não há atualização. -->
                 <!-- Aviso do que NÃO subiu. Aqui o binding é direto (sem RelativeSource) de propósito:
                      HasConflicts/ConflictText/ShowConflictsCommand são da SyncStatusViewModel, que É o
                      DataContext deste Border. Invisível quando não há nada. -->
@@ -150,19 +146,32 @@
                         Padding="0"
                         Margin="10,0,0,0"
                         VerticalAlignment="Center"
-                        ToolTip="{Binding DataContext.Update.LastCheckText, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                        ToolTip="{Binding DataContext.Update.HintText, RelativeSource={RelativeSource AncestorType=UserControl}}"
                         Visibility="{Binding DataContext.Update.HasUpdate, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVis}}">
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <TextBlock Text="·"
-                                   Style="{DynamicResource Text.Caption}"
-                                   Foreground="{DynamicResource Brush.Text.Tertiary}"
-                                   Margin="0,0,10,0"
-                                   VerticalAlignment="Center"/>
-                        <TextBlock Text="{Binding DataContext.Update.UpdateText, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                   Style="{DynamicResource Text.Caption}"
-                                   Foreground="{DynamicResource Brush.Accent.Base}"
-                                   VerticalAlignment="Center"/>
-                    </StackPanel>
+                    <!-- Pílula com fundo de acento, e não texto solto: na v1.4.2 o aviso era uma
+                         legenda discreta do mesmo tamanho do resto da barra, e o operador simplesmente
+                         não o viu — um aviso que não é notado falhou na única função que tem. Aqui ele
+                         continua NÃO roubando foco (é só um botão na barra), mas passa a saltar aos
+                         olhos. Tipografia por token; nenhum tamanho literal (lição da v1.2.24). -->
+                    <Border Background="{DynamicResource Brush.Accent.Muted}"
+                            BorderBrush="{DynamicResource Brush.Accent.Base}"
+                            BorderThickness="1"
+                            CornerRadius="3"
+                            Padding="8,2">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="⬆"
+                                       Style="{DynamicResource Text.Caption}"
+                                       Foreground="{DynamicResource Brush.Accent.Base}"
+                                       FontWeight="Bold"
+                                       Margin="0,0,6,0"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding DataContext.Update.UpdateText, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                       Style="{DynamicResource Text.Caption}"
+                                       Foreground="{DynamicResource Brush.Accent.Base}"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
                 </Button>
 
                 <!-- "Sincronizar agora": push+pull. Desabilita sozinho quando não há nuvem. -->
