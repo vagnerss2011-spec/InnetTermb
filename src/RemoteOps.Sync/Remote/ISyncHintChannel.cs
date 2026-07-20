@@ -14,5 +14,16 @@ public interface ISyncHintChannel : IAsyncDisposable
 {
     event Func<WorkspaceChangedHint, Task>? WorkspaceChanged;
 
+    /// <summary>
+    /// O canal está entregando hints em tempo real? <c>false</c> = caiu para o laço por intervalo.
+    /// Existe para o operador diagnosticar em campo uma rede que bloqueia WebSocket sem depender de
+    /// log — e nenhum log poderia ajudar aqui, já que a URL do hub carrega o JWT e não pode ser
+    /// impressa (ADR-013).
+    /// </summary>
+    bool IsRealTime { get; }
+
+    /// <summary>Disparado quando <see cref="IsRealTime"/> muda.</summary>
+    event Action<bool>? RealTimeChanged;
+
     Task ConnectAsync(string workspaceId, CancellationToken ct = default);
 }

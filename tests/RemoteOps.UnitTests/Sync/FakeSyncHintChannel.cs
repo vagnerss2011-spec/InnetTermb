@@ -7,9 +7,13 @@ internal sealed class FakeSyncHintChannel : ISyncHintChannel
 {
     public event Func<WorkspaceChangedHint, Task>? WorkspaceChanged;
 
+    public event Action<bool>? RealTimeChanged;
+
     public bool Connected { get; private set; }
 
     public bool ThrowOnConnect { get; set; }
+
+    public bool IsRealTime { get; private set; }
 
     public Task ConnectAsync(string workspaceId, CancellationToken ct = default)
     {
@@ -19,7 +23,20 @@ internal sealed class FakeSyncHintChannel : ISyncHintChannel
         }
 
         Connected = true;
+        SetRealTime(true);
         return Task.CompletedTask;
+    }
+
+    /// <summary>Simula a queda e a volta do canal, como fazem os handlers do SignalR.</summary>
+    public void SetRealTime(bool value)
+    {
+        if (IsRealTime == value)
+        {
+            return;
+        }
+
+        IsRealTime = value;
+        RealTimeChanged?.Invoke(value);
     }
 
     public async Task RaiseAsync(WorkspaceChangedHint hint)

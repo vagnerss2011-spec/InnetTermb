@@ -87,6 +87,8 @@ public sealed class SyncSessionTests
 
         await session.StartAsync();
 
+        // StartAsync não espera mais o connect (ele roda em fundo, com retry) — daí o WaitUntil.
+        await WaitUntilAsync(() => hints.Connected);
         Assert.True(hints.Connected);
     }
 
@@ -100,6 +102,7 @@ public sealed class SyncSessionTests
         await session.StartAsync();
 
         // O laço por intervalo roda mesmo com o canal de hints indisponível (rede sem WebSocket).
+        await WaitUntilAsync(() => api.Pulls.Count > 0);
         Assert.NotEmpty(api.Pulls);
     }
 
@@ -130,6 +133,25 @@ public sealed class SyncSessionTests
         // Se o laço tivesse morrido, os pulls parariam no primeiro ciclo.
         await WaitUntilAsync(() => api.Pulls.Count >= 2);
         Assert.True(api.Pulls.Count >= 2);
+    }
+
+    // Uma falha no PRIMEIRO connect era engolida e o canal NUNCA mais tentava: o app passava o resto
+    // da sessão em polling puro, sem nenhum sinal de que o tempo real tinha morrido. Quem abre o app
+    // antes da VPN subir é o caso comum — e a rede volta segundos depois.
+    [Fact]
+    public async Task Start_Retries_Hint_Connect_After_Initial_Failure()
+    {
+        var api = new FakeCloudSyncApi();
+        var hints = new FakeSyncHintChannel { ThrowOnConnect = true };
+        await using var session = new SyncSession(Orchestrator(api), hints, "ws-1", TimeSpan.FromHours(1));
+
+        await session.StartAsync();
+
+        // A rede volta logo após a primeira tentativa; o canal tem que se reerguer sozinho.
+        hints.ThrowOnConnect = false;
+
+        await WaitUntilAsync(() => hints.Connected, timeoutMs: 8000);
+        Assert.True(hints.Connected);
     }
 
     internal static async Task WaitUntilAsync(Func<bool> condition, int timeoutMs = 5000)

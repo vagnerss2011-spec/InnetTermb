@@ -35,8 +35,15 @@ public sealed class SyncSession : IAsyncDisposable
     private readonly TimeSpan _hintDebounce;
     private readonly Timer _hintTimer;
 
+    // ── Connect do canal de hints ───────────────────────────────────────────────────────────
+    // Espera antes da PRIMEIRA nova tentativa e teto do backoff. Valores de código, não de tela: o
+    // operador não tem como decidir isso melhor que o default, e o canal é best-effort de qualquer forma.
+    private static readonly TimeSpan ConnectRetryDelay = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan ConnectRetryCeiling = TimeSpan.FromSeconds(30);
+
     private CancellationTokenSource? _cts;
     private Task? _loop;
+    private Task? _connect;
     private bool _disposed;
 
     public SyncSession(
@@ -78,21 +85,64 @@ public sealed class SyncSession : IAsyncDisposable
 
     public SyncOrchestrator Orchestrator => _orchestrator;
 
-    /// <summary>Conecta o canal de hints e inicia o laço de fundo (sync imediato + por intervalo).</summary>
-    public async Task StartAsync(CancellationToken ct = default)
+    /// <summary>
+    /// Inicia o laço de fundo (sync imediato + por intervalo) e dispara o connect do canal de hints.
+    /// Retorna assim que ambos estão EM CURSO — não espera o canal subir, porque ele é best-effort e
+    /// pode demorar (ou nunca conseguir, em rede que bloqueia WebSocket).
+    /// </summary>
+    public Task StartAsync(CancellationToken ct = default)
     {
         _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
         // O laço por intervalo começa primeiro: a sincronização não depende dos hints em tempo real,
         // que podem falhar em redes que bloqueiam WebSocket (ADR-010). Hints são best-effort.
         _loop = RunLoopAsync(_cts.Token);
-        try
+
+        // Connect em FUNDO e com retry: a falha do primeiro connect era engolida aqui mesmo e o canal
+        // nunca mais tentava — quem abre o app antes da VPN subir ficava em polling puro pelo resto da
+        // sessão, sem nenhum sinal. Não se espera o connect porque o app não pode atrasar a abertura
+        // por causa de um canal que é, por desenho, best-effort.
+        _connect = ConnectHintsWithRetryAsync(_cts.Token);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Insiste no connect do canal de hints até conseguir (ou até o shutdown), com backoff que satura
+    /// no teto. Só sai no sucesso: enquanto o canal está fora, a reconexão automática do SignalR nem
+    /// entra em jogo — ela só cobre uma conexão que JÁ existiu.
+    /// </summary>
+    private async Task ConnectHintsWithRetryAsync(CancellationToken ct)
+    {
+        var delay = ConnectRetryDelay;
+
+        while (!ct.IsCancellationRequested)
         {
-            await _hints.ConnectAsync(_workspaceId, _cts.Token);
-        }
-        catch (Exception)
-        {
-            // Sem hints em tempo real; o laço por intervalo ainda sincroniza.
+            try
+            {
+                await _hints.ConnectAsync(_workspaceId, ct);
+                return;
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception)
+            {
+                // Sem hints em tempo real por ora; o laço por intervalo segue sincronizando. Não se
+                // loga nada aqui: a mensagem carregaria a URL do hub, e o JWT viaja nela (ADR-013).
+            }
+
+            try
+            {
+                await Task.Delay(delay, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            double next = Math.Min(delay.TotalMilliseconds * 2, ConnectRetryCeiling.TotalMilliseconds);
+            delay = TimeSpan.FromMilliseconds(next);
         }
     }
 
@@ -315,16 +365,30 @@ public sealed class SyncSession : IAsyncDisposable
         _pushTimer?.Dispose();
         _hintTimer.Dispose();
 
-        // Ordem importa: primeiro desliga a fonte de hints (remove o handler e fecha a conexão
-        // SignalR) para que nenhum OnHintAsync novo seja disparado; só então cancela e descarta o
-        // _cts. Isso fecha a janela em que um hint em voo leria um CTS já descartado.
-        _hints.WorkspaceChanged -= OnHintAsync;
-        await _hints.DisposeAsync();
-
+        // Cancelar ANTES de fechar o canal: o retry do connect roda em fundo e insiste para sempre, e
+        // sem o cancelamento ele chamaria ConnectAsync sobre um canal já descartado. Cancelar não é
+        // descartar — o _cts só some no fim do método, depois que ninguém mais lê o token.
         if (_cts is not null)
         {
             await _cts.CancelAsync();
         }
+
+        if (_connect is not null)
+        {
+            try
+            {
+                await _connect;
+            }
+            catch (OperationCanceledException)
+            {
+                // esperado no shutdown
+            }
+        }
+
+        // Desliga a fonte de hints (remove o handler e fecha a conexão SignalR) antes de descartar o
+        // _cts, para que nenhum OnHintAsync novo dispare um ciclo sobre um CTS em processo de descarte.
+        _hints.WorkspaceChanged -= OnHintAsync;
+        await _hints.DisposeAsync();
 
         if (_loop is not null)
         {
