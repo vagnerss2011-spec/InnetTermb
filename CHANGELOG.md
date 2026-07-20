@@ -4,6 +4,41 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-07-19
+
+### Corrigido
+
+Sync multi-device: o que era cadastrado num PC só aparecia no outro depois de fechar e abrir o app.
+Diagnóstico do sintoma reportado em campo (ambos os devices já na v1.3.2, então **não** era o bug de
+applier corrigido na v1.3.0). Ver `docs/superpowers/specs/2026-07-19-sync-tempo-real-resiliente-design.md`.
+
+- **Canal de tempo real morria em silêncio e nunca voltava.** `SyncHub.OnConnectedAsync` era um stub
+  (`_ = userId;`) e o grupo do SignalR é por `ConnectionId` — como toda reconexão gera ConnectionId
+  novo e o `JoinWorkspace` só era chamado no connect inicial, o cliente saía do grupo **para sempre**
+  na primeira oscilação de rede. O hub passa a fazer **auto-join** dos workspaces do usuário a cada
+  conexão: o join vira invariante do servidor, em vez de depender de o cliente lembrar.
+- **Nome de grupo divergente.** `JoinWorkspace` entrava no grupo com a string crua enquanto o
+  broadcast usa `Guid.ToString()` — um GUID em maiúsculas (caminho por env var) entrava num grupo que
+  nunca recebia nada. Canonicalizado no hub (join/leave/auto-join) e normalizado no cliente,
+  fail-closed; filtro do hint agora é `OrdinalIgnoreCase`.
+- **SignalR desistia de reconectar.** A política default para após 4 tentativas (~42s) e dispara
+  `Closed` sem handler. Substituída por `InfiniteRetryPolicy` (backoff com teto de 30s, nunca
+  desiste) + re-join no `Reconnected` + retry com backoff do connect inicial (antes era engolido:
+  falhou uma vez, ficava em polling puro pelo resto da sessão).
+- **O laço de polling podia morrer calado.** `RunLoopAsync` chamava `SyncOnceAsync` fora de
+  try/catch; uma exceção de assinante de `StatusChanged` (o `Dispatcher.Invoke` do Desktop) escapava
+  e encerrava o polling — a rede de segurança tinha o mesmo defeito que deveria cobrir. Blindado, com
+  retry curto (backoff 5s→40s, teto no intervalo) em vez de esperar o ciclo inteiro após erro.
+- **Rajada de mudanças = rajada de ciclos.** O servidor emite um hint por change, e o cliente
+  sincronizava a cada um: importar 200 hosts enfileirava ~200 ciclos completos no outro device, cada
+  um reenumerando o cofre. Agora uma janela de 500ms agrupa a rajada num único ciclo.
+- **Teto de atraso previsível:** polling de fallback de 2 min → **45s**.
+
+### Adicionado
+
+- Barra de sincronização mostra **"Tempo real"** vs **"Periódico"**, para diagnosticar em campo se a
+  rede está deixando o WebSocket passar sem depender de log (a URL do hub carrega o JWT — ADR-013).
+
 ## [1.3.2] - 2026-07-19
 
 ### Corrigido

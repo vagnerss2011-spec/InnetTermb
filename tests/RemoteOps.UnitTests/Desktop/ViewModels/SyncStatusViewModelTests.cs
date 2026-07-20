@@ -144,6 +144,40 @@ public sealed class SyncStatusViewModelTests
         Assert.False(vm.IsBusy);
     }
 
+    // ── Canal: tempo real x periódico ────────────────────────────────────────────────────
+
+    // O operador em campo não tem outro jeito de saber que a rede derrubou o WebSocket: a URL do hub
+    // carrega o JWT e não pode ir pro log (ADR-013). Sem este texto, "Sincronizado" parece igual nos
+    // dois mundos — e o teto de staleness muda de segundos pra 45s sem nenhum aviso.
+    [Fact]
+    public void ChannelText_Reflects_RealTime()
+    {
+        var vm = new SyncStatusViewModel(new FakeSyncController());
+
+        // Começa em "Periódico" de propósito: enquanto o canal não confirmou que subiu, prometer tempo
+        // real seria mentir justo no caso que o operador precisa enxergar.
+        Assert.Equal("Periódico", vm.ChannelText);
+
+        vm.SetRealTime(true);
+        Assert.Equal("Tempo real", vm.ChannelText);
+
+        vm.SetRealTime(false);
+        Assert.Equal("Periódico", vm.ChannelText);
+    }
+
+    [Fact]
+    public void SetRealTime_Notifies_The_Binding()
+    {
+        var vm = new SyncStatusViewModel(new FakeSyncController());
+        var changed = new List<string?>();
+        vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        vm.SetRealTime(true);
+
+        // ChannelText é derivado — sem o raise explícito o texto ficaria congelado na tela.
+        Assert.Contains(nameof(SyncStatusViewModel.ChannelText), changed);
+    }
+
     private static async Task WaitUntil(Func<bool> condition)
     {
         var sw = Stopwatch.StartNew();

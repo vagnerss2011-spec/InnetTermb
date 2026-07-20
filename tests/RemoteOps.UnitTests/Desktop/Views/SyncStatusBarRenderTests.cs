@@ -84,4 +84,18 @@ public sealed class SyncStatusBarRenderTests
         // Sem controlador: HasCloud = false, botão desabilitado — offline-first no shell.
         RenderShell(NewBrowser(new SyncStatusViewModel()));
     }
+
+    // O indicador de canal é controle NOVO na barra: tem que passar pelo layout real nos dois textos.
+    // Bug de XAML aqui (binding/StaticResource) compila liso e só aparece na tela do operador.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void StatusBar_Renders_Channel_Indicator(bool realTime)
+    {
+        var sync = new SyncStatusViewModel(new NoopController());
+        sync.Apply(new SyncStatus(SyncState.Synced));
+        sync.SetRealTime(realTime);
+
+        RenderShell(NewBrowser(sync));
+    }
 }

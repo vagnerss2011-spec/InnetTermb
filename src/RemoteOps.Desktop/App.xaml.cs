@@ -421,6 +421,14 @@ public partial class App : Application
         // reconciliar sobre uma VM/janela já em processo de encerramento.
         _syncReload?.Dispose();
 
+        // Desassina o estado do canal ANTES do dispose: derrubar o HubConnection dispara Closed, e não
+        // há nada que a UI possa fazer com essa notificação a esta altura. O handler já usa BeginInvoke
+        // (não bloqueia), então isto é a segunda linha de defesa, não a única.
+        if (_syncSession is not null)
+        {
+            _syncSession.Hints.RealTimeChanged -= OnSyncRealTimeChanged;
+        }
+
         try
         {
             _syncSession?.DisposeAsync().AsTask().GetAwaiter().GetResult();
@@ -519,6 +527,12 @@ public partial class App : Application
         // marshalado pro Dispatcher em OnSyncChangesApplied → _syncReload). StatusChanged só mexe numa
         // string; era ele, sozinho, que deixava o device B com a lista vazia até o relaunch.
         _syncSession.Orchestrator.ChangesApplied += OnSyncChangesApplied;
+
+        // Estado do canal na barra de sync. O sinal vem da thread do SignalR (Reconnected/Closed), daí
+        // o mesmo marshalling do StatusChanged. Assina ANTES do StartAsync: o connect roda em fundo e
+        // um canal que sobe rápido levantaria o evento antes de haver quem escutasse.
+        _syncSession.Hints.RealTimeChanged += OnSyncRealTimeChanged;
+        OnSyncRealTimeChanged(_syncSession.Hints.IsRealTime);
 
         // Fase 2, item B: liga o "Sincronizar agora" ao orquestrador DESTA sessão (push+pull), o que
         // também habilita os botões no shell (HasCloud vira true). Marshala pro Dispatcher — toca
@@ -784,6 +798,25 @@ public partial class App : Application
         });
     }
 
+    private void OnSyncRealTimeChanged(bool isRealTime)
+    {
+        WorkspaceViewModel? vm = _workspaceViewModel;
+        if (vm is null)
+        {
+            return;
+        }
+
+        // Mesmo marshalling do OnSyncStatusChanged: o evento nasce na thread do SignalR e aqui se toca
+        // binding de UI. Nada do estado do canal vai pro log — a URL do hub leva o JWT (ADR-013).
+        //
+        // BeginInvoke (assíncrono), NÃO Invoke: no OnExit a UI thread BLOQUEIA esperando o
+        // DisposeAsync da sessão, que derruba o HubConnection e dispara Closed → SetRealTime(false)
+        // → este handler. Com Invoke isso seria um deadlock de fechamento — a mesma armadilha que o
+        // FlushOutboxOnClose já documenta e evita com Task.Run. Aqui o estado do canal é puramente
+        // informativo: se a janela já está indo embora, perder a última atualização não custa nada.
+        Dispatcher.BeginInvoke(() => vm.Browser.Sync.SetRealTime(isRealTime));
+    }
+
     private static string FormatStatus(SyncStatus status) => status.State switch
     {
         SyncState.Offline => "Offline",
@@ -811,13 +844,18 @@ public partial class App : Application
         }
 
         string? url = Environment.GetEnvironmentVariable("REMOTEOPS_CLOUD_URL");
-        string? workspaceId = Environment.GetEnvironmentVariable("REMOTEOPS_CLOUD_WORKSPACE_ID");
         if (string.IsNullOrWhiteSpace(url)
             || !Uri.TryCreate(url, UriKind.Absolute, out Uri? baseUrl)
-            || baseUrl.Scheme != Uri.UriSchemeHttps
-            || string.IsNullOrWhiteSpace(workspaceId))
+            || baseUrl.Scheme != Uri.UriSchemeHttps)
         {
             return false; // exige HTTPS — fail-closed: URL http:// não liga o sync (ADR-013)
+        }
+
+        string? workspaceId = NormalizeWorkspaceId(
+            Environment.GetEnvironmentVariable("REMOTEOPS_CLOUD_WORKSPACE_ID"));
+        if (workspaceId is null)
+        {
+            return false;
         }
 
         options = new SyncSessionOptions
@@ -831,6 +869,19 @@ public partial class App : Application
         };
         return true;
     }
+
+    /// <summary>
+    /// Devolve o workspaceId no formato CANÔNICO ("D" minúsculo) ou <c>null</c> se não for GUID.
+    ///
+    /// <para>O grupo do SignalR é uma string case-sensitive e o servidor faz o broadcast com
+    /// <c>Guid.ToString()</c>: um id em maiúsculas vindo de variável de ambiente entraria num grupo que
+    /// nunca recebe hint — o tempo real morreria sem nenhum sinal, e o operador só veria "demora". O
+    /// caminho da CONTA já é imune (o workspaceId vem da sessão do servidor); isto cobre o caminho
+    /// legado por env var. Fail-closed: id inválido desliga o sync em vez de sincronizar contra um
+    /// workspace errado.</para>
+    /// </summary>
+    internal static string? NormalizeWorkspaceId(string? raw)
+        => Guid.TryParse(raw, out Guid id) ? id.ToString() : null;
 
     private static Guid GetOrCreateDeviceId(string dataDir)
     {

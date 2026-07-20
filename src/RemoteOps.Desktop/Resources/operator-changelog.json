@@ -1,6 +1,15 @@
 {
   "entries": [
     {
+      "version": "1.4.0",
+      "date": "2026-07-19",
+      "highlights": [
+        "O que você cadastra num computador agora aparece no outro em segundos — antes era preciso fechar e abrir o app. A causa era dupla: o canal de tempo real saía do ar em silêncio na primeira oscilação de rede e nunca mais voltava, e sem ele o app só ia procurar novidades a cada 2 minutos.",
+        "O que mudou por baixo: (1) o servidor passou a garantir a inscrição do computador a cada conexão, então uma queda de rede não desliga mais o tempo real; (2) o app reconecta indefinidamente em vez de desistir depois de meio minuto; (3) a verificação periódica caiu de 2 minutos para 45 segundos e virou só rede de segurança; (4) essa verificação não pode mais parar sozinha e em silêncio, como podia antes; (5) cadastrar muita coisa de uma vez deixou de disparar centenas de sincronizações em fila no outro computador.",
+        "A barra de sincronização agora mostra se você está em 'Tempo real' ou em 'Periódico' — dá pra saber na hora se a rede está deixando o tempo real passar, sem precisar abrir log."
+      ]
+    },
+    {
       "version": "1.3.2",
       "date": "2026-07-19",
       "highlights": [

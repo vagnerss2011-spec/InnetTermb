@@ -24,6 +24,11 @@ public sealed class SyncStatusViewModel : BaseViewModel
     private int _conflictCount;
     private bool _isBusy;
 
+    // Começa em false: enquanto o canal de hints não confirmou que subiu, o que vale é o laço por
+    // intervalo. Prometer tempo real antes da confirmação mentiria justo no caso que o operador
+    // precisa enxergar — a rede que bloqueia WebSocket.
+    private bool _isRealTime;
+
     public SyncStatusViewModel(ISyncController? controller = null)
     {
         _controller = controller;
@@ -79,6 +84,41 @@ public sealed class SyncStatusViewModel : BaseViewModel
         SyncState.Error => "Não foi possível sincronizar. Verifique a conexão e clique para tentar de novo.",
         _ => "Offline",
     };
+
+    /// <summary>
+    /// Como as alterações da outra ponta chegam AGORA: pelo canal de hints ("Tempo real") ou só no
+    /// próximo tick do laço ("Periódico"). Fica ao lado do status porque "Sincronizado" tem a mesma
+    /// cara nos dois mundos, enquanto o atraso máximo pula de segundos para dezenas deles.
+    ///
+    /// <para>É a ÚNICA pista que o operador tem em campo: a URL do hub carrega o JWT e por isso não
+    /// pode ir para o log (ADR-013) — um canal derrubado por firewall não deixaria outro rastro.</para>
+    /// </summary>
+    public string ChannelText => _isRealTime ? "Tempo real" : "Periódico";
+
+    /// <summary>Detalhe do canal (tooltip) — explica ao operador o que muda na prática.</summary>
+    public string ChannelDetail => _isRealTime
+        ? "As alterações feitas nos outros computadores chegam em segundos."
+        : "Sem canal em tempo real — as alterações chegam na próxima verificação periódica.";
+
+    /// <summary>
+    /// Reflete o estado do canal de hints. Quem chama (o App, a partir do <c>RealTimeChanged</c>, que
+    /// vem da thread do SignalR) DEVE marshalar pro Dispatcher antes — mesma disciplina do
+    /// <see cref="Apply"/>.
+    /// </summary>
+    public void SetRealTime(bool value)
+    {
+        if (_isRealTime == value)
+        {
+            return;
+        }
+
+        _isRealTime = value;
+
+        // Os dois são DERIVADOS de _isRealTime: sem o raise explícito o texto congelaria na tela
+        // (Set() avisaria sobre o campo, que não tem binding nenhum).
+        RaisePropertyChanged(nameof(ChannelText));
+        RaisePropertyChanged(nameof(ChannelDetail));
+    }
 
     /// <summary>
     /// Liga o controlador real quando o sync sobe (o App chama depois de criar a sessão). Vira o
