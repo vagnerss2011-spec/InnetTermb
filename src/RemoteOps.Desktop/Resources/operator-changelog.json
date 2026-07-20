@@ -1,6 +1,14 @@
 {
   "entries": [
     {
+      "version": "1.4.1",
+      "date": "2026-07-19",
+      "highlights": [
+        "Corrigido o problema em que o app não abria e parecia exigir reiniciar o computador. Eram duas falhas em sequência: ao fechar, o RemoteOps podia ficar pendurado esperando a conexão de sincronização soltar; e um RemoteOps pendurado segura a trava de 'só uma cópia aberta', então toda tentativa de abrir de novo encerrava sem mostrar nada na tela.",
+        "Agora o fechamento tem tempo limite — o app sempre termina de fato. E se ainda assim houver uma cópia travada, abrir o RemoteOps mostra uma mensagem explicando o que fazer (finalizar RemoteOps.Desktop.exe no Gerenciador de Tarefas), em vez de simplesmente não acontecer nada. Reiniciar o computador deixou de ser necessário."
+      ]
+    },
+    {
       "version": "1.4.0",
       "date": "2026-07-19",
       "highlights": [

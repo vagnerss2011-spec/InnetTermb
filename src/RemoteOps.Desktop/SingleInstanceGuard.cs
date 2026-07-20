@@ -18,7 +18,9 @@ public sealed class SingleInstanceGuard : IDisposable
 
     private readonly Mutex _mutex;
     private readonly string _signalName;
+    private readonly string _ackName;
     private EventWaitHandle? _signal;
+    private EventWaitHandle? _ack;
     private Thread? _listener;
     private volatile bool _disposed;
 
@@ -27,6 +29,8 @@ public sealed class SingleInstanceGuard : IDisposable
     public SingleInstanceGuard(string? mutexName = null, string? signalName = null)
     {
         _signalName = signalName ?? DefaultSignalName;
+        // Derivado do nome do sinal para os testes (que passam nomes únicos) não colidirem.
+        _ackName = _signalName + ".ack";
         _mutex = new Mutex(initiallyOwned: true, mutexName ?? DefaultMutexName, out bool createdNew);
         IsFirstInstance = createdNew;
     }
@@ -53,6 +57,45 @@ public sealed class SingleInstanceGuard : IDisposable
     }
 
     /// <summary>
+    /// Sinaliza a primeira instância e ESPERA a confirmação de que ela realmente trouxe a janela para
+    /// frente. Devolve <c>false</c> se não houve confirmação dentro de <paramref name="timeout"/>.
+    ///
+    /// <para>Por que a confirmação importa: entregar o sinal só prova que o processo existe, não que ele
+    /// está SAUDÁVEL. Um RemoteOps com a UI thread pendurada continua segurando o mutex e continua
+    /// recebendo o evento — mas a janela nunca sobe. Como a segunda instância encerrava em silêncio
+    /// nesse caso, o operador clicava no ícone e não acontecia NADA, sem nenhuma explicação; a única
+    /// saída que ele encontrava era reiniciar o Windows. Com o handshake, quem chama consegue
+    /// distinguir "já está aberto, trouxe pra frente" de "tem um processo travado ali" e dizer isso ao
+    /// usuário.</para>
+    /// </summary>
+    public bool SignalExistingInstanceAndWait(TimeSpan timeout)
+    {
+        try
+        {
+            if (!EventWaitHandle.TryOpenExisting(_ackName, out EventWaitHandle? ack))
+            {
+                // Sem canal de confirmação: instância antiga (pré-handshake) ou listener não registrado.
+                return false;
+            }
+
+            using (ack)
+            {
+                ack.Reset(); // descarta confirmação velha de uma tentativa anterior
+                if (!SignalExistingInstance())
+                {
+                    return false;
+                }
+
+                return ack.WaitOne(timeout);
+            }
+        }
+        catch (WaitHandleCannotBeOpenedException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Chamado só pela PRIMEIRA instância: registra o listener. <paramref name="onActivate"/> roda
     /// numa thread de fundo sempre que outra instância tenta abrir — o chamador deve fazer o marshal
     /// para a UI thread (Dispatcher).
@@ -61,6 +104,11 @@ public sealed class SingleInstanceGuard : IDisposable
     {
         ArgumentNullException.ThrowIfNull(onActivate);
         _signal = new EventWaitHandle(initialState: false, EventResetMode.AutoReset, _signalName);
+
+        // Manual reset: quem sinaliza dá Reset antes de pedir, então o estado não "vaza" entre
+        // tentativas, e uma confirmação não some se a outra ponta demorar um instante pra esperar.
+        _ack = new EventWaitHandle(initialState: false, EventResetMode.ManualReset, _ackName);
+
         _listener = new Thread(() =>
         {
             while (!_disposed)
@@ -69,7 +117,11 @@ public sealed class SingleInstanceGuard : IDisposable
                 {
                     if (_signal.WaitOne(500) && !_disposed)
                     {
+                        // A confirmação vem DEPOIS de onActivate retornar: é isso que a torna prova de
+                        // vida. Se a UI thread estiver pendurada, o Dispatcher.Invoke aqui dentro não
+                        // retorna, o ack nunca é setado, e a outra instância avisa o usuário.
                         onActivate();
+                        _ack.Set();
                     }
                 }
                 catch (ObjectDisposedException)
@@ -105,6 +157,7 @@ public sealed class SingleInstanceGuard : IDisposable
         }
 
         _signal?.Dispose();
+        _ack?.Dispose();
 
         if (IsFirstInstance)
         {
