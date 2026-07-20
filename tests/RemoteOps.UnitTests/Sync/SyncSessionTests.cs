@@ -14,10 +14,13 @@ public sealed class SyncSessionTests
     {
         var api = new FakeCloudSyncApi();
         var hints = new FakeSyncHintChannel();
-        await using var session = new SyncSession(Orchestrator(api), hints, "ws-1", TimeSpan.FromHours(1));
+        await using var session = new SyncSession(
+            Orchestrator(api), hints, "ws-1", TimeSpan.FromHours(1),
+            hintDebounce: TimeSpan.FromMilliseconds(20));
 
         await hints.RaiseAsync(new WorkspaceChangedHint("ws-1", 5, "asset", "e1"));
 
+        await WaitUntilAsync(() => api.Pulls.Count > 0);
         Assert.NotEmpty(api.Pulls);
     }
 
@@ -26,11 +29,53 @@ public sealed class SyncSessionTests
     {
         var api = new FakeCloudSyncApi();
         var hints = new FakeSyncHintChannel();
-        await using var session = new SyncSession(Orchestrator(api), hints, "ws-1", TimeSpan.FromHours(1));
+        await using var session = new SyncSession(
+            Orchestrator(api), hints, "ws-1", TimeSpan.FromHours(1),
+            hintDebounce: TimeSpan.FromMilliseconds(20));
 
         await hints.RaiseAsync(new WorkspaceChangedHint("ws-OTHER", 5, "asset", "e1"));
 
+        await Task.Delay(100); // tempo de sobra para um sync indevido aparecer
         Assert.Empty(api.Pulls);
+    }
+
+    // O id do workspace trafega como string e já houve divergência de grafia entre o caminho env-var
+    // (GUID cru) e o broadcast do servidor (formato "D" minúsculo). Comparar com Ordinal descartava o
+    // hint legítimo em silêncio — o device só via a novidade no próximo tick do laço.
+    [Fact]
+    public async Task Hint_With_Different_Case_Is_Accepted()
+    {
+        var api = new FakeCloudSyncApi();
+        var hints = new FakeSyncHintChannel();
+        await using var session = new SyncSession(
+            Orchestrator(api), hints, "ws-1", TimeSpan.FromHours(1),
+            hintDebounce: TimeSpan.FromMilliseconds(20));
+
+        await hints.RaiseAsync(new WorkspaceChangedHint("WS-1", 5, "asset", "e1"));
+
+        await WaitUntilAsync(() => api.Pulls.Count > 0);
+        Assert.NotEmpty(api.Pulls);
+    }
+
+    // Servidor emite 1 hint por change: importar 200 hosts viraria ~200 ciclos completos enfileirados.
+    // A janela de debounce agrupa a rajada num único ciclo.
+    [Fact]
+    public async Task Hint_Burst_Coalesces_Into_Single_Sync()
+    {
+        var api = new FakeCloudSyncApi();
+        var hints = new FakeSyncHintChannel();
+        await using var session = new SyncSession(
+            Orchestrator(api), hints, "ws-1", TimeSpan.FromHours(1),
+            hintDebounce: TimeSpan.FromMilliseconds(120));
+
+        for (int i = 0; i < 25; i++)
+        {
+            await hints.RaiseAsync(new WorkspaceChangedHint("ws-1", i, "asset", $"e{i}"));
+        }
+
+        await WaitUntilAsync(() => api.Pulls.Count > 0);
+        await Task.Delay(250); // deixa a janela fechar de vez
+        Assert.Single(api.Pulls);
     }
 
     [Fact]

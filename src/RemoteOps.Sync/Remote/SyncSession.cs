@@ -28,6 +28,13 @@ public sealed class SyncSession : IAsyncDisposable
 
     private readonly TimeSpan _errorRetry;
 
+    // ── Debounce do hint ────────────────────────────────────────────────────────────────────
+    // Timer PRÓPRIO, e não o _pushTimer: aquele só existe quando há fonte local de mudanças, enquanto
+    // o hint vem do servidor sempre. Janela curta (o hint é o caminho de tempo real), só o bastante
+    // pra colapsar a rajada de um import.
+    private readonly TimeSpan _hintDebounce;
+    private readonly Timer _hintTimer;
+
     private CancellationTokenSource? _cts;
     private Task? _loop;
     private bool _disposed;
@@ -39,8 +46,10 @@ public sealed class SyncSession : IAsyncDisposable
         TimeSpan interval,
         ISyncClient? localChanges = null,
         TimeSpan? pushDebounce = null,
-        TimeSpan? errorRetry = null)
+        TimeSpan? errorRetry = null,
+        TimeSpan? hintDebounce = null)
     {
+
         _orchestrator = orchestrator;
         _hints = hints;
         _workspaceId = workspaceId;
@@ -52,6 +61,11 @@ public sealed class SyncSession : IAsyncDisposable
         // blip de rede custava minutos de atraso. Com o retry curto o erro transitório se resolve em
         // segundos, e o backoff evita martelar um servidor que está fora de verdade.
         _errorRetry = errorRetry ?? TimeSpan.FromSeconds(5);
+
+        // 500ms: imperceptível pra quem espera a novidade aparecer na outra ponta, e ainda assim
+        // suficiente pra engolir a rajada inteira de um import (o servidor emite um hint POR mudança).
+        _hintDebounce = hintDebounce ?? TimeSpan.FromMilliseconds(500);
+        _hintTimer = new Timer(_ => OnHintDebounceElapsed(), state: null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _hints.WorkspaceChanged += OnHintAsync;
 
         if (_localChanges is not null)
@@ -148,9 +162,10 @@ public sealed class SyncSession : IAsyncDisposable
 
     private async Task RunPushSyncAsync()
     {
-        // Mesma captura defensiva do CTS que OnHintAsync: um sinal em voo pode chegar concorrente ao
-        // DisposeAsync, que descarta o _cts. _cts == null = ainda não iniciado (sync com token None,
-        // best-effort); getter que lança ObjectDisposedException = em shutdown → ignora.
+        // Captura defensiva do CTS: um sinal em voo — edição local OU hint do servidor, ambos disparam
+        // por aqui — pode chegar concorrente ao DisposeAsync, que descarta o _cts. _cts == null = ainda
+        // não iniciado (sync com token None, best-effort); getter que lança ObjectDisposedException =
+        // em shutdown → ignora.
         CancellationTokenSource? cts = _cts;
         CancellationToken token;
         if (cts is null)
@@ -187,48 +202,45 @@ public sealed class SyncSession : IAsyncDisposable
         }
     }
 
-    private async Task OnHintAsync(WorkspaceChangedHint hint)
+    private Task OnHintAsync(WorkspaceChangedHint hint)
     {
-        if (!string.Equals(hint.WorkspaceId, _workspaceId, StringComparison.Ordinal))
+        // OrdinalIgnoreCase: o id trafega como string e já houve divergência de grafia entre o caminho
+        // env-var (GUID cru, que o operador pode ter colado em maiúsculas) e o broadcast do servidor
+        // (formato "D" minúsculo). Comparar diferenciando caixa descartava um hint LEGÍTIMO em silêncio.
+        if (!string.Equals(hint.WorkspaceId, _workspaceId, StringComparison.OrdinalIgnoreCase))
         {
-            return;
+            return Task.CompletedTask;
         }
 
-        // Captura o CTS num local: um hint em voo pode chegar concorrente ao DisposeAsync, que
-        // descarta o _cts. Ler _cts.Token depois do Dispose lançaria ObjectDisposedException num Task
-        // órfão (o SignalR invoca este handler fora do nosso controle). _cts == null significa "ainda
-        // não iniciado" (sync best-effort com token None, comportamento preservado); já um getter Token
-        // que lança ObjectDisposedException significa "em shutdown" → ignora.
-        CancellationTokenSource? cts = _cts;
-        CancellationToken token;
-        if (cts is null)
+        // NÃO sincroniza aqui: o servidor emite UM hint POR mudança, então importar 200 hosts na outra
+        // ponta enfileiraria ~200 ciclos completos no gate do orquestrador, cada um re-enumerando o
+        // cofre. (Re)arma a janela; quando os hints PARAM, roda um ciclo só.
+        lock (_pushGate)
         {
-            token = CancellationToken.None;
-        }
-        else
-        {
-            try
+            if (_disposed)
             {
-                token = cts.Token;
+                return Task.CompletedTask;
             }
-            catch (ObjectDisposedException)
+
+            _hintTimer.Change(_hintDebounce, Timeout.InfiniteTimeSpan);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private void OnHintDebounceElapsed()
+    {
+        lock (_pushGate)
+        {
+            if (_disposed)
             {
-                return; // sessão descartada concorrentemente — hint best-effort, ignora.
+                return;
             }
         }
 
-        try
-        {
-            await _orchestrator.SyncOnceAsync(token);
-        }
-        catch (ObjectDisposedException)
-        {
-            // Sessão sendo descartada concorrentemente — hint é best-effort, ignora.
-        }
-        catch (OperationCanceledException)
-        {
-            // Shutdown — esperado.
-        }
+        // Reaproveita o caminho guardado do push-ao-mudar: mesma captura defensiva do CTS e mesma
+        // regra de engolir tudo — o disparo do hint é fire-and-forget e não pode virar exceção órfã.
+        _ = RunPushSyncAsync();
     }
 
     private async Task RunLoopAsync(CancellationToken ct)
@@ -288,8 +300,8 @@ public sealed class SyncSession : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        // Fecha a fonte de push-ao-mudar primeiro: remove o handler e para o timer para que nenhum
-        // OnPushDebounceElapsed novo dispare um SyncOnceAsync sobre um _cts em processo de descarte.
+        // Fecha os gatilhos debounced primeiro (push-ao-mudar e hint): marca o flag e para os timers,
+        // para que nenhuma janela em voo dispare um SyncOnceAsync sobre um _cts em processo de descarte.
         lock (_pushGate)
         {
             _disposed = true;
@@ -301,6 +313,7 @@ public sealed class SyncSession : IAsyncDisposable
         }
 
         _pushTimer?.Dispose();
+        _hintTimer.Dispose();
 
         // Ordem importa: primeiro desliga a fonte de hints (remove o handler e fecha a conexão
         // SignalR) para que nenhum OnHintAsync novo seja disparado; só então cancela e descarta o
