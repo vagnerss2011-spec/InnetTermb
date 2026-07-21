@@ -4,6 +4,43 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ## [Unreleased]
 
+## [1.4.7] - 2026-07-21
+
+**Fatia 0** do recurso de times compartilhados (ver
+`docs/superpowers/specs/2026-07-20-times-compartilhados-design.md`). Os dois defeitos valem sozinhos —
+a revogação que não propagava é falha de segurança real, independente de equipe.
+
+### Corrigido
+
+- **Revogação de senha não propagava entre devices (segurança).** Ao trocar/revogar uma senha, o
+  envelope antigo era tombstoneado **só localmente**: `IsSyncable` exigia `RevokedAt is null` e o
+  servidor recusava material vazio (`SecretsService.Decode`). O segredo antigo ficava **vivo e
+  decifrável no disco do outro device, para sempre**. Contrato de tombstone ponta a ponta: `RevokedAt`
+  opcional no DTO e na entidade (migração aditiva), `allowEmpty` **apenas** para tombstone, codec
+  levando a marca, e o device que recebe zera o material.
+  - `TombstoneAsync` passou a gravar `Version + 1`: nascendo na mesma versão, a lápide era barrada
+    **duas vezes** antes do fio (o ledger `secrets_pushed` pula `sentVersion >= Version`, e o servidor
+    recusa por monotonicidade). Sem isso a correção não funcionaria.
+  - **Nunca ressuscita:** guarda no servidor (`envelope.revoked`) e no cliente para o caso de **mesma
+    versão**, que o guarda `>` não cobria.
+- **Limite de 900 assets** (`GetAssetsAsync` lançava por causa do teto de 999 variáveis do SQLite).
+  Endpoints passam a ser buscados em **lotes de 500**. Estourava no "Reenviar tudo" e em varreduras de
+  workspace inteiro — a lista diária consulta por grupo e nunca encostou. O operador tem ~700 devices.
+
+### Compatibilidade (matriz conferida na revisão)
+
+- `IsSyncable` foi **estritamente ampliado**: tudo que subia antes continua subindo.
+- **v1.4.6 → servidor novo:** caminho idêntico ao atual; ao receber um tombstone, grava o material
+  zerado que desce junto — o segredo deixa de abrir lá mesmo sem entender a marca.
+- **v1.4.7 → servidor antigo:** o push do tombstone leva 400 e é **isolado por item** (entra em
+  `SecretSyncReport.skipped`); os envelopes sadios seguem. ⚠️ **Sequenciar: backend primeiro, cliente
+  depois** — a revogação só propaga de fato com o servidor atualizado.
+
+### Testes
+
+**1228** (+~25). Inclui prova por **mutação** no chunking (trocar o índice do lote faz o teste falhar) e
+um E2E que **abre o cofre no device B e exige falha de decifração** — não se contenta com a marca.
+
 ## [1.4.6] - 2026-07-20
 
 ### Adicionado

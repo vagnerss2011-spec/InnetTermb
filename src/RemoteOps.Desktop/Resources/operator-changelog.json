@@ -1,6 +1,15 @@
 {
   "entries": [
     {
+      "version": "1.4.7",
+      "date": "2026-07-21",
+      "highlights": [
+        "CORRIGIDO (segurança): trocar ou revogar uma senha agora APAGA a senha antiga também no outro computador. Antes, a senha nova sincronizava mas a antiga continuava viva e decifrável no disco do outro PC — para sempre. Quem já usa a nuvem em dois computadores deve saber: senhas trocadas ANTES desta versão podem ter deixado resíduo no outro PC; a partir daqui isso não acontece mais.",
+        "CORRIGIDO: existia um limite interno de 900 equipamentos que fazia o 'Reenviar tudo para a nuvem' falhar. Quem tem centenas de equipamentos estava perto de esbarrar nele. Agora não há mais limite — os dados são buscados em lotes.",
+        "Estes dois são a preparação para o recurso de EQUIPE (convidar pessoas por e-mail para um cofre compartilhado), mas valem por si: a revogação que não propagava era uma falha de segurança real, independente de equipe."
+      ]
+    },
+    {
       "version": "1.4.6",
       "date": "2026-07-20",
       "highlights": [
