@@ -49,4 +49,14 @@ public sealed class SecretEnvelopeEntity
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? UpdatedAt { get; set; }
     public DateTimeOffset? RotatedAt { get; set; }
+
+    /// <summary>
+    /// Quando preenchido, o envelope está REVOGADO: o cliente trocou/apagou a senha e subiu a
+    /// lápide com o material zerado. O servidor não interpreta o motivo — só propaga a marca, que é
+    /// o que faz o outro device apagar a cópia dele.
+    ///
+    /// <para>É um caminho SÓ DE IDA: um upsert vivo por cima de um envelope revogado é recusado
+    /// (<c>envelope.revoked</c>), senão a senha velha voltaria a existir em todos os devices.</para>
+    /// </summary>
+    public DateTimeOffset? RevokedAt { get; set; }
 }

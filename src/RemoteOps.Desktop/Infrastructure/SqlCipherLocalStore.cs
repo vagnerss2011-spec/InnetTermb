@@ -147,6 +147,23 @@ public sealed class SqlCipherLocalStore : ILocalStore
 
     // ── Ativos ───────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Quantos ids de ativo entram em cada <c>IN (...)</c> da busca de endpoints.
+    ///
+    /// <para><b>Por que existe:</b> o SQLite limita as variáveis vinculadas a 999
+    /// (SQLITE_LIMIT_VARIABLE_NUMBER) e a versão anterior montava um único <c>IN</c> com um
+    /// parâmetro por id — acima de 900 ativos o método simplesmente LANÇAVA. Era bomba armada: o
+    /// operador tem ~700 em produção. Estoura em qualquer varredura de workspace inteiro, e a
+    /// primeira a bater é o "Reenviar tudo para a nuvem" (<c>CloudResyncService</c>); a lista do dia
+    /// a dia consulta por grupo e não encosta no teto.</para>
+    ///
+    /// <para>500 fica bem abaixo do limite (folga para o dia em que a consulta ganhar outro
+    /// parâmetro) e o resultado é idêntico ao do <c>IN</c> único: cada ativo cai em exatamente um
+    /// lote, então nenhum endpoint se perde nem troca de dono, e a ordem por <c>id ASC</c> dentro do
+    /// ativo continua vindo pronta do banco.</para>
+    /// </summary>
+    private const int EndpointBatchSize = 500;
+
     public async Task<IReadOnlyList<Asset>> GetAssetsAsync(
         string workspaceId, string? groupId = null, CancellationToken ct = default)
     {
@@ -178,28 +195,26 @@ public sealed class SqlCipherLocalStore : ILocalStore
         if (rows.Count == 0)
             return [];
 
-        // SQLite limits bound variable count to 999 (SQLITE_LIMIT_VARIABLE_NUMBER).
-        if (rows.Count > 900)
-            throw new InvalidOperationException(
-                $"GetAssetsAsync: workspace contains {rows.Count} assets; batch retrieval not yet supported (limit 900).");
-
-        // Phase 2: fetch endpoints for those assets (single IN query, all params bound)
+        // Phase 2: fetch endpoints for those assets — em LOTES (ver EndpointBatchSize), all params bound
         var endpointsByAsset = new Dictionary<string, List<Endpoint>>(rows.Count);
         foreach (AssetRow row in rows)
             endpointsByAsset[row.Id] = [];
 
-        using SqliteCommand epCmd = conn.CreateCommand();
-        string inClause = string.Join(",", Enumerable.Range(0, rows.Count).Select(i => $"$a{i}"));
-        epCmd.CommandText = $"""
-            SELECT id, asset_id, protocol, fqdn, ipv4, ipv6, port, prefer_ipv6,
-                   credential_ref_id, profile_json, version
-            FROM endpoints WHERE asset_id IN ({inClause}) ORDER BY id ASC
-            """;
-        for (int i = 0; i < rows.Count; i++)
-            epCmd.Parameters.AddWithValue($"$a{i}", rows[i].Id);
-
-        using (SqliteDataReader r = await epCmd.ExecuteReaderAsync(ct))
+        for (int offset = 0; offset < rows.Count; offset += EndpointBatchSize)
         {
+            int batchSize = Math.Min(EndpointBatchSize, rows.Count - offset);
+
+            using SqliteCommand epCmd = conn.CreateCommand();
+            string inClause = string.Join(",", Enumerable.Range(0, batchSize).Select(i => $"$a{i}"));
+            epCmd.CommandText = $"""
+                SELECT id, asset_id, protocol, fqdn, ipv4, ipv6, port, prefer_ipv6,
+                       credential_ref_id, profile_json, version
+                FROM endpoints WHERE asset_id IN ({inClause}) ORDER BY id ASC
+                """;
+            for (int i = 0; i < batchSize; i++)
+                epCmd.Parameters.AddWithValue($"$a{i}", rows[offset + i].Id);
+
+            using SqliteDataReader r = await epCmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
             {
                 Endpoint ep = ReadEndpoint(r);

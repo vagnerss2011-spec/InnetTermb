@@ -398,24 +398,106 @@ public sealed class SecretSyncOrchestratorTests
         }
     }
 
+    // ── Revogação ────────────────────────────────────────────────────────────────────────
+
     /// <summary>
-    /// Envelope revogado (tombstone) não sobe. Não é preferência: o tombstone zera o material, e o
-    /// backend real recusa base64 vazio — subir daria erro de servidor a cada ciclo, pra sempre.
+    /// <b>A falha de segurança que esta fatia fecha.</b> Ao trocar/revogar uma senha, o envelope
+    /// antigo virava tombstone SÓ no PC onde a troca aconteceu. No outro device ele continuava vivo
+    /// e DECIFRÁVEL no disco, para sempre — resíduo de senha velha em N máquinas a cada troca.
+    ///
+    /// <para>Aqui a revogação sobe, desce e MATA o segredo no device B: o teste não se contenta com
+    /// a marca <c>RevokedAt</c>, ele exige que abrir o envelope lá deixe de funcionar.</para>
     /// </summary>
     [Fact]
-    public async Task EnvelopeRevogado_NaoSobe()
+    public async Task Revogacao_Propaga_EODeviceBDeixaDeDecifrar()
     {
         string ws = NewServerWorkspace();
         var api = new FakeSecretsApi();
 
         using var deviceA = new SecretSyncDevice("A", Amk, api, ws);
-        SecretEnvelope env = await deviceA.SealAsync("c1", "segredo-1");
-        await deviceA.Vault.RevokeAsync(env.EnvelopeId, new VaultAccessContext { ActorUserId = "op" });
-
+        SecretEnvelope env = await deviceA.SealAsync("c1", "senha-velha");
         await deviceA.Secrets.SyncOnceAsync();
 
-        Assert.Empty(api.Accepted);
-        Assert.Empty(api.UpsertAttempts);
+        using var deviceB = new SecretSyncDevice("B", Amk, api, ws);
+        await deviceB.Secrets.SyncOnceAsync();
+        using (VaultSecret antes = await deviceB.OpenAsync(env.EnvelopeId))
+        {
+            Assert.Equal("senha-velha", antes.RevealString()); // o B realmente tinha a senha
+        }
+
+        await deviceA.Vault.RevokeAsync(env.EnvelopeId, new VaultAccessContext { ActorUserId = "op" });
+        await deviceA.Secrets.SyncOnceAsync();
+        await deviceB.Secrets.SyncOnceAsync();
+
+        SecretEnvelope noB = Assert.Single(await deviceB.ListAsync());
+        Assert.NotNull(noB.RevokedAt);
+        Assert.Empty(noB.Ciphertext);
+        await Assert.ThrowsAsync<VaultException>(() => deviceB.OpenAsync(env.EnvelopeId));
+
+        // E a lápide não vira churn: com ela no ledger, nenhum dos dois insiste no POST a cada
+        // ciclo. Um tombstone que re-sobe para sempre seria o preço escondido desta correção.
+        int tentativas = api.UpsertAttempts.Count;
+        await deviceA.Secrets.SyncOnceAsync();
+        await deviceB.Secrets.SyncOnceAsync();
+        Assert.Equal(tentativas, api.UpsertAttempts.Count);
+    }
+
+    /// <summary>
+    /// Envelope ainda enraizado em DPAPI não tem tombstone que valha: o vivo dele nunca subiu, então
+    /// a revogação também não sobe. Subir criaria no servidor uma lápide de um envelope que nenhum
+    /// outro device jamais teve — cursor queimado à toa.
+    /// </summary>
+    [Fact]
+    public async Task RevogacaoDeEnvelopeDpapi_NaoSobe()
+    {
+        string ws = NewServerWorkspace();
+        var api = new FakeSecretsApi();
+
+        string dir = Path.Combine(Path.GetTempPath(), $"remoteops-revdpapi-{Guid.NewGuid():n}");
+        try
+        {
+            var store = new FileVaultStore(Path.Combine(dir, "vault.json"));
+            using var keyRing = new AmkWorkspaceKeyRing(Amk);
+            var vault = new CredentialVault(store, keyRing, NullVaultAuditSink.Instance);
+
+            SecretEnvelope amkEnv = await vault.StoreAsync(
+                new VaultStoreRequest
+                {
+                    WorkspaceId = SecretSyncDevice.VaultWorkspaceId,
+                    CredentialId = "c1",
+                    Type = "password",
+                    ActorUserId = "op",
+                },
+                "segredo".AsMemory());
+
+            // Um envelope pré-migração já revogado: mesmo cofre, carimbo da raiz antiga.
+            await store.SaveAsync(amkEnv with
+            {
+                EnvelopeId = Guid.NewGuid().ToString("n"),
+                CredentialId = "c-legado",
+                Algorithm = VaultAlgorithms.DpapiRootedV1,
+                RevokedAt = DateTimeOffset.UtcNow,
+                WrappedCek = [],
+                CekNonce = [],
+                CekTag = [],
+                Ciphertext = [],
+                Nonce = [],
+                Tag = [],
+            });
+
+            var orchestrator = new SecretSyncOrchestrator(
+                ws, SecretSyncDevice.VaultWorkspaceId, store, api, new FakeSyncMetadataStore());
+            await orchestrator.SyncOnceAsync();
+
+            Assert.Single(api.Accepted); // só o AMK-rooted vivo
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
     }
 
     /// <summary>
@@ -467,6 +549,38 @@ public sealed class SecretSyncOrchestratorTests
                 Directory.Delete(dir, recursive: true);
             }
         }
+    }
+
+    /// <summary>
+    /// <b>O cenário que RESSUSCITARIA a senha.</b> O guarda de downgrade só protege
+    /// <c>existing.Version &gt; incoming.Version</c> — e uma cópia viva pode chegar na MESMA versão
+    /// do tombstone (cliente antigo que não fala revogação, réplica atrasada, servidor adulterado).
+    /// Aplicá-la devolveria o material antigo ao disco e a senha revogada voltaria a abrir AQUI.
+    ///
+    /// <para>Revogação é terminal: uma vez lápide, nunca mais cópia viva.</para>
+    /// </summary>
+    [Fact]
+    public async Task TombstoneLocal_NaoEhRessuscitado_PorCopiaVivaDeMesmaVersao()
+    {
+        string ws = NewServerWorkspace();
+        var api = new FakeSecretsApi();
+
+        using var device = new SecretSyncDevice("A", Amk, api, ws);
+        SecretEnvelope vivo = await device.SealAsync("c1", "senha-velha");
+        await device.Vault.RevokeAsync(vivo.EnvelopeId, new VaultAccessContext { ActorUserId = "op" });
+
+        SecretEnvelope tombstone = Assert.Single(await device.ListAsync());
+        Assert.NotNull(tombstone.RevokedAt);
+
+        // A cópia VIVA do mesmo envelope, na MESMA versão da lápide, plantada direto no servidor.
+        api.SeedRaw(SecretEnvelopeWireCodec.ToWire(vivo with { Version = tombstone.Version }, ws, 1));
+
+        await device.Secrets.SyncOnceAsync();
+
+        SecretEnvelope depois = Assert.Single(await device.ListAsync());
+        Assert.NotNull(depois.RevokedAt);
+        Assert.Empty(depois.Ciphertext);
+        await Assert.ThrowsAsync<VaultException>(() => device.OpenAsync(vivo.EnvelopeId));
     }
 
     // ── Sem downgrade ────────────────────────────────────────────────────────────────────

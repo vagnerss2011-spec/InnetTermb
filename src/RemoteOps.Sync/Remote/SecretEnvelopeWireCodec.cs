@@ -33,9 +33,11 @@ namespace RemoteOps.Sync.Remote;
 /// <para><b>4. <c>CreatedAt</c> não trafega</b> → o device que recebe carimba a hora da chegada. Não
 /// entra no AAD, então não afeta a decifração; só a data exibida diverge entre devices.</para>
 ///
-/// <para><b>5. <c>RevokedAt</c> não trafega</b> → tombstone NÃO sobe (ver <see cref="IsSyncable"/>).
-/// O backend recusa base64 vazio, e o tombstone zera o material. Consequência real: revogação não
-/// propaga nesta fase.</para>
+/// <para><b>5. <c>RevokedAt</c> trafega</b> (campo opcional no DTO). Enquanto não trafegava, o
+/// tombstone ficava em casa: trocar uma senha revogava o envelope AQUI e o deixava vivo e
+/// decifrável no disco do outro device PARA SEMPRE. Agora a lápide sobe com o material vazio — e é
+/// o material vazio que apaga o segredo no device que recebe. O servidor aceita base64 vazio
+/// EXCLUSIVAMENTE quando <c>revokedAt</c> vem preenchido.</para>
 /// </summary>
 internal static class SecretEnvelopeWireCodec
 {
@@ -46,17 +48,27 @@ internal static class SecretEnvelopeWireCodec
     private const int ServerStringLimit = 100;
 
     /// <summary>
-    /// Só sobe o que faz sentido no servidor: envelope ativo, com material, e ENRAIZADO NA AMK.
+    /// Sobe o que faz sentido no servidor, ENRAIZADO NA AMK: envelope vivo COM material, ou a
+    /// lápide (tombstone) de um envelope revogado.
     ///
     /// <para>O filtro da raiz não é zelo: um envelope ainda sob a raiz DPAPI tem WDK aleatória POR
     /// MÁQUINA — nenhum outro device abriria. Subir publicaria lixo indecifrável e queimaria cursor
-    /// no servidor. Tombstone também não sobe: o backend exige base64 não-vazio e o tombstone zera
-    /// tudo, então cada ciclo viraria um erro de servidor, pra sempre.</para>
+    /// no servidor. Vale igual para a lápide dele: o vivo nunca subiu, então a revogação não tem a
+    /// quem avisar.</para>
+    ///
+    /// <para><b>O tombstone SOBE</b> (mudou nesta fatia). Antes ele era barrado porque o backend
+    /// recusava base64 vazio — e o efeito colateral era uma falha de segurança, não um detalhe de
+    /// transporte: a revogação morria no PC onde foi feita e a senha velha seguia decifrável no
+    /// outro. O backend agora aceita material vazio EXATAMENTE neste caso.</para>
+    ///
+    /// <para>Envelope VIVO sem material continua barrado: ali o vazio é corrupção, não revogação.</para>
     /// </summary>
     internal static bool IsSyncable(SecretEnvelope envelope) =>
-        envelope.RevokedAt is null
-        && string.Equals(envelope.Algorithm, VaultAlgorithms.AmkRootedV1, StringComparison.Ordinal)
-        && envelope.Ciphertext.Length > 0
+        string.Equals(envelope.Algorithm, VaultAlgorithms.AmkRootedV1, StringComparison.Ordinal)
+        && (envelope.RevokedAt is not null || HasMaterial(envelope));
+
+    private static bool HasMaterial(SecretEnvelope envelope) =>
+        envelope.Ciphertext.Length > 0
         && envelope.WrappedCek.Length > 0
         && envelope.Nonce.Length > 0
         && envelope.Tag.Length > 0
@@ -89,6 +101,9 @@ internal static class SecretEnvelopeWireCodec
             Version: envelope.Version)
         {
             Algorithm = envelope.Algorithm,
+            // Sem esta marca o servidor recusa o corpo vazio da lápide e o outro device gravaria o
+            // envelope como VIVO: a revogação não sairia daqui.
+            RevokedAt = envelope.RevokedAt,
         };
     }
 
@@ -99,6 +114,7 @@ internal static class SecretEnvelopeWireCodec
     internal static SecretEnvelope FromWire(SecretEnvelopeDto dto, string vaultWorkspaceId)
     {
         (string type, string credentialId) = ParseHeader(dto.KeyVersion);
+        bool revogado = dto.RevokedAt is not null;
 
         return new SecretEnvelope
         {
@@ -109,14 +125,22 @@ internal static class SecretEnvelopeWireCodec
             Type = type,
             Version = dto.Version,
             Algorithm = dto.Algorithm ?? VaultAlgorithms.AmkRootedV1,
-            WrappedCek = Decode(dto.WrappedCek, nameof(dto.WrappedCek)),
-            CekNonce = Decode(dto.CekNonce, nameof(dto.CekNonce)),
-            CekTag = Decode(dto.CekTag, nameof(dto.CekTag)),
-            Ciphertext = Decode(dto.Ciphertext, nameof(dto.Ciphertext)),
-            Nonce = Decode(dto.Nonce, nameof(dto.Nonce)),
-            Tag = Decode(dto.Tag, nameof(dto.Tag)),
+            // Revogado DESCARTA o material que veio junto, em vez de confiar no que o fio trouxe. O
+            // servidor já recusa lápide com material, mas isto é defesa em profundidade: um servidor
+            // comprometido não pode contrabandear ciphertext por baixo da marca de revogação e fazer
+            // este device gravar um envelope "revogado, porém com material" — estado que não deve
+            // existir. Achado da revisão de segurança da v1.4.7.
+            WrappedCek = revogado ? [] : Decode(dto.WrappedCek, nameof(dto.WrappedCek)),
+            CekNonce = revogado ? [] : Decode(dto.CekNonce, nameof(dto.CekNonce)),
+            CekTag = revogado ? [] : Decode(dto.CekTag, nameof(dto.CekTag)),
+            Ciphertext = revogado ? [] : Decode(dto.Ciphertext, nameof(dto.Ciphertext)),
+            Nonce = revogado ? [] : Decode(dto.Nonce, nameof(dto.Nonce)),
+            Tag = revogado ? [] : Decode(dto.Tag, nameof(dto.Tag)),
             // O fio não carrega CreatedAt: quem recebe carimba a chegada. Não entra no AAD.
             CreatedAt = DateTimeOffset.UtcNow,
+            // Servidor antigo (ou cliente antigo do outro lado) não manda o campo → volta nulo, que
+            // é o comportamento de sempre. O campo ADICIONA, não troca.
+            RevokedAt = dto.RevokedAt,
         };
     }
 

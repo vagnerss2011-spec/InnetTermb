@@ -70,6 +70,18 @@ Adulterar campo (incluindo `type`), trocar envelope entre workspaces ou fazer do
 
 - `RotateAsync`: cria novo envelope com `Version + 1` e nova CEK; o envelope anterior vira *tombstone* (revogado, material criptográfico zerado para `[]`).
 - `RevokeAsync`: marca `RevokedAt` e zera o material; recuperação posterior lança `VaultException`.
+- O *tombstone* nasce com **`Version + 1`**: a revogação é uma versão nova do registro, não uma edição da atual. Sem o incremento ela seria indistinguível da cópia viva para o ledger de push e para a monotonicidade do servidor, e **morreria no device onde foi feita**.
+
+#### Propagação da revogação (v1.4.7)
+
+Até a v1.4.6 o *tombstone* **não subia**: `IsSyncable` exigia `RevokedAt is null` e o backend recusava material vazio. O efeito não era de transporte, era de **segurança** — ao trocar/revogar uma senha, o envelope antigo continuava **vivo e decifrável no disco do outro device, para sempre**.
+
+O contrato agora é ponta a ponta:
+
+- `SecretEnvelopeDto` ganha **`revokedAt` opcional** (entra *adicionando*: servidor e cliente antigos ignoram o campo e continuam funcionando).
+- O servidor aceita **base64 vazio exclusivamente** quando `revokedAt` vem preenchido; para envelope vivo, corpo vazio continua sendo 400.
+- **Revogação é caminho só de ida.** No servidor, upsert vivo por cima de um envelope revogado é recusado (`envelope.revoked`); no device que recebe, um *tombstone* local nunca é sobrescrito por cópia viva — nem na **mesma versão**, caso que o guarda de downgrade (`existing.Version > incoming.Version`) não cobre e que ressuscitaria a senha revogada no disco.
+- O device que recebe grava o material **vazio**: é ele que apaga o segredo lá, e não apenas a marca.
 
 ### Não exposição de segredo
 

@@ -269,6 +269,16 @@ public sealed class SecretSyncOrchestrator
             return; // sem downgrade: versão local mais nova vence (monotônico por id).
         }
 
+        // Revogação é TERMINAL: lápide não volta a ser cópia viva. O guarda de versão acima não
+        // cobre este caso — a cópia viva pode chegar na MESMA versão do tombstone (cliente antigo
+        // que não fala revogação, réplica atrasada, servidor adulterado), e aí `>` é falso e ela
+        // passaria. O estrago seria o material antigo de volta ao disco: a senha revogada voltaria
+        // a abrir NESTE device, que é exatamente o buraco que esta fatia fecha.
+        if (existing?.RevokedAt is not null && incoming.RevokedAt is null)
+        {
+            return;
+        }
+
         await _store.SaveAsync(incoming, ct);
 
         // O que veio do servidor JÁ está no servidor: marca no ledger pra não devolver como push.

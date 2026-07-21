@@ -34,6 +34,21 @@ public sealed class SecretEnvelopeWireCodecTests
     };
 
     /// <summary>
+    /// O que o <c>CredentialVault.TombstoneAsync</c> grava ao revogar: material ZERADO, marca de
+    /// revogação e versão incrementada (a revogação é uma versão nova do registro).
+    /// </summary>
+    private static SecretEnvelope Tombstone(string? id = null, int version = 2) => Envelope(id, version: version) with
+    {
+        RevokedAt = DateTimeOffset.UtcNow,
+        WrappedCek = [],
+        CekNonce = [],
+        CekTag = [],
+        Ciphertext = [],
+        Nonce = [],
+        Tag = [],
+    };
+
+    /// <summary>
     /// <b>A armadilha.</b> O cliente gera o EnvelopeId como GUID "N" (sem hífens); o servidor guarda
     /// num <c>Guid</c> e devolve com <c>ToString()</c>, ou seja "D" (com hífens). Sem normalizar, o
     /// device B montaria o AAD com um id diferente do que o device A selou → tag GCM inválida.
@@ -92,6 +107,40 @@ public sealed class SecretEnvelopeWireCodecTests
         Assert.Equal(original.Ciphertext, back.Ciphertext);
         Assert.Equal(original.Nonce, back.Nonce);
         Assert.Equal(original.Tag, back.Tag);
+    }
+
+    /// <summary>
+    /// A revogação tem que ATRAVESSAR o fio: sem ela o outro device grava o envelope como vivo e a
+    /// senha velha continua decifrável lá. O material vem vazio de propósito (o cofre zera ao
+    /// revogar) e volta vazio — é isso que apaga o segredo no device que recebe.
+    /// </summary>
+    [Fact]
+    public void Tombstone_LevaARevogacaoNoFio_EVolta()
+    {
+        SecretEnvelope original = Tombstone();
+
+        SecretEnvelopeDto dto = SecretEnvelopeWireCodec.ToWire(original, ServerWorkspace, amkKeyVersion: 1);
+        Assert.Equal(original.RevokedAt, dto.RevokedAt);
+        Assert.Equal(string.Empty, dto.Ciphertext);
+
+        SecretEnvelope back = SecretEnvelopeWireCodec.FromWire(dto, VaultWorkspace);
+        Assert.Equal(original.RevokedAt, back.RevokedAt);
+        Assert.Empty(back.Ciphertext);
+        Assert.Empty(back.WrappedCek);
+        Assert.Equal(original.Version, back.Version);
+    }
+
+    /// <summary>
+    /// Compatibilidade: um servidor/cliente ANTIGO não manda <c>revokedAt</c>. O envelope volta VIVO
+    /// — que é exatamente o comportamento de hoje. O campo novo ADICIONA, não troca.
+    /// </summary>
+    [Fact]
+    public void SemRevokedAtNoFio_EnvelopeVoltaVivo()
+    {
+        SecretEnvelopeDto dto = SecretEnvelopeWireCodec.ToWire(Envelope(), ServerWorkspace, 1);
+
+        Assert.Null(dto.RevokedAt);
+        Assert.Null(SecretEnvelopeWireCodec.FromWire(dto, VaultWorkspace).RevokedAt);
     }
 
     /// <summary>
@@ -158,12 +207,26 @@ public sealed class SecretEnvelopeWireCodecTests
     public void NaoSyncable_EnvelopeDpapi() =>
         Assert.False(SecretEnvelopeWireCodec.IsSyncable(Envelope() with { Algorithm = VaultAlgorithms.DpapiRootedV1 }));
 
+    /// <summary>
+    /// <b>O tombstone TEM que subir.</b> Enquanto ele ficava em casa, trocar uma senha deixava o
+    /// envelope antigo vivo e decifrável no disco do outro device PARA SEMPRE — a revogação morria
+    /// no PC onde foi feita. É falha de segurança, não detalhe de transporte.
+    /// </summary>
     [Fact]
-    public void NaoSyncable_Tombstone() =>
-        Assert.False(SecretEnvelopeWireCodec.IsSyncable(Envelope() with
-        {
-            RevokedAt = DateTimeOffset.UtcNow,
-            Ciphertext = [],
-            WrappedCek = [],
-        }));
+    public void Syncable_Tombstone_ParaARevogacaoPropagar() =>
+        Assert.True(SecretEnvelopeWireCodec.IsSyncable(Tombstone()));
+
+    /// <summary>
+    /// Material vazio só é legítimo em tombstone. Um envelope VIVO sem material é corrupção — subir
+    /// isso publicaria um envelope que ninguém abre e que o servidor recusa.
+    /// </summary>
+    [Fact]
+    public void NaoSyncable_EnvelopeVivoSemMaterial() =>
+        Assert.False(SecretEnvelopeWireCodec.IsSyncable(Envelope() with { Ciphertext = [], WrappedCek = [] }));
+
+    /// <summary>Tombstone de envelope DPAPI continua em casa: o vivo dele nunca subiu.</summary>
+    [Fact]
+    public void NaoSyncable_TombstoneDpapi() =>
+        Assert.False(SecretEnvelopeWireCodec.IsSyncable(
+            Tombstone() with { Algorithm = VaultAlgorithms.DpapiRootedV1 }));
 }
