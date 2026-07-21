@@ -1,7 +1,15 @@
 name: ci
 
 on:
+  # Tipos explícitos por causa do gate de caminhos sensíveis: ele lê
+  # github.event.pull_request.labels, que vem do payload do EVENTO. Com os tipos padrão
+  # (opened/synchronize/reopened), adicionar o label 'security-reviewed' não redisparava nada — e um
+  # "Re-run jobs" reusa o payload antigo, então o gate ficava vermelho para sempre e a única saída era
+  # fechar/reabrir o PR ou empurrar commit vazio. Com 'labeled'/'unlabeled' ele reavalia na hora:
+  # rotular libera, DESrotular volta a bloquear (o comportamento correto de um gate).
+  # Ao listar tipos, os padrões PRECISAM ser repetidos — a lista substitui, não soma.
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   push:
     branches: [ main ]
 
