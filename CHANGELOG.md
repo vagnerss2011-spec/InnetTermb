@@ -4,6 +4,43 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ## [Unreleased]
 
+## [1.4.6] - 2026-07-20
+
+### Adicionado
+
+- **Excluir grupo** (menu de contexto do card, botão direito). **Só grupo VAZIO**: com equipamentos
+  dentro, o app recusa e diz *quantos* são. A contagem é lida do **store no momento do clique**, não do
+  card — o card fica velho quando o sync adiciona hosts com a tela aberta, e um card marcado "0"
+  autorizaria apagar um grupo já povoado. Re-checada também **depois** da confirmação (o diálogo fica
+  aberto por tempo humano e o applier grava em thread de fundo).
+- **"Sincronizar agora" passa a dizer o que aconteceu.** Carimbo `Última sincronização: HH:mm:ss` ao
+  lado do botão; falha em vermelho `Não sincronizou às HH:mm:ss`. Com **segundos** de propósito: o
+  texto muda a cada clique, então há sinal visível mesmo quando o estado final é igual ao inicial —
+  o caso que tornava impossível saber se o botão fazia algo.
+
+### Corrigido
+
+- **`SyncStatusViewModel` descartava o `bool` de `SyncNowAsync`.** O botão sempre executou o ciclo real
+  de push+pull (`OrchestratorSyncController.cs:31`), mas o resultado era jogado fora e o `catch`
+  engolia: clicar já "Sincronizado" não mudava nada na tela, indistinguível de botão morto.
+- **Delete de grupo vindo do OUTRO device apagava grupo com hosts locais.**
+  `LocalEntitiesChangeApplier.DeleteAsync` apagava a linha do grupo incondicionalmente. Como a UI
+  navega **exclusivamente por grupo** (a raiz lista cards; hosts só aparecem dentro de um), um asset
+  com `group_id` apontando para um grupo apagado fica **invisível** — o dado existe e o operador não
+  alcança. O comportamento é anterior a esta versão, mas **nada no app emitia `asset_group/deleted`**
+  até a feature de excluir grupo: ela é a primeira produtora, então a guarda entra junto.
+  Agora vale a **mesma invariante nas duas pontas**: grupo com hosts locais não é apagado, venha o
+  delete de onde vier. Cobre o que o outro device não podia saber (hosts criados aqui, ainda não
+  sincronizados); a divergência se resolve sozinha quando eles subirem.
+
+### Notas
+
+- Follow-up conhecido (não bloqueia): a guarda da UI tem janela de milissegundos entre a re-checagem e
+  o `DELETE` (duas chamadas sem transação comum). Fechá-la exige mover a guarda para dentro de
+  `SqlCipherLocalStore.DeleteGroupAsync` num `BEGIN IMMEDIATE`, o que muda o contrato de `ILocalStore`.
+- Grupos com **subgrupos** não são cobertos pela trava (a contagem olha só assets). Hoje inalcançável —
+  a UI cria todo grupo com `parentGroupId: null` —, mas vira bug no dia em que hierarquia for à tela.
+
 ### Adicionado
 
 - **"Excluir grupo"** no menu de contexto (clique-direito) do card de grupo, com confirmação que nomeia

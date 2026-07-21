@@ -1,6 +1,15 @@
 {
   "entries": [
     {
+      "version": "1.4.6",
+      "date": "2026-07-20",
+      "highlights": [
+        "NOVO: excluir grupo. Clique com o botão direito no card do grupo → 'Excluir grupo'. Por segurança, só exclui grupo VAZIO: se houver equipamentos dentro, o app avisa quantos são e pede que você mova ou exclua eles antes. A exclusão vale para todos os seus computadores.",
+        "Por que só grupo vazio: apagar um grupo NÃO apaga os equipamentos dentro dele — eles ficariam apontando para um grupo que não existe mais e sumiriam da tela (a lista navega por grupo). Com centenas de equipamentos isso seria indistinguível de perder os dados. A trava vale nas duas pontas: se o outro computador excluir um grupo onde VOCÊ ainda tem equipamentos, o seu app mantém o grupo em vez de te deixar sem enxergá-los.",
+        "MELHORADO: o botão 'Sincronizar agora' agora diz o que aconteceu. Ele sempre funcionou de verdade (faz o envio e o recebimento), mas quando já estava tudo sincronizado a tela não mudava nada — e ficava impossível saber se o clique fez algo. Agora aparece 'Última sincronização: HH:mm:ss' ao lado do botão, com os segundos, então o carimbo muda a cada clique. Se falhar, aparece em vermelho 'Não sincronizou às HH:mm:ss'."
+      ]
+    },
+    {
       "version": "1.4.5",
       "date": "2026-07-20",
       "highlights": [
