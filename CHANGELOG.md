@@ -4,6 +4,62 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ## [Unreleased]
 
+## [1.4.5] - 2026-07-20
+
+Reportado em produção: **"as credenciais não sincronizaram"** — operador com ~700 devices, logado nos
+dois PCs. Hosts sincronizavam; no PC B o Chaveiro **listava os nomes** das credenciais, o status dizia
+**"Sincronizado"** (sem erro), mas conectar falhava com *"o endpoint não tem credencial"*.
+
+Spec: `docs/superpowers/specs/2026-07-20-sync-credenciais-reparo-design.md`
+
+### Causa raiz
+
+`LocalSyncClient.cs:60` **congela o patch no momento da edição** (`patch_json`) e o envio relê o blob
+(`:105`) — não reconstrói do registro atual. Os ~700 devices foram cadastrados numa versão com o bug
+"endpoint sobe sem `credential_ref_id`" (corrigido na Fase 1); esses patches ficaram **incompletos para
+sempre** na fila e foram drenados assim ao ligar a nuvem. O `credential_ref` tinha patch completo → subiu
+certo (por isso o Chaveiro lista); o `endpoint` subiu sem o vínculo → `CredentialRefId` nulo no PC B.
+
+Corrigir o código do patch **não repara** o que já subiu — daí o reenvio.
+
+Backend verificado ao vivo (`GET /secrets` → 401 = existe; rota falsa → 404): o canal de segredos está
+deployado e **não** era a causa.
+
+### Adicionado
+
+- **"Reenviar tudo para a nuvem"** (Configurações → Conta, com confirmação e progresso). Re-emite todo o
+  acervo (grupos/assets/endpoints/credential_refs) pelo **caminho de update existente**, que já lê
+  `baseVersion = versão local` e monta o patch completo com o código de hoje. **Pull antes é
+  obrigatório**: o servidor rejeita `base_version < currentVersion` (`SyncService.cs:104`), então sem
+  alinhar as versões o reparo viraria centenas de conflitos. Idempotente.
+- `SecretChannelState` (Idle/Healthy/Degraded/Failed) em `SyncStatus` — a saúde do canal de segredos
+  passa a ser **um eixo próprio**, separado do estado do changelog.
+- `SqlCipherLocalStore.UpdateGroupAsync` — era o único tipo sem update de linha inteira.
+
+### Corrigido
+
+- **Rotação de segredo órfãnava a credencial (perda de dado).** `RotateAsync` cria envelope com **id
+  novo** e tombstoneia o antigo, mas `ChangePasswordAsync`/`ReplaceKeyAsync`/`ChangePassphraseAsync`
+  **descartavam o retorno**: o `CredentialRef` ficava apontando pro tombstone → conectar falhava **no
+  próprio PC** ("Envelope revogado") e a troca **nunca chegava** ao outro device.
+- **Canal de segredos era tudo-ou-nada e silencioso.** Um envelope malformado travava push **e** pull,
+  para sempre. Agora: try/catch **por item** (veneno de item distinguido de queda de canal — 400/413/422
+  e erro de contrato = item; 401/5xx/timeout = canal), o pull roda **mesmo se o push falhar**, e a falha
+  do canal é reportada separada do changelog em vez de virar "Erro" genérico.
+- **`SyncOnceAsync` engolia falha e o reenvio "concluía" com a nuvem fora** (achado da revisão
+  adversarial). O orquestrador nunca relança (offline-first), então o pull inicial do reenvio podia
+  falhar em silêncio e re-emitir ~700 itens sobre versões desalinhadas — a enxurrada de conflitos que o
+  pull existe para impedir — enquanto a tela dizia *"Reenvio concluído"*. `SyncOnceAsync` passou a
+  devolver o `SyncStatus` do próprio ciclo (lido dentro do gate) e o reenvio **aborta antes de
+  re-emitir** se o pull falhar; drenagem final falha ⇒ não declara sucesso.
+
+### Testes
+
+- **1192 testes** (+29). Novo: `TwoDeviceCloudSyncTests` — dois devices sobre a **API real hospedada**
+  (`WebApplicationFactory`, rotas/auth/RBAC reais), com asserção forte de que **o cofre do device B abre
+  o segredo**; inclui o cenário que **reproduz o patch congelado** e prova o reparo.
+  Era a única camada sem cobertura — e exatamente a que divergiu em produção.
+
 ## [1.4.4] - 2026-07-20
 
 ### Corrigido
