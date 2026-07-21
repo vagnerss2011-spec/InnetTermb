@@ -4,6 +4,30 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ## [Unreleased]
 
+**Fatia 1** do recurso de times compartilhados (ver
+`docs/superpowers/plans/2026-07-21-time-fatia1.md`).
+
+### Segurança
+
+- **Upsert de segredo ganhou token de concorrência** — era o pré-requisito registrado na v1.4.7 como
+  *"não mergear a Fatia 1 sem isso"*. O upsert lia o envelope e só depois gravava; se a **lápide de
+  revogação** chegasse no meio dessa janela, a gravação passava por cima com as guardas decididas em
+  cima de um estado que já não existia. O efeito medido não é o `RevokedAt` sumir (o EF só escreve
+  coluna modificada) e sim **o material voltar**: o envelope ficava "revogado **e** com ciphertext" —
+  o estado que a v1.4.7 proibiu — com `Version`/`Cursor` novos, o que fazia o servidor **propagar isso
+  para todos os devices**; um device de versão anterior, que não entende a marca, gravaria como
+  envelope **vivo**. Com a chave de workspace **compartilhada** do time esse material passa a abrir,
+  isto é, ressurreição de senha revogada.
+  - `RevokedAt` e `Version` viraram **tokens de concorrência otimista**: o EF condiciona a UPDATE ao
+    estado lido (`WHERE "RevokedAt" IS NULL AND "Version" = <lido>`). Quem perde a corrida recebe
+    **409** (`concurrency.retry`) e o outbox do cliente re-tenta em cima do estado novo — onde bate na
+    guarda `envelope.revoked`, que já existia.
+  - **Sem DDL**: nenhuma coluna nova, nenhum backfill; a migração `AddSecretEnvelopeConcurrencyToken`
+    tem `Up`/`Down` vazios de propósito e serve para registrar a mudança no snapshot do modelo.
+  - Preferido a `xmin` (Npgsql) porque o `xmin` é gerado **só pelo Postgres** e a suíte roda em
+    InMemory: a corrida ficaria verde por acidente, sem cobertura real. As duas colunas escolhidas já
+    existem e o InMemory **enforça** token de concorrência, então o teste da corrida é de verdade.
+
 ## [1.4.7] - 2026-07-21
 
 **Fatia 0** do recurso de times compartilhados (ver

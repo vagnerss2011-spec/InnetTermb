@@ -110,6 +110,25 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             // de unicidade (→ 409, cliente re-tenta) em vez de dois envelopes com o
             // mesmo cursor, caso em que um pull `> since` perderia um deles em silêncio.
             e.HasIndex(x => new { x.WorkspaceId, x.Cursor }).IsUnique();
+
+            // ── Concorrência otimista do upsert (pré-requisito de segurança dos times) ──
+            //
+            // O upsert lê `existing` e só depois grava. Entre a leitura e a gravação, OUTRA
+            // requisição pode commitar a lápide de revogação — e o EF, sem token, grava por cima:
+            // o material vivo volta a existir sob um envelope já revogado, com Version e Cursor
+            // novos, e o servidor propaga isso para todos os devices. Um device que não entende
+            // `RevokedAt` grava o envelope como VIVO. Enquanto cada conta deriva a própria WDK o
+            // estrago é limitado (o material plantado não abre no PC da vítima); com a chave de
+            // workspace COMPARTILHADA do time ele abre — vira ressurreição de senha revogada.
+            //
+            // Marcar as duas colunas como token faz o EF condicionar a UPDATE ao estado que foi
+            // lido (`WHERE "RevokedAt" IS NULL AND "Version" = <lido>`): quem perdeu a corrida
+            // recebe DbUpdateConcurrencyException → 409 → o outbox do cliente re-tenta em cima do
+            // estado novo. Escolhidas colunas que JÁ EXISTEM (em vez de `xmin`, do Npgsql) porque
+            // o provider dos testes é o InMemory, que também enforça token de concorrência: assim
+            // a corrida é coberta de verdade em CI, e não só em produção.
+            e.Property(x => x.RevokedAt).IsConcurrencyToken();
+            e.Property(x => x.Version).IsConcurrencyToken();
         });
 
         model.Entity<ChangelogEntryEntity>(e =>

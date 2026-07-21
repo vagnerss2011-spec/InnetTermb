@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using RemoteOps.Cloud.Audit;
@@ -39,6 +40,7 @@ internal sealed class CloudTestContext : IDisposable
     public static readonly DateTimeOffset FixedNow = DateTimeOffset.FromUnixTimeSeconds(1_700_000_000);
 
     private readonly IConfiguration _config;
+    private readonly DbContextOptions<AppDbContext> _dbOptions;
 
     private static int _counter;
 
@@ -56,11 +58,15 @@ internal sealed class CloudTestContext : IDisposable
     public CloudTestContext()
     {
         var dbName = $"remoteops-test-{Interlocked.Increment(ref _counter)}";
-        var opts = new DbContextOptionsBuilder<AppDbContext>()
-            .UseInMemoryDatabase(dbName)
+        // Root explícito: as opções ficam guardadas para que NewDbContext() abra um SEGUNDO
+        // contexto sobre o MESMO armazenamento. Sem isso não dá para encenar corrida — cada
+        // requisição real tem o próprio DbContext (e o próprio rastreador de mudanças).
+        var root = new InMemoryDatabaseRoot();
+        _dbOptions = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(dbName, root)
             .Options;
 
-        Db = new AppDbContext(opts);
+        Db = new AppDbContext(_dbOptions);
         Rbac = new PermissionEvaluator(Db);
         Audit = new AuditService(Db, NullLogger<AuditService>.Instance);
 
@@ -80,6 +86,20 @@ internal sealed class CloudTestContext : IDisposable
     /// <summary>TokenService com o relógio fixo — para validar TOTP determinístico no login dos testes.</summary>
     public TokenService TokensAtFixedNow()
         => new(Db, _config, MfaProtector, NullLogger<TokenService>.Instance) { UtcNow = () => FixedNow };
+
+    /// <summary>
+    /// Segundo <see cref="AppDbContext"/> sobre o MESMO banco, com rastreador próprio.
+    /// Em produção cada requisição HTTP tem o seu contexto — é exatamente essa separação que
+    /// permite a corrida "leio vivo aqui, o outro commita a lápide lá, eu gravo por cima".
+    /// </summary>
+    public AppDbContext NewDbContext() => new(_dbOptions);
+
+    /// <summary>SecretsService amarrado a um contexto específico (o "outro request" da corrida).</summary>
+    public static SecretsService SecretsOn(AppDbContext db) => new(
+        db,
+        new PermissionEvaluator(db),
+        new AuditService(db, NullLogger<AuditService>.Instance),
+        NullLogger<SecretsService>.Instance);
 
     // ── Helpers de seed ────────────────────────────────────────────────────
 

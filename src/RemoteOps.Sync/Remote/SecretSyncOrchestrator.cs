@@ -206,9 +206,11 @@ public sealed class SecretSyncOrchestrator
     /// <para><c>ok</c>: subiu agora. <c>version.conflict</c>: o servidor já tem esta versão ou uma
     /// mais nova, então insistir seria um POST inútil por ciclo, pra sempre.</para>
     ///
-    /// <para>Os OUTROS conflitos NÃO marcam de propósito: <c>cursor.race-retry</c> é uma corrida que
-    /// o servidor manda re-tentar, e <c>envelope.workspace-mismatch</c> é anomalia real (o id existe
-    /// noutro workspace) — marcar como enviado esconderia um envelope que nunca subiu.</para>
+    /// <para>Os OUTROS conflitos NÃO marcam de propósito: <c>cursor.race-retry</c> e
+    /// <c>concurrency.retry</c> são corridas que o servidor manda re-tentar (nesta última a linha
+    /// mudou entre a leitura e a gravação do upsert — tipicamente a lápide de revogação chegando no
+    /// meio), e <c>envelope.workspace-mismatch</c> é anomalia real (o id existe noutro workspace) —
+    /// marcar como enviado esconderia um envelope que nunca subiu.</para>
     /// </summary>
     private static bool ShouldMarkPushed(SecretUpsertResult result) =>
         string.Equals(result.Status, "ok", StringComparison.Ordinal)

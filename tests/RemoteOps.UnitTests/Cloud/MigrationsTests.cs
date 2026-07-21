@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using RemoteOps.Cloud.Data;
+using RemoteOps.Cloud.Data.Entities;
 using Xunit;
 
 namespace RemoteOps.UnitTests.Cloud;
@@ -86,6 +87,36 @@ public sealed class MigrationsTests
         // em 409 em vez de envelope perdido no pull. Migration sem ele = regressão.
         Assert.Contains("CREATE UNIQUE INDEX", sql, StringComparison.Ordinal);
         Assert.Contains("secret_envelopes", sql, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// O token de concorrência do envelope tem que valer no provider que vai para PRODUÇÃO.
+    ///
+    /// <para>A corrida em si é encenada no <c>SecretsTransportTests</c>, que roda no InMemory (o
+    /// único provider com infra no repo). Como token de concorrência é comportamento de MODELO —
+    /// o EF relacional põe todo token no <c>WHERE</c> da UPDATE —, esta asserção fecha o vão:
+    /// garante que o Npgsql monta o mesmo modelo, e não só o banco de teste.</para>
+    ///
+    /// <para>Sem isso, alguém poderia remover a marcação e ver a suíte verde por acidente: o
+    /// InMemory continuaria passando nos outros testes e a proteção sumiria em silêncio — a pior
+    /// classe de regressão desta base.</para>
+    /// </summary>
+    [Fact]
+    public void SecretEnvelope_TemTokenDeConcorrencia_NoProviderDeProducao()
+    {
+        using var db = OfflineNpgsqlContext();
+        var envelope = db.Model.FindEntityType(typeof(SecretEnvelopeEntity));
+        Assert.NotNull(envelope);
+
+        // RevokedAt: impede que um upsert vivo concorrente republique material por cima da lápide.
+        Assert.True(
+            envelope.FindProperty(nameof(SecretEnvelopeEntity.RevokedAt))!.IsConcurrencyToken,
+            "RevokedAt deixou de ser token de concorrência — o upsert volta a poder ressuscitar segredo revogado.");
+
+        // Version: generaliza a proteção para qualquer sobrescrita cega do mesmo envelope.
+        Assert.True(
+            envelope.FindProperty(nameof(SecretEnvelopeEntity.Version))!.IsConcurrencyToken,
+            "Version deixou de ser token de concorrência — dois upserts concorrentes voltam a ser last-write-wins.");
     }
 
     [Fact]

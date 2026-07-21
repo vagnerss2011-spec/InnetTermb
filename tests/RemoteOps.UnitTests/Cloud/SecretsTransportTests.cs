@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Microsoft.EntityFrameworkCore;
 using RemoteOps.Cloud.Rbac;
 using RemoteOps.Cloud.Secrets;
 using RemoteOps.Cloud.Sync;
@@ -301,6 +302,91 @@ public sealed class SecretsTransportTests
         var stored = ctx.Db.SecretEnvelopes.Single(e => e.Id == id);
         Assert.NotNull(stored.RevokedAt);
         Assert.Empty(stored.Ciphertext);
+    }
+
+    /// <summary>
+    /// A corrida que ressuscita senha revogada (pré-requisito de segurança da Fatia 1).
+    ///
+    /// <para>O upsert lê <c>existing</c> e só depois grava. Entre a leitura e a gravação, OUTRA
+    /// requisição pode commitar a lápide. Sem token de concorrência, quem chegou primeiro grava por
+    /// cima com as guardas decididas em cima de um estado que já não existe.</para>
+    ///
+    /// <para><b>O estrago medido é este</b> (e é mais sutil do que "o RevokedAt é zerado"): o EF só
+    /// escreve as colunas MODIFICADAS, e para o upsert vivo o <c>RevokedAt</c> vai de nulo a nulo,
+    /// então a marca em si sobrevive — mas <b>o material volta</b>. O envelope fica "revogado E com
+    /// ciphertext", exatamente o estado que a v1.4.7 proibiu no servidor, agora com
+    /// <c>Version</c>/<c>Cursor</c> novos, o que faz o servidor PROPAGAR isso para todos os devices.
+    /// Um device de versão anterior, que não entende <c>RevokedAt</c>, grava o envelope como VIVO.
+    /// Enquanto cada conta deriva a própria WDK esse material não abre no PC da vítima; com a chave
+    /// de workspace COMPARTILHADA do time ele abre — por isso isto é bloqueante da Fatia 1.</para>
+    ///
+    /// <para>A encenação é fiel ao que acontece em produção: o contexto "A" materializa o envelope
+    /// enquanto ele ainda está VIVO (é a leitura que o upsert faria), o contexto "B" commita a
+    /// lápide, e só então "A" grava. Como o EF não sobrescreve valores de entidade já rastreada, o
+    /// snapshot de "A" continua velho — exatamente o estado da corrida real.</para>
+    /// </summary>
+    [Fact]
+    public async Task Upsert_Concorrente_NaoApagaALapide_QueChegouNoMeioDaCorrida()
+    {
+        using var ctx = new CloudTestContext();
+        var (_, ws, user, _) = await ctx.SeedActiveUserAsync("Owner");
+        var permCtx = new PermissionContext(user.Id, ws.Id);
+        var id = Guid.NewGuid();
+
+        await ctx.Secrets.UpsertAsync(ws.Id, NewEnvelope(id, ws.Id), permCtx, default);
+
+        // Requisição A: lê o envelope AINDA VIVO (o `existing` do upsert dela).
+        using var dbA = ctx.NewDbContext();
+        var secretsA = CloudTestContext.SecretsOn(dbA);
+        var vistoVivo = await dbA.SecretEnvelopes.FirstAsync(e => e.Id == id);
+        Assert.Null(vistoVivo.RevokedAt);
+
+        // Requisição B: a revogação chega e é commitada no meio da corrida.
+        await ctx.Secrets.UpsertAsync(
+            ws.Id, Tombstone(id, ws.Id, 2, DateTimeOffset.UtcNow), permCtx, default);
+
+        // Requisição A termina e tenta gravar o envelope VIVO por cima da lápide.
+        var resultado = await secretsA.UpsertAsync(ws.Id, NewEnvelope(id, ws.Id, version: 3), permCtx, default);
+
+        // O que importa de verdade, afirmado PRIMEIRO: a lápide SOBREVIVE, com o material zerado.
+        // (Sem o token de concorrência é aqui que o teste acusa a ressurreição.)
+        using var check = ctx.NewDbContext();
+        var stored = await check.SecretEnvelopes.AsNoTracking().FirstAsync(e => e.Id == id);
+        Assert.NotNull(stored.RevokedAt);
+        Assert.Empty(stored.Ciphertext);
+        Assert.Empty(stored.WrappedCek!);
+
+        // E o upsert perdedor tem que FALHAR com conflito (409 → o outbox do cliente re-tenta e aí
+        // bate na guarda `envelope.revoked`), nunca "ok".
+        Assert.Equal("conflict", resultado.Status);
+    }
+
+    /// <summary>
+    /// O token de concorrência não pode custar o caminho normal: dois upserts SEQUENCIAIS em
+    /// contextos diferentes (o caso do dia a dia, dois devices em momentos distintos) seguem
+    /// passando. Sem esta guarda, "proteger a lápide" viraria "nada sobe mais".
+    /// </summary>
+    [Fact]
+    public async Task Upsert_EmContextosDiferentes_SemCorrida_ContinuaPassando()
+    {
+        using var ctx = new CloudTestContext();
+        var (_, ws, user, _) = await ctx.SeedActiveUserAsync("Owner");
+        var permCtx = new PermissionContext(user.Id, ws.Id);
+        var id = Guid.NewGuid();
+
+        await ctx.Secrets.UpsertAsync(ws.Id, NewEnvelope(id, ws.Id), permCtx, default);
+
+        using var dbB = ctx.NewDbContext();
+        var secretsB = CloudTestContext.SecretsOn(dbB);
+        var v2 = NewEnvelope(id, ws.Id, version: 2);
+        var resultado = await secretsB.UpsertAsync(ws.Id, v2, permCtx, default);
+
+        Assert.Equal("ok", resultado.Status);
+
+        using var check = ctx.NewDbContext();
+        var stored = await check.SecretEnvelopes.AsNoTracking().FirstAsync(e => e.Id == id);
+        Assert.Equal(2, stored.Version);
+        Assert.Equal(v2.Ciphertext, Convert.ToBase64String(stored.Ciphertext));
     }
 
     // ── RBAC ──────────────────────────────────────────────────────────────────

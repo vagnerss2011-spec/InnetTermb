@@ -149,7 +149,22 @@ public sealed class SecretsService(
         // isTombstone, então a marca nunca é apagada por um upsert.
         existing.RevokedAt = dto.RevokedAt;
 
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // A linha mudou entre a leitura de `existing` e esta gravação — na prática, a lápide de
+            // revogação chegou no meio da corrida. As guardas acima decidiram em cima de um estado
+            // que já não existe, então gravar seria republicar material de uma senha revogada.
+            // 409 é a resposta certa: o outbox do cliente re-tenta, agora lendo o estado novo, e
+            // aí bate na guarda `envelope.revoked`. Nada aqui expõe conteúdo (ADR-013).
+            logger.LogWarning(
+                "Secret upsert conflict: envelope {EnvelopeId} changed under a concurrent write in workspace {WorkspaceId}",
+                id, workspaceId);
+            return new SecretUpsertResult("conflict", 0, null, "concurrency.retry");
+        }
 
         await audit.RecordAsync(new AuditRecord(
             WorkspaceId: workspaceId,
