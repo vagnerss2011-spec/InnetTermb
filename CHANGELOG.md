@@ -4,6 +4,17 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ## [Unreleased]
 
+### Adicionado
+
+- **"Excluir grupo"** no menu de contexto (clique-direito) do card de grupo, com confirmação que nomeia
+  o grupo. **Só exclui grupo VAZIO**: `ILocalStore.DeleteGroupAsync` apaga apenas a linha do grupo e não
+  toca nos ativos, então excluir um grupo com equipamentos deixaria cada um com `group_id` apontando
+  para um grupo inexistente — órfãos invisíveis na tela, propagados aos outros dispositivos pelo patch
+  `asset_group`/`deleted`. Com equipamentos, a exclusão é bloqueada e o aviso diz **quantos são** e o
+  que fazer ("Mova ou exclua os equipamentos antes de excluir o grupo"). A contagem é lida do store no
+  momento do clique, não do card (que pode estar velho por causa do sync). Falha do store vira aviso na
+  tela — nunca silêncio.
+
 ## [1.4.5] - 2026-07-20
 
 Reportado em produção: **"as credenciais não sincronizaram"** — operador com ~700 devices, logado nos

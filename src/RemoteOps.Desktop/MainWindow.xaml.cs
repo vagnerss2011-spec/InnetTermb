@@ -88,6 +88,20 @@ public partial class MainWindow : Window
         viewModel.Browser.Hosts.NewGroupRequested += (_, _) => OpenNewGroupDialog();
         viewModel.Browser.Hosts.LaunchFailed += (_, message) => Dispatcher.Invoke(() =>
             MessageBox.Show(this, message, "Conectar", MessageBoxButton.OK, MessageBoxImage.Warning));
+
+        // Confirmação da exclusão de grupo. Dispatcher.Invoke SÍNCRONO de propósito: o ViewModel lê
+        // a resposta assim que o evento retorna, então o diálogo tem de ter fechado antes.
+        viewModel.Browser.Hosts.DeleteGroupConfirmationRequested += (_, request) =>
+            request.Confirmed = Dispatcher.Invoke(() => MessageBox.Show(
+                this,
+                $"Excluir o grupo '{request.GroupName}'?\n\n" +
+                "O grupo está vazio. A exclusão é enviada para a nuvem e vale para todos os seus dispositivos.",
+                "Excluir grupo",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning) == MessageBoxResult.Yes);
+
+        viewModel.Browser.Hosts.DeleteGroupFailed += (_, message) => Dispatcher.Invoke(() =>
+            MessageBox.Show(this, message, "Excluir grupo", MessageBoxButton.OK, MessageBoxImage.Warning));
     }
 
     private WorkspaceViewModel Vm => (WorkspaceViewModel)DataContext;

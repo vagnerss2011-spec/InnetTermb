@@ -116,13 +116,23 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate DataType="{x:Type vm:GroupCardViewModel}">
+                            <!-- Tag carrega o HostsViewModel (DataContext do ItemsControl) até o
+                                 ContextMenu: o menu vive num Popup FORA da árvore visual, então
+                                 RelativeSource AncestorType não o alcança e o binding cairia em nada. -->
                             <Border Background="{DynamicResource Brush.Bg.SurfaceRaised}"
                                     BorderBrush="{DynamicResource Brush.Border.Default}"
                                     BorderThickness="1"
                                     CornerRadius="{DynamicResource Radius.Surface}"
                                     Width="160" Height="90"
                                     Margin="0,0,12,12"
-                                    Cursor="Hand">
+                                    Cursor="Hand"
+                                    Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                    PreviewMouseRightButtonDown="GroupCard_PreviewMouseRightButtonDown">
+                                <Border.ContextMenu>
+                                    <ContextMenu DataContext="{Binding PlacementTarget.Tag, RelativeSource={RelativeSource Self}}">
+                                        <MenuItem Header="Excluir grupo" Command="{Binding DeleteGroupCommand}"/>
+                                    </ContextMenu>
+                                </Border.ContextMenu>
                                 <Border.InputBindings>
                                     <MouseBinding MouseAction="LeftClick"
                                                   Command="{Binding DataContext.OpenGroupCommand,
