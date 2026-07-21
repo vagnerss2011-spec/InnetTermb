@@ -315,15 +315,27 @@ public sealed class HostsViewModel : BaseViewModel
         // repetindo o defeito de "excluir host falhava em silêncio" da v1.2.23.
         try
         {
-            int hostCount = (await _store.GetAssetsAsync(_workspaceId, group.Id)).Count;
-            if (hostCount > 0)
+            // Conta do STORE e avisa se o grupo não está vazio. É chamada DUAS vezes de propósito
+            // (antes de perguntar e de novo depois da resposta) — ver o comentário da segunda chamada.
+            async Task<bool> BlockedByHostsAsync()
             {
-                // Bloqueia ANTES de perguntar: não faz sentido pedir confirmação de algo que não pode
-                // acontecer, e a mensagem já diz QUANTOS são e qual é a saída.
+                int hostCount = (await _store.GetAssetsAsync(_workspaceId, group.Id)).Count;
+                if (hostCount == 0)
+                {
+                    return false;
+                }
+
                 DeleteGroupFailed?.Invoke(
                     this,
                     $"O grupo '{group.Name}' tem {hostCount} equipamento(s). " +
                     "Mova ou exclua os equipamentos antes de excluir o grupo.");
+                return true;
+            }
+
+            // Bloqueia ANTES de perguntar: não faz sentido pedir confirmação de algo que não pode
+            // acontecer, e a mensagem já diz QUANTOS são e qual é a saída.
+            if (await BlockedByHostsAsync())
+            {
                 return;
             }
 
@@ -332,6 +344,15 @@ public sealed class HostsViewModel : BaseViewModel
             if (!confirmation.Confirmed)
             {
                 return; // desistir não é falha: nenhum aviso.
+            }
+
+            // RE-checa DEPOIS da confirmação: o diálogo fica aberto por tempo humano e o sync continua
+            // gravando no store em background — um host pode ter chegado no grupo ENQUANTO o operador
+            // lia a pergunta. Sem esta segunda checagem, o "sim" apagaria um grupo que já não está
+            // vazio e os equipamentos virariam órfãos (e o delete propagaria pelos outros devices).
+            if (await BlockedByHostsAsync())
+            {
+                return;
             }
 
             await _store.DeleteGroupAsync(group.Id);

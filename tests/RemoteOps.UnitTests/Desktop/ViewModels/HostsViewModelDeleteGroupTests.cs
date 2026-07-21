@@ -170,6 +170,38 @@ public sealed class HostsViewModelDeleteGroupTests
         Assert.Single(await store.GetGroupsAsync("ws-local"));
     }
 
+    /// <summary>
+    /// CORRIDA: o diálogo de confirmação fica aberto por tempo humano e o sync grava no store em
+    /// background. Se um host chega no grupo ENQUANTO o operador lê a pergunta, o "sim" não pode
+    /// apagar — a checagem de vazio tem de ser refeita DEPOIS da confirmação, senão o equipamento
+    /// vira órfão e o delete ainda propaga pros outros devices.
+    /// </summary>
+    [Fact]
+    public async Task ExcluirGrupo_HostChegaDuranteAConfirmacao_NaoExclui_E_Avisa()
+    {
+        var store = new InMemoryLocalStore();
+        AssetGroup g = await store.AddGroupAsync("ws-local", "Innet");
+        HostsViewModel vm = NewVm(store);
+        await vm.LoadAsync();
+        vm.SelectedGroup = vm.Groups.Single();
+
+        // O grupo está vazio quando a pergunta abre — e o sync entrega um host antes da resposta.
+        vm.DeleteGroupConfirmationRequested += (_, req) =>
+        {
+            AddHostAsync(store, g.Id, "r1").GetAwaiter().GetResult();
+            req.Confirmed = true;
+        };
+        string? aviso = null;
+        vm.DeleteGroupFailed += (_, m) => aviso = m;
+
+        await vm.DeleteGroupAsync();
+
+        Assert.NotNull(aviso);
+        Assert.Contains("1 equipamento(s)", aviso, StringComparison.Ordinal);
+        Assert.Single(await store.GetGroupsAsync("ws-local"));                  // grupo continua lá
+        Assert.Single(await store.GetAssetsAsync("ws-local", g.Id));           // host intacto, sem órfão
+    }
+
     // ── Grupo vazio: confirma e exclui ────────────────────────────────────────────────────────
 
     [Fact]
