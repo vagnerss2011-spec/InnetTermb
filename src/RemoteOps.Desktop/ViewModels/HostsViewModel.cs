@@ -19,6 +19,7 @@ public sealed class HostsViewModel : BaseViewModel
     private readonly IInlineCredentialService? _inlineCreds;
     private readonly string _workspaceId;
     private GroupCardViewModel? _currentGroup;
+    private GroupCardViewModel? _selectedGroup;
     private AssetViewModel? _selectedHost;
     private string _searchText = string.Empty;
     private string _selectedFilterKey = string.Empty; // "" = Todos; "role:X"; "vendor:X"
@@ -42,6 +43,7 @@ public sealed class HostsViewModel : BaseViewModel
         ConnectPrimaryCommand = new RelayCommand(obj => { if (obj is AssetViewModel a) _ = ConnectAsync(a, _launcher.PrimaryProtocol(a.Asset)); });
         ConnectCommand = new RelayCommand(obj => { if (SelectedHost != null && obj is string p) _ = ConnectAsync(SelectedHost, p); }, _ => SelectedHost != null);
         NewGroupCommand = new RelayCommand(() => NewGroupRequested?.Invoke(this, EventArgs.Empty));
+        DeleteGroupCommand = new RelayCommand(() => _ = DeleteGroupAsync(), () => SelectedGroup != null);
         NewHostCommand = new RelayCommand(() => NewHostRequested?.Invoke(this, CurrentGroup?.Id));
         EditHostCommand = new RelayCommand(() => { if (SelectedHost != null) EditHostRequested?.Invoke(this, SelectedHost); }, () => SelectedHost != null);
         DeleteHostCommand = new RelayCommand(() => _ = DeleteHostAsync(), () => SelectedHost != null);
@@ -59,6 +61,7 @@ public sealed class HostsViewModel : BaseViewModel
     public RelayCommand ConnectPrimaryCommand { get; }
     public RelayCommand ConnectCommand { get; }
     public RelayCommand NewGroupCommand { get; }
+    public RelayCommand DeleteGroupCommand { get; }
     public RelayCommand NewHostCommand { get; }
     public RelayCommand EditHostCommand { get; }
     public RelayCommand DeleteHostCommand { get; }
@@ -67,6 +70,21 @@ public sealed class HostsViewModel : BaseViewModel
     public event EventHandler<string?>? NewHostRequested;
     public event EventHandler<AssetViewModel>? EditHostRequested;
     public event EventHandler? NewGroupRequested;
+
+    /// <summary>
+    /// Pede ao shell a confirmação do operador antes de excluir um grupo (o assinante marca
+    /// <see cref="GroupDeletionConfirmation.Confirmed"/>). Ver o "porquê" em
+    /// <see cref="GroupDeletionConfirmation"/>.
+    /// </summary>
+    public event EventHandler<GroupDeletionConfirmation>? DeleteGroupConfirmationRequested;
+
+    /// <summary>
+    /// A exclusão do grupo NÃO aconteceu e o operador precisa saber por quê — seja o bloqueio por
+    /// grupo não vazio, seja uma falha do store. Evento próprio (e não <see cref="LaunchFailed"/>)
+    /// porque o shell mostra a caixa com o título "Excluir grupo": reaproveitar o de conexão daria
+    /// uma caixa intitulada "Conectar" falando de exclusão de grupo.
+    /// </summary>
+    public event EventHandler<string>? DeleteGroupFailed;
 
     /// <summary>Falha de conexão com mensagem acionável (MainWindow mostra ao operador).</summary>
     public event EventHandler<string>? LaunchFailed;
@@ -109,6 +127,22 @@ public sealed class HostsViewModel : BaseViewModel
         }
     }
 
+    /// <summary>
+    /// Grupo ALVO das ações de grupo (hoje: excluir). O grid de cards é um <c>ItemsControl</c> sem
+    /// conceito de seleção — o clique esquerdo ABRE o grupo —, então o alvo é fixado pelo clique
+    /// direito no card, antes do menu de contexto abrir (ver <c>HostsView.xaml.cs</c>). Sem isso o
+    /// "Excluir grupo" agiria sobre o alvo anterior, que é a receita de apagar o grupo errado.
+    /// </summary>
+    public GroupCardViewModel? SelectedGroup
+    {
+        get => _selectedGroup;
+        set
+        {
+            Set(ref _selectedGroup, value);
+            DeleteGroupCommand.RaiseCanExecuteChanged();
+        }
+    }
+
     public bool IsInGroup => _currentGroup != null;
     public string BreadcrumbLabel => _currentGroup is null ? "Grupos" : $"Grupos / {_currentGroup.Name}";
 
@@ -133,6 +167,9 @@ public sealed class HostsViewModel : BaseViewModel
     public async Task LoadAsync()
     {
         CurrentGroup = null;
+        // Os cards são RECRIADOS logo abaixo: manter o alvo antigo deixaria "Excluir grupo"
+        // habilitado apontando para uma instância que não está mais na lista.
+        SelectedGroup = null;
         Groups.Clear();
         var groups = await _store.GetGroupsAsync(_workspaceId);
         var filter = _searchText.Trim();
@@ -249,6 +286,88 @@ public sealed class HostsViewModel : BaseViewModel
         }
     }
 
+    /// <summary>
+    /// Exclui o grupo em <see cref="SelectedGroup"/> — SÓ se ele estiver VAZIO.
+    ///
+    /// <para><b>Por que a trava de "só vazio":</b> <see cref="ILocalStore.DeleteGroupAsync"/> apaga
+    /// apenas a linha do grupo (<c>DELETE FROM asset_groups</c>) e não toca nos ativos. Excluir um
+    /// grupo com equipamentos deixaria cada um deles com <c>group_id</c> apontando para um grupo
+    /// inexistente: órfãos que somem da tela — e o patch <c>"asset_group"/"deleted"</c> do outbox
+    /// espalha esse estado para os outros dispositivos. Seria perda de dado silenciosa, então a trava
+    /// não é conveniência de UX: é o que impede o estrago.</para>
+    ///
+    /// <para>A contagem vem do STORE, não do <see cref="GroupCardViewModel.HostCount"/> do card: o card
+    /// é montado no <see cref="LoadAsync"/> e pode estar velho (o sync adiciona hosts enquanto a tela
+    /// está aberta). Um card dizendo "0 hosts" não é autorização para apagar.</para>
+    ///
+    /// <para>Pública (como <see cref="ConnectAsync"/>) porque o command a dispara em fire-and-forget:
+    /// o teste precisa de um ponto de espera determinístico.</para>
+    /// </summary>
+    public async Task DeleteGroupAsync()
+    {
+        if (SelectedGroup is not { } group)
+        {
+            return;
+        }
+
+        // Todo o caminho vai dentro do try: ler o store, excluir e recarregar podem falhar (DB/cofre
+        // indisponível), e o command descarta a Task — sem isto a exceção morreria sem UI nenhuma,
+        // repetindo o defeito de "excluir host falhava em silêncio" da v1.2.23.
+        try
+        {
+            // Conta do STORE e avisa se o grupo não está vazio. É chamada DUAS vezes de propósito
+            // (antes de perguntar e de novo depois da resposta) — ver o comentário da segunda chamada.
+            async Task<bool> BlockedByHostsAsync()
+            {
+                int hostCount = (await _store.GetAssetsAsync(_workspaceId, group.Id)).Count;
+                if (hostCount == 0)
+                {
+                    return false;
+                }
+
+                DeleteGroupFailed?.Invoke(
+                    this,
+                    $"O grupo '{group.Name}' tem {hostCount} equipamento(s). " +
+                    "Mova ou exclua os equipamentos antes de excluir o grupo.");
+                return true;
+            }
+
+            // Bloqueia ANTES de perguntar: não faz sentido pedir confirmação de algo que não pode
+            // acontecer, e a mensagem já diz QUANTOS são e qual é a saída.
+            if (await BlockedByHostsAsync())
+            {
+                return;
+            }
+
+            var confirmation = new GroupDeletionConfirmation(group.Name);
+            DeleteGroupConfirmationRequested?.Invoke(this, confirmation);
+            if (!confirmation.Confirmed)
+            {
+                return; // desistir não é falha: nenhum aviso.
+            }
+
+            // RE-checa DEPOIS da confirmação: o diálogo fica aberto por tempo humano e o sync continua
+            // gravando no store em background — um host pode ter chegado no grupo ENQUANTO o operador
+            // lia a pergunta. Sem esta segunda checagem, o "sim" apagaria um grupo que já não está
+            // vazio e os equipamentos virariam órfãos (e o delete propagaria pelos outros devices).
+            if (await BlockedByHostsAsync())
+            {
+                return;
+            }
+
+            await _store.DeleteGroupAsync(group.Id);
+            SelectedGroup = null;
+
+            // Recarrega do store em vez de só remover o card: a exclusão entra no outbox e a lista
+            // precisa refletir exatamente o que sobrou (inclusive contagens dos outros grupos).
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            DeleteGroupFailed?.Invoke(this, $"Falha ao excluir o grupo: {ex.Message}");
+        }
+    }
+
     public Task ReloadAfterEditAsync() => RefreshAsync();
 
     // ── Reconciliação disparada pelo cloud sync (Fase 2) ─────────────────────────────────────
@@ -345,6 +464,13 @@ public sealed class HostsViewModel : BaseViewModel
             modelKey: s => s.Id,
             create: s => new GroupCardViewModel(s.Id, s.Name, s.Count),
             update: (card, s) => card.Update(s.Name, s.Count));
+
+        // Alvo apagado por outro device (ou filtrado pela busca) sai da lista: zera para o
+        // "Excluir grupo" não ficar habilitado apontando para um card que não está mais na tela.
+        if (_selectedGroup is not null && !Groups.Contains(_selectedGroup))
+        {
+            SelectedGroup = null;
+        }
     }
 
     /// <summary>Reconcilia os hosts do grupo aberto (mesmos filtros do <see cref="LoadHostsAsync"/>) por id.</summary>

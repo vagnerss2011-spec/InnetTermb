@@ -22,6 +22,19 @@ public partial class HostsView : UserControl
         }
     }
 
+    // O grid de grupos é um ItemsControl: não tem seleção, e o clique esquerdo no card ABRE o grupo.
+    // Sem fixar o alvo aqui, o "Excluir grupo" do menu de contexto agiria sobre o alvo anterior (ou
+    // ficaria desabilitado para sempre) — mesmo motivo do Row_PreviewMouseRightButtonDown da lista de
+    // hosts. Roda ANTES do menu abrir, então o CanExecute do comando já avalia com o alvo certo.
+    private void GroupCard_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: GroupCardViewModel card }
+            && DataContext is HostsViewModel vm)
+        {
+            vm.SelectedGroup = card;
+        }
+    }
+
     // Duplo-clique na linha conecta pelo protocolo primário do host.
     private void HostRow_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {

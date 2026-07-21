@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Threading.Tasks;
 
 using RemoteOps.Sync.Remote;
@@ -21,6 +22,8 @@ namespace RemoteOps.Desktop.ViewModels;
 /// </summary>
 public sealed class SyncStatusViewModel : BaseViewModel
 {
+    private readonly TimeProvider _clock;
+
     private ISyncController? _controller;
     private SyncState _state = SyncState.Offline;
     private int _conflictCount;
@@ -31,9 +34,21 @@ public sealed class SyncStatusViewModel : BaseViewModel
     // precisa enxergar — a rede que bloqueia WebSocket.
     private bool _isRealTime;
 
-    public SyncStatusViewModel(ISyncController? controller = null)
+    // Resultado do ÚLTIMO "Sincronizar agora" (só do clique — o laço de fundo não mexe aqui). Null
+    // até o primeiro clique: carimbo inventado na abertura não significaria nada.
+    private DateTimeOffset? _lastSyncNowAt;
+    private bool _lastSyncNowFailed;
+
+    /// <param name="controller">Controlador do sync; <c>null</c> = sem nuvem (offline-first).</param>
+    /// <param name="clock">
+    /// Relógio do carimbo. Injetável só por causa do teste que prova que o carimbo MUDA a cada clique:
+    /// com o relógio real, dois cliques no mesmo segundo dariam o mesmo texto e o teste seria
+    /// intermitente. Mesmo desenho do <c>CredentialVault</c>.
+    /// </param>
+    public SyncStatusViewModel(ISyncController? controller = null, TimeProvider? clock = null)
     {
         _controller = controller;
+        _clock = clock ?? TimeProvider.System;
         SyncNowCommand = new RelayCommand(_ => _ = RunSyncNowAsync(), _ => CanSyncNow);
         ShowConflictsCommand = new RelayCommand(_ => ConflictsRequested?.Invoke(this, EventArgs.Empty));
     }
@@ -110,6 +125,74 @@ public sealed class SyncStatusViewModel : BaseViewModel
     public string ChannelDetail => _isRealTime
         ? "As alterações feitas nos outros computadores chegam em segundos."
         : "Sem canal em tempo real — as alterações chegam na próxima verificação periódica.";
+
+    // ── Retorno do "Sincronizar agora" ───────────────────────────────────────────────────────
+    //
+    // POR QUE existe: o clique SEMPRE rodou o ciclo real (push+pull), mas o resultado era descartado
+    // (o bool do ISyncController ia pro lixo e o catch engolia a exceção). Quando o indicador já
+    // estava em "Sincronizado", o ciclo rodava, terminava "Sincronizado" e NADA mudava na tela —
+    // indistinguível de "o botão não fez nada", que foi exatamente a dúvida do operador em campo.
+    //
+    // POR QUE um carimbo com a HORA e não uma mensagem que some sozinha: os dois resolvem o "não sei
+    // se rodou", mas a mensagem efêmera falha justo com quem ela deveria atender — este é um console
+    // de operação de rede, o operador clica em "Sincronizar agora" e volta a digitar no equipamento;
+    // quando olha de novo para a barra, uma confirmação de 3 segundos já sumiu e ele fica na mesma
+    // dúvida. O carimbo fica até o próximo clique, e como leva os SEGUNDOS ele muda a cada clique —
+    // que é o sinal de que algo aconteceu mesmo quando o estado final é igual ao inicial. De quebra
+    // não precisa de timer nem de volta pro Dispatcher (menos peça, menos risco de thread).
+    //
+    // POR QUE não é modal (MessageBox): o mesmo motivo do aviso de atualização — um diálogo que rouba
+    // foco pode pipocar enquanto o operador digita num roteador em produção, e o Enter destinado ao
+    // equipamento vira "OK" na caixa. O retorno ACENDE na barra; não interrompe ninguém.
+
+    /// <summary>Já houve um "Sincronizar agora" nesta sessão? Controla a visibilidade do carimbo.</summary>
+    public bool HasSyncOutcome => _lastSyncNowAt is not null;
+
+    /// <summary>
+    /// Carimbo do último ciclo forçado. Sucesso e falha usam a MESMA forma (texto + hora) de propósito:
+    /// o que o operador precisa distinguir é "deu" x "não deu", e a hora é o que prova que o clique
+    /// desta vez chegou a rodar.
+    /// </summary>
+    public string SyncOutcomeText
+    {
+        get
+        {
+            if (_lastSyncNowAt is not { } when)
+            {
+                return string.Empty;
+            }
+
+            // Hora com SEGUNDOS: sem eles, dois cliques dentro do mesmo minuto exibiriam o mesmo
+            // texto e o carimbo voltaria a não sinalizar nada — o bug que este recurso conserta.
+            string hora = when.ToString("HH:mm:ss", CultureInfo.GetCultureInfo("pt-BR"));
+
+            return _lastSyncNowFailed
+                ? $"Não sincronizou às {hora}"
+                : $"Última sincronização: {hora}";
+        }
+    }
+
+    /// <summary>
+    /// Detalhe do carimbo (tooltip). É aqui que mora o "o que fazer agora" na falha — fora de qualquer
+    /// diálogo modal, que não pode roubar o teclado do operador.
+    /// </summary>
+    public string SyncOutcomeDetail
+    {
+        get
+        {
+            if (!HasSyncOutcome)
+            {
+                return string.Empty;
+            }
+
+            return _lastSyncNowFailed
+                ? "O ciclo terminou sem sincronizar. Verifique a conexão e clique de novo."
+                : "O último \"Sincronizar agora\" enviou e recebeu as alterações sem erro.";
+        }
+    }
+
+    /// <summary>O último "Sincronizar agora" FALHOU? Pinta o carimbo de erro na barra.</summary>
+    public bool SyncOutcomeFailed => _lastSyncNowFailed;
 
     /// <summary>
     /// Reflete o estado do canal de hints. Quem chama (o App, a partir do <c>RealTimeChanged</c>, que
@@ -215,19 +298,42 @@ public sealed class SyncStatusViewModel : BaseViewModel
         }
 
         SetBusy(true);
+
+        // Começa em "não deu": qualquer caminho que não chegue ao fim do ciclo (exceção inclusive)
+        // tem de virar aviso de falha. O padrão otimista é o que produzia o silêncio de antes.
+        bool ok = false;
         try
         {
-            await controller.SyncNowAsync();
+            // O bool É o resultado do ciclo (o orquestrador não relança — offline-first, ADR-002).
+            // Descartá-lo era o bug: sem ele a falha ficava invisível e o sucesso, mudo.
+            ok = await controller.SyncNowAsync();
         }
         catch
         {
             // O estado de erro chega pelo StatusChanged do orquestrador (→ Apply). Não estoura pra UI:
-            // o botão volta a ficar clicável no finally pra o operador tentar de novo.
+            // o botão volta a ficar clicável no finally pra o operador tentar de novo. A diferença
+            // agora é que a falha também vira carimbo — antes o catch engolia e ninguém ficava sabendo.
         }
         finally
         {
+            // ANTES do SetBusy(false) de propósito: quem observa "parou de sincronizar" (a barra e os
+            // testes) já encontra o carimbo do ciclo pronto, sem um quadro intermediário mentindo.
+            RecordOutcome(ok);
             SetBusy(false);
         }
+    }
+
+    private void RecordOutcome(bool ok)
+    {
+        _lastSyncNowAt = _clock.GetLocalNow();
+        _lastSyncNowFailed = !ok;
+
+        // Todas DERIVADAS dos dois campos acima: sem os raises explícitos o carimbo existiria só no
+        // objeto e a barra continuaria muda — exatamente o sintoma que este recurso conserta.
+        RaisePropertyChanged(nameof(HasSyncOutcome));
+        RaisePropertyChanged(nameof(SyncOutcomeText));
+        RaisePropertyChanged(nameof(SyncOutcomeDetail));
+        RaisePropertyChanged(nameof(SyncOutcomeFailed));
     }
 
     private void SetBusy(bool value)
