@@ -71,6 +71,19 @@
                         </DataTrigger>
                     </Style.Triggers>
                 </Style>
+
+                <!-- Carimbo do "Sincronizar agora": discreto no sucesso, gritante na falha. A cor é o
+                     que separa "deu" de "não deu" de relance — sem o trigger, a falha teria a mesma
+                     cara apagada do sucesso. Tipografia por token (BasedOn), nenhum tamanho literal. -->
+                <Style x:Key="Sync.Outcome" TargetType="TextBlock" BasedOn="{StaticResource Text.Caption}">
+                    <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Tertiary}"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding SyncOutcomeFailed}" Value="True">
+                            <Setter Property="Foreground" Value="{DynamicResource Brush.Status.Error}"/>
+                            <Setter Property="FontWeight" Value="SemiBold"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
             </Border.Resources>
 
             <DockPanel LastChildFill="False">
@@ -213,6 +226,35 @@
                         </ControlTemplate>
                     </Button.Template>
                 </Button>
+
+                <!-- Retorno do "Sincronizar agora". Declarado DEPOIS do botão de propósito: num
+                     DockPanel os filhos com Dock="Right" empilham da direita pra esquerda na ordem de
+                     declaração, então o carimbo fica colado à ESQUERDA do botão — o retorno aparece
+                     ao lado da coisa que o operador acabou de clicar.
+
+                     POR QUE existe: o clique sempre rodou o ciclo, mas o resultado era descartado.
+                     Com o indicador já em "Sincronizado", clicar não mudava NADA na tela — o operador
+                     não tinha como saber se o botão funcionava. O carimbo leva a HORA (com segundos),
+                     então muda a cada clique mesmo quando o estado final é igual ao inicial.
+
+                     Não é modal, e nem podia ser: um diálogo roubaria o teclado de quem está digitando
+                     num equipamento em produção (mesmo racional do aviso de atualização acima).
+
+                     Bindings diretos (sem RelativeSource) porque este Border está com
+                     DataContext="{Binding Sync}" (linha 49) e as três propriedades são da
+                     SyncStatusViewModel. Invisível até o primeiro clique. -->
+                <StackPanel x:Name="SyncOutcomeIndicator"
+                            DockPanel.Dock="Right"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Center"
+                            Margin="0,0,10,0"
+                            ToolTip="{Binding SyncOutcomeDetail}"
+                            Visibility="{Binding HasSyncOutcome, Converter={StaticResource BoolToVis}}">
+                    <TextBlock x:Name="SyncOutcomeLabel"
+                               Text="{Binding SyncOutcomeText}"
+                               Style="{StaticResource Sync.Outcome}"
+                               VerticalAlignment="Center"/>
+                </StackPanel>
             </DockPanel>
         </Border>
 
