@@ -220,6 +220,32 @@ public sealed class LocalEntitiesChangeApplier : IRemoteChangeApplier
 
         using SqliteTransaction tx = conn.BeginTransaction();
 
+        // GUARDA: grupo com hosts LOCAIS não é apagado, venha o delete de onde vier.
+        //
+        // A UI navega exclusivamente por grupo (a raiz lista cards; os hosts só aparecem dentro de um).
+        // Um asset com group_id apontando pra um grupo apagado fica INVISÍVEL — o dado existe e o
+        // operador não alcança, o que com centenas de devices é indistinguível de perda.
+        //
+        // O device que excluiu pela UI já exigiu "grupo vazio" na visão DELE; esta guarda cobre o que
+        // ele não podia saber: hosts criados aqui e ainda não sincronizados. Divergir do servidor por
+        // um tempo é preferível a cegar o operador — e a divergência se resolve sozinha assim que esses
+        // hosts subirem (ou forem movidos/excluídos), quando o grupo finalmente pode ir.
+        //
+        // Devolve 0 (nada gravado) e o cursor avança normalmente: repetir o delete a cada ciclo só
+        // reencontraria os mesmos hosts.
+        if (string.Equals(map.Table, "asset_groups", StringComparison.Ordinal))
+        {
+            using SqliteCommand guard = conn.CreateCommand();
+            guard.Transaction = tx;
+            guard.CommandText = "SELECT COUNT(*) FROM assets WHERE group_id = $id";
+            guard.Parameters.AddWithValue("$id", id);
+            if (Convert.ToInt32(await guard.ExecuteScalarAsync(ct)) > 0)
+            {
+                await tx.RollbackAsync(ct);
+                return 0;
+            }
+        }
+
         // Cascata igual à do SqlCipherLocalStore.DeleteAssetAsync: apagar o ativo sem os endpoints
         // deixaria endpoints órfãos, que ninguém lista e ninguém apaga. O device A não empurra os
         // deletes dos endpoints (ele também cascateia), então quem recebe TEM que cascatear.
