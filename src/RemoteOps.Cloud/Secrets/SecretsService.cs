@@ -43,12 +43,18 @@ public sealed class SecretsService(
         if (dto.Version < 1)
             throw new ArgumentException("version deve ser >= 1.");
 
-        var ciphertext = Decode(dto.Ciphertext, nameof(dto.Ciphertext));
-        var nonce = Decode(dto.Nonce, nameof(dto.Nonce));
-        var tag = Decode(dto.Tag, nameof(dto.Tag));
-        var wrappedCek = Decode(dto.WrappedCek, nameof(dto.WrappedCek));
-        var cekNonce = Decode(dto.CekNonce, nameof(dto.CekNonce));
-        var cekTag = Decode(dto.CekTag, nameof(dto.CekTag));
+        // Tombstone: o cliente revogou o segredo e zerou o material antes de subir (o cofre
+        // apaga ciphertext/CEK ao revogar). É o ÚNICO caso em que material vazio é aceito —
+        // e aceitá-lo é o que faz a revogação chegar nos outros devices. Sem isso, o envelope
+        // antigo ficava vivo e decifrável no disco do outro PC para sempre.
+        var isTombstone = dto.RevokedAt is not null;
+
+        var ciphertext = Decode(dto.Ciphertext, nameof(dto.Ciphertext), isTombstone);
+        var nonce = Decode(dto.Nonce, nameof(dto.Nonce), isTombstone);
+        var tag = Decode(dto.Tag, nameof(dto.Tag), isTombstone);
+        var wrappedCek = Decode(dto.WrappedCek, nameof(dto.WrappedCek), isTombstone);
+        var cekNonce = Decode(dto.CekNonce, nameof(dto.CekNonce), isTombstone);
+        var cekTag = Decode(dto.CekTag, nameof(dto.CekTag), isTombstone);
         if (string.IsNullOrWhiteSpace(dto.KeyVersion))
             throw new ArgumentException("keyVersion é obrigatório.");
 
@@ -66,6 +72,19 @@ public sealed class SecretsService(
                     "Secret upsert rejected: envelope {EnvelopeId} belongs to workspace {OwnerWorkspaceId}, not {WorkspaceId}",
                     id, existing.WorkspaceId, workspaceId);
                 return new SecretUpsertResult("conflict", 0, null, "envelope.workspace-mismatch");
+            }
+
+            // Revogação é caminho SÓ DE IDA. Aceitar uma cópia viva por cima de um tombstone
+            // republicaria a senha velha em todos os devices do workspace — exatamente o oposto
+            // do que a revogação existe para fazer. Não afrouxa nada do que já existia: até esta
+            // fatia nenhum tombstone chegava ao servidor, então RevokedAt de linha antiga é nulo
+            // e este caminho é inalcançável para dado legado.
+            if (existing.RevokedAt is not null && !isTombstone)
+            {
+                logger.LogWarning(
+                    "Secret upsert rejected: envelope {EnvelopeId} is revoked and cannot be resurrected",
+                    id);
+                return new SecretUpsertResult("conflict", existing.Cursor, existing.Version, "envelope.revoked");
             }
 
             // Monotonicidade: device atrasado não sobrescreve rotação mais nova.
@@ -112,6 +131,9 @@ public sealed class SecretsService(
         existing.CekTag = cekTag;
         existing.Version = dto.Version;
         existing.Cursor = cursor;
+        // Só de ida: quando existing já estava revogado, o caminho acima só chega aqui com
+        // isTombstone, então a marca nunca é apagada por um upsert.
+        existing.RevokedAt = dto.RevokedAt;
 
         await db.SaveChangesAsync(ct);
 
@@ -128,6 +150,9 @@ public sealed class SecretsService(
                 ["version"] = dto.Version,
                 ["cursor"] = cursor,
                 ["bytes"] = ciphertext.Length,
+                // Revogação é evento sensível: uma auditoria forense precisa achar QUANDO a senha
+                // foi tirada de circulação. É metadado — não diz nada sobre o conteúdo.
+                ["revoked"] = isTombstone,
             }), ct);
 
         logger.LogInformation(
@@ -199,16 +224,28 @@ public sealed class SecretsService(
         Version: e.Version)
     {
         Algorithm = e.Algorithm,
+        // Sem descer a marca, o device que recebe grava o envelope como vivo e a revogação
+        // não chega a lugar nenhum.
+        RevokedAt = e.RevokedAt,
     };
 
-    private static byte[] Decode(string b64, string field)
+    /// <param name="allowEmpty">
+    /// Só o tombstone passa vazio. A validação geral NÃO afrouxa: para envelope vivo, corpo vazio
+    /// continua sendo 400 — senão "material ausente" viraria um jeito silencioso de publicar um
+    /// envelope que nenhum device consegue abrir.
+    /// </param>
+    private static byte[] Decode(string b64, string field, bool allowEmpty = false)
     {
         if (string.IsNullOrWhiteSpace(b64))
+        {
+            if (allowEmpty) return [];
             throw new ArgumentException($"{field} é obrigatório.");
+        }
+
         byte[] bytes;
         try { bytes = Convert.FromBase64String(b64); }
         catch (FormatException) { throw new ArgumentException($"{field} não é base64 válido."); }
-        if (bytes.Length == 0)
+        if (bytes.Length == 0 && !allowEmpty)
             throw new ArgumentException($"{field} não pode ser vazio.");
         return bytes;
     }

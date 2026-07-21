@@ -18,6 +18,15 @@ public sealed record SecretEnvelopeDto(
 {
     /// <summary>Algoritmo declarado pelo cliente. Default: AES-256-GCM (ADR-003).</summary>
     public string? Algorithm { get; init; }
+
+    /// <summary>
+    /// Quando preenchido, o envelope é um TOMBSTONE: o cliente revogou o segredo e zerou o material
+    /// antes de subir. É o ÚNICO caso em que material vazio é aceito — para envelope vivo a
+    /// validação segue exigindo base64 não-vazio.
+    ///
+    /// <para>Opcional de propósito: cliente antigo não manda o campo e continua funcionando igual.</para>
+    /// </summary>
+    public DateTimeOffset? RevokedAt { get; init; }
 }
 
 public sealed record SecretsPullResponse(

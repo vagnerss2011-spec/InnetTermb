@@ -188,6 +188,16 @@ public sealed class CredentialVault : IVault, ICredentialVault
     {
         SecretEnvelope tombstone = envelope with
         {
+            // A revogação é uma VERSÃO NOVA do registro, não uma edição da atual — e é isso que a
+            // faz sair deste PC. Nascendo com a mesma versão do envelope vivo, o ledger de push a
+            // pularia ("o servidor já tem esta versão") e o servidor a recusaria por monotonicidade:
+            // a lápide morreria aqui e o envelope antigo continuaria vivo e DECIFRÁVEL no disco do
+            // outro device, para sempre. Incrementar acontece no máximo uma vez por envelope
+            // (RequireActiveAsync recusa revogar duas vezes), então não há corrida de versão.
+            //
+            // Seguro para o AAD: o material vai zerado logo abaixo e um tombstone nunca é aberto
+            // (RequireActiveAsync barra antes), então a versão no AAD nunca é conferida de novo.
+            Version = envelope.Version + 1,
             RevokedAt = _clock.GetUtcNow(),
             WrappedCek = [],
             CekNonce = [],

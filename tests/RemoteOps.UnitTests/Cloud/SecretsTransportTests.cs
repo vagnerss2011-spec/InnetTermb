@@ -32,6 +32,25 @@ public sealed class SecretsTransportTests
             KeyVersion: "wdk-v1",
             Version: version);
 
+    /// <summary>
+    /// O que o cofre do cliente sobe ao revogar: material TODO vazio + a marca <c>revokedAt</c>.
+    /// </summary>
+    private static SecretEnvelopeDto Tombstone(Guid id, Guid workspaceId, int version, DateTimeOffset revokedAt) =>
+        new(
+            Id: id.ToString(),
+            WorkspaceId: workspaceId.ToString(),
+            Ciphertext: string.Empty,
+            Nonce: string.Empty,
+            Tag: string.Empty,
+            WrappedCek: string.Empty,
+            CekNonce: string.Empty,
+            CekTag: string.Empty,
+            KeyVersion: "wdk-v1",
+            Version: version)
+        {
+            RevokedAt = revokedAt,
+        };
+
     // ── Round-trip do blob opaco ──────────────────────────────────────────────
 
     [Fact]
@@ -177,6 +196,79 @@ public sealed class SecretsTransportTests
         var result = await ctx.Secrets.UpsertAsync(ws.Id, NewEnvelope(id, ws.Id, version: 1), permCtx, default);
 
         Assert.Equal("conflict", result.Status);
+    }
+
+    // ── Revogação (tombstone) ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// O tombstone precisa ATRAVESSAR o servidor. Antes ele era recusado (material vazio), e a
+    /// consequência real não era um erro de transporte: o envelope antigo ficava vivo e decifrável
+    /// no disco do outro device PARA SEMPRE, a cada troca de senha.
+    /// </summary>
+    [Fact]
+    public async Task Upsert_AceitaTombstone_ComMaterialVazio_EPropagaARevogacao()
+    {
+        using var ctx = new CloudTestContext();
+        var (_, ws, user, _) = await ctx.SeedActiveUserAsync("Owner");
+        var permCtx = new PermissionContext(user.Id, ws.Id);
+        var id = Guid.NewGuid();
+
+        await ctx.Secrets.UpsertAsync(ws.Id, NewEnvelope(id, ws.Id), permCtx, default);
+        var revokedAt = DateTimeOffset.UtcNow;
+        var result = await ctx.Secrets.UpsertAsync(ws.Id, Tombstone(id, ws.Id, 2, revokedAt), permCtx, default);
+
+        Assert.Equal("ok", result.Status);
+
+        var pull = await ctx.Secrets.PullAsync(ws.Id, 0, 200, permCtx, default);
+        var got = Assert.Single(pull.Envelopes);
+        Assert.NotNull(got.RevokedAt);
+        // O material tem que descer VAZIO: é ele que apaga o segredo no device que recebe.
+        Assert.Equal(string.Empty, got.Ciphertext);
+        Assert.Equal(string.Empty, got.WrappedCek);
+    }
+
+    /// <summary>
+    /// A validação GERAL não afrouxa: envelope sem marca de revogação continua tendo que trazer
+    /// material. Sem esta guarda, a brecha do tombstone viraria "qualquer corpo vazio serve".
+    /// </summary>
+    [Fact]
+    public async Task Upsert_ContinuaRecusandoMaterialVazio_DeEnvelopeNaoRevogado()
+    {
+        using var ctx = new CloudTestContext();
+        var (_, ws, user, _) = await ctx.SeedActiveUserAsync("Owner");
+        var permCtx = new PermissionContext(user.Id, ws.Id);
+
+        var vazio = NewEnvelope(Guid.NewGuid(), ws.Id) with { Ciphertext = string.Empty };
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => ctx.Secrets.UpsertAsync(ws.Id, vazio, permCtx, default));
+        Assert.Empty(ctx.Db.SecretEnvelopes);
+    }
+
+    /// <summary>
+    /// Revogação é caminho SÓ DE IDA. Aceitar uma cópia viva por cima de um tombstone republicaria
+    /// a senha velha em todos os devices do workspace — o oposto do que a revogação existe para
+    /// fazer.
+    /// </summary>
+    [Fact]
+    public async Task Upsert_NuncaRessuscita_EnvelopeJaRevogado()
+    {
+        using var ctx = new CloudTestContext();
+        var (_, ws, user, _) = await ctx.SeedActiveUserAsync("Owner");
+        var permCtx = new PermissionContext(user.Id, ws.Id);
+        var id = Guid.NewGuid();
+
+        await ctx.Secrets.UpsertAsync(ws.Id, NewEnvelope(id, ws.Id), permCtx, default);
+        await ctx.Secrets.UpsertAsync(ws.Id, Tombstone(id, ws.Id, 2, DateTimeOffset.UtcNow), permCtx, default);
+
+        var result = await ctx.Secrets.UpsertAsync(ws.Id, NewEnvelope(id, ws.Id, version: 9), permCtx, default);
+
+        Assert.Equal("conflict", result.Status);
+        Assert.Equal("envelope.revoked", result.Reason);
+
+        var stored = ctx.Db.SecretEnvelopes.Single(e => e.Id == id);
+        Assert.NotNull(stored.RevokedAt);
+        Assert.Empty(stored.Ciphertext);
     }
 
     // ── RBAC ──────────────────────────────────────────────────────────────────

@@ -37,6 +37,8 @@ public sealed class SecretsContractsWireTests
         int Version)
     {
         public string? Algorithm { get; init; }
+
+        public DateTimeOffset? RevokedAt { get; init; }
     }
 
     private sealed record ServerSecretsPullResponse(
@@ -171,6 +173,69 @@ public sealed class SecretsContractsWireTests
         Assert.Equal(2, dto.Version);
         Assert.Equal("1|password|cred-1", dto.KeyVersion);
         Assert.Equal(new byte[] { 9, 9 }, Convert.FromBase64String(dto.Ciphertext));
+    }
+
+    // ── Tombstone no fio ─────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// O tombstone atravessa nos DOIS sentidos: a marca de revogação sobe no corpo do upsert e
+    /// desce na página do pull. Se ela se perdesse na serialização, o servidor recusaria o corpo
+    /// vazio (subida) ou o outro device gravaria o envelope como vivo (descida).
+    /// </summary>
+    [Fact]
+    public void Tombstone_RevokedAt_AtravessaNosDoisSentidos()
+    {
+        var revokedAt = new DateTimeOffset(2026, 7, 20, 12, 30, 0, TimeSpan.Zero);
+
+        var client = new SecretsUpsertRequest(
+            "6f9619ff-8b86-d011-b42d-00c04fc964ff",
+            new SecretEnvelopeDto(
+                Id: "11111111111122223333444444444444",
+                WorkspaceId: "6f9619ff-8b86-d011-b42d-00c04fc964ff",
+                Ciphertext: string.Empty,
+                Nonce: string.Empty,
+                Tag: string.Empty,
+                WrappedCek: string.Empty,
+                CekNonce: string.Empty,
+                CekTag: string.Empty,
+                KeyVersion: "1|password|abc",
+                Version: 2)
+            {
+                Algorithm = VaultAlgorithms.AmkRootedV1,
+                RevokedAt = revokedAt,
+            });
+
+        string subida = JsonSerializer.Serialize(client, s_web);
+        ServerSecretsUpsertRequest? servidor =
+            JsonSerializer.Deserialize<ServerSecretsUpsertRequest>(subida, s_web);
+        Assert.Equal(revokedAt, servidor!.Envelope.RevokedAt);
+
+        var pagina = new ServerSecretsPullResponse([servidor.Envelope], NextCursor: 3, HasMore: false);
+        string descida = JsonSerializer.Serialize(pagina, s_web);
+        SecretsPullResponse? deVolta = JsonSerializer.Deserialize<SecretsPullResponse>(descida, s_web);
+
+        Assert.Equal(revokedAt, Assert.Single(deVolta!.Envelopes).RevokedAt);
+    }
+
+    /// <summary>
+    /// Compatibilidade: payload de um servidor ANTIGO (sem <c>revokedAt</c>) continua ligando no
+    /// cliente novo, e o envelope volta VIVO. O campo entra ADICIONANDO.
+    /// </summary>
+    [Fact]
+    public void PayloadSemRevokedAt_AindaLiga_ComEnvelopeVivo()
+    {
+        const string antigo = """
+            {"envelopes":[{"id":"6f9619ff-8b86-d011-b42d-00c04fc964ff",
+            "workspaceId":"00000000-0000-0000-0000-000000000001","ciphertext":"CQk=",
+            "nonce":"AAAAAAAAAAAAAAAA","tag":"AAAAAAAAAAAAAAAAAAAAAA==","wrappedCek":"AAAAAAAAAAAA",
+            "cekNonce":"AAAAAAAAAAAAAAAA","cekTag":"AAAAAAAAAAAAAAAAAAAAAA==",
+            "keyVersion":"1|password|cred-1","version":2}],"nextCursor":12,"hasMore":false}
+            """;
+
+        SecretsPullResponse? client = JsonSerializer.Deserialize<SecretsPullResponse>(antigo, s_web);
+
+        Assert.NotNull(client);
+        Assert.Null(Assert.Single(client!.Envelopes).RevokedAt);
     }
 
     /// <summary>Página vazia (device já em dia) desserializa sem estourar.</summary>

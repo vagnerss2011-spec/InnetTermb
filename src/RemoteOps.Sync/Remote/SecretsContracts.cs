@@ -28,6 +28,17 @@ public sealed record SecretEnvelopeDto(
 {
     /// <summary>Algoritmo declarado pelo cliente. O servidor assume AES-256-GCM se vier nulo.</summary>
     public string? Algorithm { get; init; }
+
+    /// <summary>
+    /// Quando preenchido, este envelope é um TOMBSTONE: foi revogado e o material veio zerado de
+    /// propósito. É o único caso em que o servidor aceita base64 vazio.
+    ///
+    /// <para><b>Opcional de propósito</b> (regra de ouro: o formato novo ADICIONA, nunca troca). Um
+    /// servidor antigo ignora o campo; um cliente antigo que baixe um tombstone não vê a marca, mas
+    /// grava o material ZERADO que veio junto — ou seja, mesmo sem entender a revogação ele deixa de
+    /// conseguir abrir o segredo. Ninguém quebra, e o desfecho de segurança é o mesmo.</para>
+    /// </summary>
+    public DateTimeOffset? RevokedAt { get; init; }
 }
 
 /// <summary>Página de <c>GET /secrets</c>.</summary>

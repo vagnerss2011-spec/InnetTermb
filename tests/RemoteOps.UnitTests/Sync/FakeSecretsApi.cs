@@ -24,7 +24,9 @@ namespace RemoteOps.UnitTests.Sync;
 ///   <item><b>version &lt;= atual → conflict SEM avançar cursor</b> (re-push do mesmo envelope é
 ///   no-op no servidor).</item>
 ///   <item><b>Envelope pertence a UM workspace pra sempre</b> → conflict em id repetido noutro.</item>
-///   <item><b>base64 obrigatório e não-vazio</b> — é por isso que tombstone não trafega.</item>
+///   <item><b>base64 obrigatório e não-vazio</b>, EXCETO em tombstone (<c>revokedAt</c> preenchido),
+///   o único caso em que o servidor aceita material vazio.</item>
+///   <item><b>Revogação é só de ida</b>: upsert vivo por cima de tombstone → <c>envelope.revoked</c>.</item>
 /// </list>
 ///
 /// <para>E a garantia central da fase: <see cref="Forbid"/> registra plaintexts que NUNCA podem
@@ -57,6 +59,21 @@ internal sealed class FakeSecretsApi : ISecretsApi
 
     /// <summary>Segredo em claro que não pode existir em NENHUM campo do fio.</summary>
     public void Forbid(string plaintext) => _forbidden.Add(plaintext);
+
+    /// <summary>
+    /// Planta uma linha no servidor SEM passar pelo upsert. Serve para encenar o que o caminho
+    /// normal já barra e que mesmo assim precisa ser sobrevivido na descida: uma cópia VIVA de um
+    /// envelope que este device já revogou.
+    /// </summary>
+    public void SeedRaw(SecretEnvelopeDto dto)
+    {
+        Guid id = RequireGuid(dto.Id, nameof(dto.Id));
+        Guid ws = RequireGuid(dto.WorkspaceId, nameof(dto.WorkspaceId));
+        _rows[id.ToString()] = new Row(
+            id, ws, Convert.FromBase64String(dto.Ciphertext), dto.Nonce, dto.Tag, dto.WrappedCek,
+            dto.CekNonce, dto.CekTag, dto.KeyVersion, dto.Version, NextCursor(ws),
+            dto.Algorithm ?? "AES-256-GCM", dto.RevokedAt);
+    }
 
     public Task<IReadOnlyList<SecretUpsertResult>> PushAsync(
         string workspaceId, IReadOnlyList<SecretEnvelopeDto> envelopes, CancellationToken ct = default)
@@ -113,12 +130,14 @@ internal sealed class FakeSecretsApi : ISecretsApi
         Assert.True(dto.KeyVersion.Length <= 100, "keyVersion tem HasMaxLength(100) no servidor real");
         Assert.True((dto.Algorithm?.Length ?? 0) <= 100, "algorithm tem HasMaxLength(100) no servidor real");
 
-        byte[] ciphertext = RequireBase64(dto.Ciphertext, nameof(dto.Ciphertext));
-        RequireBase64(dto.Nonce, nameof(dto.Nonce));
-        RequireBase64(dto.Tag, nameof(dto.Tag));
-        RequireBase64(dto.WrappedCek, nameof(dto.WrappedCek));
-        RequireBase64(dto.CekNonce, nameof(dto.CekNonce));
-        RequireBase64(dto.CekTag, nameof(dto.CekTag));
+        // Tombstone é o ÚNICO envelope que pode chegar sem material: o cofre zera tudo ao revogar.
+        bool tombstone = dto.RevokedAt is not null;
+        byte[] ciphertext = RequireBase64(dto.Ciphertext, nameof(dto.Ciphertext), tombstone);
+        RequireBase64(dto.Nonce, nameof(dto.Nonce), tombstone);
+        RequireBase64(dto.Tag, nameof(dto.Tag), tombstone);
+        RequireBase64(dto.WrappedCek, nameof(dto.WrappedCek), tombstone);
+        RequireBase64(dto.CekNonce, nameof(dto.CekNonce), tombstone);
+        RequireBase64(dto.CekTag, nameof(dto.CekTag), tombstone);
 
         string key = id.ToString();
         if (_rows.TryGetValue(key, out Row? existing))
@@ -126,6 +145,12 @@ internal sealed class FakeSecretsApi : ISecretsApi
             if (existing.WorkspaceId != ws)
             {
                 return new SecretUpsertResult("conflict", 0, null, "envelope.workspace-mismatch");
+            }
+
+            if (existing.RevokedAt is not null && !tombstone)
+            {
+                // Revogação é caminho só de ida: aceitar o vivo de volta republicaria a senha velha.
+                return new SecretUpsertResult("conflict", existing.Cursor, existing.Version, "envelope.revoked");
             }
 
             if (dto.Version <= existing.Version)
@@ -137,7 +162,7 @@ internal sealed class FakeSecretsApi : ISecretsApi
 
         long cursor = NextCursor(ws);
         _rows[key] = new Row(id, ws, ciphertext, dto.Nonce, dto.Tag, dto.WrappedCek, dto.CekNonce,
-            dto.CekTag, dto.KeyVersion, dto.Version, cursor, dto.Algorithm ?? "AES-256-GCM");
+            dto.CekTag, dto.KeyVersion, dto.Version, cursor, dto.Algorithm ?? "AES-256-GCM", dto.RevokedAt);
         Accepted.Add(dto.Id);
         return new SecretUpsertResult("ok", cursor, dto.Version);
     }
@@ -184,17 +209,23 @@ internal sealed class FakeSecretsApi : ISecretsApi
         return parsed;
     }
 
-    private static byte[] RequireBase64(string value, string field)
+    private static byte[] RequireBase64(string value, string field, bool allowEmpty = false)
     {
+        if (allowEmpty && string.IsNullOrEmpty(value))
+        {
+            return [];
+        }
+
         Assert.False(string.IsNullOrWhiteSpace(value), $"{field} é obrigatório no servidor real");
         byte[] bytes = Convert.FromBase64String(value);
-        Assert.True(bytes.Length > 0, $"{field} não pode ser vazio no servidor real");
+        Assert.True(bytes.Length > 0 || allowEmpty, $"{field} não pode ser vazio no servidor real");
         return bytes;
     }
 
     private sealed record Row(
         Guid Id, Guid WorkspaceId, byte[] Ciphertext, string Nonce, string Tag, string WrappedCek,
-        string CekNonce, string CekTag, string KeyVersion, int Version, long Cursor, string Algorithm)
+        string CekNonce, string CekTag, string KeyVersion, int Version, long Cursor, string Algorithm,
+        DateTimeOffset? RevokedAt)
     {
         /// <summary>
         /// Espelha o <c>SecretsService.ToDto</c>: Id/WorkspaceId voltam do Guid, logo no formato "D"
@@ -213,6 +244,7 @@ internal sealed class FakeSecretsApi : ISecretsApi
             Version: Version)
         {
             Algorithm = Algorithm,
+            RevokedAt = RevokedAt,
         };
     }
 }
