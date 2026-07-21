@@ -98,9 +98,11 @@ public sealed class KeychainViewModel : BaseViewModel
     {
         if (cred.SecretEnvelopeId is { } envId)
         {
-            await _vault.RotateAsync(envId, newKey, new VaultAccessContext { ActorUserId = Actor });
+            SecretEnvelope rotated = await _vault.RotateAsync(envId, newKey, new VaultAccessContext { ActorUserId = Actor });
+            await _store.UpdateCredentialRefAsync(Repoint(cred, rotated.EnvelopeId, cred.Metadata?.PassphraseEnvelopeId));
         }
         Array.Clear(newKey);
+        await LoadAsync();
     }
 
     /// <summary>Troca a passphrase da chave: rotaciona o envelope se já existir, senão cria um novo.</summary>
@@ -108,7 +110,8 @@ public sealed class KeychainViewModel : BaseViewModel
     {
         if (cred.Metadata?.PassphraseEnvelopeId is { } ppId)
         {
-            await _vault.RotateAsync(ppId, newPassphrase, new VaultAccessContext { ActorUserId = Actor });
+            SecretEnvelope rotated = await _vault.RotateAsync(ppId, newPassphrase, new VaultAccessContext { ActorUserId = Actor });
+            await _store.UpdateCredentialRefAsync(Repoint(cred, cred.SecretEnvelopeId, rotated.EnvelopeId));
         }
         else
         {
@@ -149,8 +152,13 @@ public sealed class KeychainViewModel : BaseViewModel
     {
         // Só credencial de senha rotaciona por aqui — chave usa ReplaceKey/ChangePassphrase.
         if (cred.Type == CredentialTypes.Password && cred.SecretEnvelopeId is { } envId)
-            await _vault.RotateAsync(envId, newPassword, new VaultAccessContext { ActorUserId = Actor });
+        {
+            SecretEnvelope rotated = await _vault.RotateAsync(envId, newPassword, new VaultAccessContext { ActorUserId = Actor });
+            await _store.UpdateCredentialRefAsync(Repoint(cred, rotated.EnvelopeId, cred.Metadata?.PassphraseEnvelopeId));
+        }
+
         Array.Clear(newPassword);
+        await LoadAsync();
     }
 
     public async Task DeleteAsync(CredentialRef cred)
@@ -162,4 +170,35 @@ public sealed class KeychainViewModel : BaseViewModel
         await _store.DeleteCredentialRefAsync(cred.Id);
         await LoadAsync();
     }
+
+    /// <summary>
+    /// Reaponta o <see cref="CredentialRef"/> para os envelopes VIVOS, preservando o resto dos
+    /// metadados.
+    ///
+    /// <para><b>Por que existe:</b> <c>RotateAsync</c> cria um envelope com ID NOVO e tombstoneia o
+    /// antigo. Sem repontar, o ref fica apontando pro tombstone e o estrago é duplo: conectar falha
+    /// NESTE PC ("Envelope revogado") e, como nenhum metadado muda, nada entra no outbox — a troca
+    /// nunca chega ao outro device. O <c>UpdateCredentialRefAsync</c> conserta as duas coisas de
+    /// uma vez.</para>
+    ///
+    /// <para><see cref="CredentialRef"/>/<see cref="CredentialMetadata"/> são classes com <c>init</c>
+    /// (não são <c>record</c>), então não há <c>with</c>: a cópia é campo a campo, como o restante
+    /// deste arquivo já faz.</para>
+    /// </summary>
+    private static CredentialRef Repoint(CredentialRef cred, string? secretEnvelopeId, string? passphraseEnvelopeId) => new()
+    {
+        Id = cred.Id,
+        Name = cred.Name,
+        Type = cred.Type,
+        Scope = cred.Scope,
+        Metadata = new CredentialMetadata
+        {
+            Username = cred.Metadata?.Username,
+            HasPrivateKey = cred.Metadata?.HasPrivateKey ?? false,
+            PassphraseEnvelopeId = passphraseEnvelopeId,
+            LastRotatedAt = cred.Metadata?.LastRotatedAt,
+        },
+        SecretEnvelopeId = secretEnvelopeId,
+        Version = cred.Version,
+    };
 }
