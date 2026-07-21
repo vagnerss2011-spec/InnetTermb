@@ -1,3 +1,6 @@
+using System.Net;
+using System.Runtime.ExceptionServices;
+
 using RemoteOps.Security.Storage;
 using RemoteOps.Security.Vault;
 
@@ -76,15 +79,46 @@ public sealed class SecretSyncOrchestrator
     /// <summary>
     /// Um ciclo completo: push do que falta → pull do que chegou. RELANÇA em falha de rede/servidor
     /// — quem decide a postura é o <see cref="SyncOrchestrator"/>, que já trata isso como
-    /// "Error, tenta no próximo intervalo" (offline-first, ADR-002).
+    /// "reporta e tenta no próximo intervalo" (offline-first, ADR-002).
+    ///
+    /// <para><b>O pull roda MESMO se o push falhar.</b> A falha do push é capturada e só relançada no
+    /// fim, depois de o pull ter feito o trabalho dele. Antes, um push no chão abortava o ciclo
+    /// inteiro: um device que só RECEBE (o segundo PC do operador) parava de receber por causa de um
+    /// problema de SUBIDA — e nada no cofre dele explicava o porquê.</para>
+    ///
+    /// <para>Devolve o <see cref="SecretSyncReport"/> com os itens PULADOS: o ciclo não é mais
+    /// tudo-ou-nada, então quem chama precisa saber que terminou com senhas para trás.</para>
     /// </summary>
-    public async Task SyncOnceAsync(CancellationToken ct = default)
+    public async Task<SecretSyncReport> SyncOnceAsync(CancellationToken ct = default)
     {
         await _gate.WaitAsync(ct);
         try
         {
-            await PushLocalAsync(ct);
-            await PullRemoteAsync(ct);
+            var skipped = new List<SecretSyncSkip>();
+
+            ExceptionDispatchInfo? pushFailure = null;
+            try
+            {
+                await PushLocalAsync(skipped, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                throw; // cancelamento não é falha do canal: não vira "tenta de novo depois".
+            }
+            catch (Exception ex)
+            {
+                // Guarda a falha ORIGINAL (com o stack) pra relançar depois do pull. Nada dela é
+                // lido, formatado ou logado aqui (ADR-013).
+                pushFailure = ExceptionDispatchInfo.Capture(ex);
+            }
+
+            await PullRemoteAsync(skipped, ct);
+
+            // Se o pull também estourar, é a exceção DELE que sobe — o canal falhou de qualquer
+            // forma, e o estado que o SyncOrchestrator monta é o mesmo.
+            pushFailure?.Throw();
+
+            return new SecretSyncReport(skipped);
         }
         finally
         {
@@ -93,7 +127,7 @@ public sealed class SecretSyncOrchestrator
     }
 
     // PUSH: envelopes do workspace do cofre que ainda não estão no servidor na versão local.
-    private async Task PushLocalAsync(CancellationToken ct)
+    private async Task PushLocalAsync(List<SecretSyncSkip> skipped, CancellationToken ct)
     {
         IReadOnlyList<SecretEnvelope> local = await _store.ListEnvelopesAsync(_vaultWorkspaceId, ct);
         IReadOnlyDictionary<string, int> pushed =
@@ -113,24 +147,58 @@ public sealed class SecretSyncOrchestrator
                 continue; // o servidor já tem esta versão — nada a fazer.
             }
 
-            SecretEnvelopeDto dto = SecretEnvelopeWireCodec.ToWire(envelope, _serverWorkspaceId, _amkKeyVersion);
-
-            // Um envelope por chamada (e não o lote inteiro) porque assim a marca no ledger é gravada
-            // logo depois do POST correspondente: uma queda no meio deixa o já-enviado marcado, e o
-            // ciclo seguinte retoma de onde parou em vez de re-subir tudo.
-            IReadOnlyList<SecretUpsertResult> results = await _api.PushAsync(_serverWorkspaceId, [dto], ct);
-            if (results.Count == 0)
+            try
             {
-                continue;
+                await PushOneAsync(envelope, ct);
             }
-
-            if (ShouldMarkPushed(results[0]))
+            catch (Exception ex) when (IsPoisonedItem(ex))
             {
-                await _metadata.MarkSecretPushedAsync(
-                    _serverWorkspaceId, envelope.EnvelopeId, envelope.Version, ct);
+                // Isolamento POR ITEM: um envelope que o servidor (ou o codec) NUNCA vai aceitar não
+                // pode segurar os sadios. Antes, o primeiro veneno da lista abortava o laço — e como
+                // a enumeração do cofre é estável, os mesmos envelopes ficavam presos para sempre.
+                // Registrado com id + TIPO do erro, e nada mais (ADR-013).
+                skipped.Add(new SecretSyncSkip(envelope.EnvelopeId, SecretSyncPhase.Push, ex.GetType().Name));
             }
         }
     }
+
+    private async Task PushOneAsync(SecretEnvelope envelope, CancellationToken ct)
+    {
+        SecretEnvelopeDto dto = SecretEnvelopeWireCodec.ToWire(envelope, _serverWorkspaceId, _amkKeyVersion);
+
+        // Um envelope por chamada (e não o lote inteiro) porque assim a marca no ledger é gravada
+        // logo depois do POST correspondente: uma queda no meio deixa o já-enviado marcado, e o
+        // ciclo seguinte retoma de onde parou em vez de re-subir tudo.
+        IReadOnlyList<SecretUpsertResult> results = await _api.PushAsync(_serverWorkspaceId, [dto], ct);
+        if (results.Count == 0)
+        {
+            return;
+        }
+
+        if (ShouldMarkPushed(results[0]))
+        {
+            await _metadata.MarkSecretPushedAsync(
+                _serverWorkspaceId, envelope.EnvelopeId, envelope.Version, ct);
+        }
+    }
+
+    /// <summary>
+    /// O problema é DESTE item ou do canal inteiro? A distinção decide entre pular um envelope e
+    /// declarar sadios como "pulados" — o erro caro seria o segundo.
+    ///
+    /// <para><b>Item:</b> falha de CONTRATO (o codec recusou: id fora do formato GUID, cabeçalho de
+    /// outro cliente) e as recusas em que o servidor diz "este corpo não serve" (400/413/422).
+    /// Insistir nelas trava o canal a cada ciclo, para sempre.</para>
+    ///
+    /// <para><b>Canal:</b> tudo o mais — 401, 5xx, timeout, rede fora. Ali o envelope não tem defeito
+    /// nenhum; marcá-lo como pulado esconderia um item perfeitamente sadio atrás de um problema
+    /// passageiro.</para>
+    /// </summary>
+    private static bool IsPoisonedItem(Exception ex) => ex is CloudSyncException cloud
+        && cloud.StatusCode is null
+            or HttpStatusCode.BadRequest
+            or HttpStatusCode.RequestEntityTooLarge
+            or HttpStatusCode.UnprocessableEntity;
 
     /// <summary>
     /// "Já está no servidor?" — e só isso marca o ledger.
@@ -147,7 +215,7 @@ public sealed class SecretSyncOrchestrator
         || string.Equals(result.Reason, "version.conflict", StringComparison.Ordinal);
 
     // PULL: baixa as páginas e grava no cofre. Opacos: nada aqui abre envelope.
-    private async Task PullRemoteAsync(CancellationToken ct)
+    private async Task PullRemoteAsync(List<SecretSyncSkip> skipped, CancellationToken ct)
     {
         long cursor = await _metadata.GetSecretsCursorAsync(_serverWorkspaceId, ct);
 
@@ -158,7 +226,25 @@ public sealed class SecretSyncOrchestrator
             foreach (SecretEnvelopeDto dto in response.Envelopes)
             {
                 ct.ThrowIfCancellationRequested();
-                await ApplyAsync(dto, ct);
+
+                try
+                {
+                    await ApplyAsync(dto, ct);
+                }
+                catch (CloudSyncException ex)
+                {
+                    // Aqui o isolamento por item é ainda mais crítico que no push: o cursor só avança
+                    // depois da página INTEIRA, então um dto malformado no servidor congelaria o
+                    // cursor e o device nunca mais receberia nada — nem os envelopes sadios das
+                    // páginas seguintes.
+                    //
+                    // Só CloudSyncException é pulável, de propósito: ela significa "este dto não vira
+                    // envelope" (falha de contrato do codec). Falha de ARMAZENAMENTO (IOException,
+                    // disco cheio) tem que continuar estourando e SEGURANDO o cursor — pular ali
+                    // deixaria o envelope atrás do cursor, perdido em silêncio, que é o pior desfecho
+                    // possível para um segredo.
+                    skipped.Add(new SecretSyncSkip(dto.Id, SecretSyncPhase.Pull, ex.GetType().Name));
+                }
             }
 
             // O cursor só avança DEPOIS de a página inteira estar gravada: se cair no meio, o ciclo
