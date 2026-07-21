@@ -7,6 +7,7 @@ using RemoteOps.Contracts.Sync;
 using RemoteOps.Desktop.Domain;
 using RemoteOps.Desktop.Infrastructure;
 using RemoteOps.Sync;
+using RemoteOps.Sync.Storage;
 using RemoteOps.UnitTests.Sync;
 
 using Xunit;
@@ -601,6 +602,111 @@ public sealed class SqlCipherLocalStoreTests
         Asset? fetched = await ctx.Store.GetAssetAsync(asset.Id);
         Assert.NotNull(fetched);
         Assert.Empty(fetched!.Tags);
+    }
+
+    // ── Acervo grande (endpoints buscados em lotes) ────────────────────────────
+
+    [Fact]
+    public async Task GetAssets_With_More_Than_900_Assets_Returns_All_With_Their_Endpoints()
+    {
+        using var ctx = await StoreTestContext.CreateAsync("ws-acervo");
+
+        // 1200 ativos: acima do teto de 999 variáveis vinculadas do SQLite
+        // (SQLITE_LIMIT_VARIABLE_NUMBER), portanto impossível de atender com um IN único — só passa
+        // se a busca de endpoints for quebrada em lotes. O operador tem ~700 em produção e o
+        // "Reenviar tudo para a nuvem" (CloudResyncService) varre o workspace inteiro.
+        const int total = 1200;
+
+        // Um ativo no MEIO do acervo (2º lote) recebe um endpoint extra: prova que a ordem dentro do
+        // ativo (id ASC) sobrevive ao fatiamento, além da contagem.
+        const int multiEndpointIndex = 700;
+
+        await SeedAssetsWithEndpointsAsync(ctx, total, multiEndpointIndex);
+
+        IReadOnlyList<Asset> assets = await ctx.Store.GetAssetsAsync(ctx.WorkspaceId);
+
+        Assert.Equal(total, assets.Count);
+
+        for (int i = 0; i < total; i++)
+        {
+            Asset a = assets[i];
+
+            // Ordem global preservada (name ASC), como antes do fatiamento.
+            Assert.Equal($"host-{i:0000}", a.Name);
+
+            // O erro que o lote pode introduzir é entregar o endpoint do VIZINHO — o IP carrega o
+            // índice do ativo, então a associação é verificada uma a uma.
+            string expectedIp = $"10.{i / 256}.{i % 256}.1";
+            if (i == multiEndpointIndex)
+            {
+                Assert.Equal(2, a.Endpoints.Count);
+                Assert.Equal("10.255.255.254", a.Endpoints[0].Ipv4);   // id "…-0" vem antes de "…-1"
+                Assert.Equal(expectedIp, a.Endpoints[1].Ipv4);
+            }
+            else
+            {
+                Assert.Single(a.Endpoints);
+                Assert.Equal(expectedIp, a.Endpoints[0].Ipv4);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Semeia <paramref name="count"/> ativos com um endpoint cada, direto no banco e numa única
+    /// transação. Passar pelo <c>AddAssetAsync</c>/<c>AddEndpointAsync</c> abriria 2×N conexões e
+    /// gravaria 2×N entradas no outbox — dezenas de segundos para 1200 —, e o que este teste precisa
+    /// provar é apenas a LEITURA em lotes.
+    /// </summary>
+    private static async Task SeedAssetsWithEndpointsAsync(
+        StoreTestContext ctx, int count, int multiEndpointIndex)
+    {
+        using SqliteConnection conn = await ctx.Ctx.OpenConnectionAsync();
+        await LocalSchema.EnsureAsync(conn);
+
+        using SqliteTransaction tx = conn.BeginTransaction();
+
+        using SqliteCommand assetCmd = conn.CreateCommand();
+        assetCmd.Transaction = tx;
+        assetCmd.CommandText = """
+            INSERT INTO assets (id, workspace_id, group_id, name, tags_json, version)
+            VALUES ($id, $wid, NULL, $name, '[]', 0)
+            """;
+        SqliteParameter assetId = assetCmd.Parameters.Add("$id", SqliteType.Text);
+        assetCmd.Parameters.AddWithValue("$wid", ctx.WorkspaceId);
+        SqliteParameter assetName = assetCmd.Parameters.Add("$name", SqliteType.Text);
+
+        using SqliteCommand epCmd = conn.CreateCommand();
+        epCmd.Transaction = tx;
+        epCmd.CommandText = """
+            INSERT INTO endpoints (id, asset_id, protocol, ipv4, port, prefer_ipv6, version)
+            VALUES ($id, $aid, 'ssh', $ipv4, 22, 0, 0)
+            """;
+        SqliteParameter epId = epCmd.Parameters.Add("$id", SqliteType.Text);
+        SqliteParameter epAssetId = epCmd.Parameters.Add("$aid", SqliteType.Text);
+        SqliteParameter epIpv4 = epCmd.Parameters.Add("$ipv4", SqliteType.Text);
+
+        for (int i = 0; i < count; i++)
+        {
+            string id = $"asset-{i:0000}";
+
+            assetId.Value = id;
+            assetName.Value = $"host-{i:0000}";
+            await assetCmd.ExecuteNonQueryAsync();
+
+            epId.Value = $"ep-{i:0000}-1";
+            epAssetId.Value = id;
+            epIpv4.Value = $"10.{i / 256}.{i % 256}.1";
+            await epCmd.ExecuteNonQueryAsync();
+
+            if (i == multiEndpointIndex)
+            {
+                epId.Value = $"ep-{i:0000}-0";
+                epIpv4.Value = "10.255.255.254";
+                await epCmd.ExecuteNonQueryAsync();
+            }
+        }
+
+        tx.Commit();
     }
 
     // ── Helper ────────────────────────────────────────────────────────────────
