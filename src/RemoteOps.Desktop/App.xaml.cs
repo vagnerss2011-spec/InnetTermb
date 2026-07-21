@@ -197,6 +197,11 @@ public partial class App : Application
             // da conta ativa. Lazy → null em modo local (sem conta), e a seção de 2FA fica desabilitada.
             _workspaceViewModel.MfaApiFactory = TryCreateMfaApi;
 
+            // "Reenviar tudo para a nuvem" (Configurações → Conta): repara o acervo que subiu com
+            // patches incompletos — ver CloudResyncService. Lazy pelo mesmo motivo do 2FA: a sessão de
+            // sync só sobe no fim deste método, ou depois, quando a conta é ativada.
+            _workspaceViewModel.CloudResyncFactory = () => TryCreateCloudResync(store);
+
             // Recarga da lista de hosts quando o sync baixa dados novos (Fase 2). Sem isto, o device B
             // abre com a lista VAZIA: o LoadAsync roda uma vez no Loaded, e nada recarrega quando o
             // primeiro pull materializa os hosts segundos depois. Debounced (300ms) porque um pull
@@ -584,6 +589,21 @@ public partial class App : Application
         OnSyncStatusChanged(_syncSession.Orchestrator.Status);
         _ = StartSyncAsync(_syncSession);
     }
+
+    /// <summary>
+    /// Monta o serviço de "Reenviar tudo para a nuvem" com o store local e o orquestrador da sessão
+    /// de sync ATUAL. Devolve <c>null</c> em modo local (sem sessão): a seção some das Configurações.
+    ///
+    /// <para>Avaliado a cada abertura das Configurações, de propósito: quem liga a conta durante a
+    /// sessão passa a ter o botão sem reiniciar o app.</para>
+    /// </summary>
+    private CloudResyncService? TryCreateCloudResync(ILocalStore store)
+        => _syncSession is { } session
+            ? new CloudResyncService(
+                store,
+                WorkspaceViewModel.WorkspaceId,
+                new OrchestratorSyncController(session.Orchestrator))
+            : null;
 
     // Roda na thread de fundo do sync — só sinaliza o debounce (thread-safe); não toca a UI aqui.
     private void OnSyncChangesApplied() => _syncReload?.Signal();

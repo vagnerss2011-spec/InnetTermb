@@ -55,6 +55,9 @@ public sealed class SyncOrchestratorSecretsTests : IDisposable
         await orch.SyncOnceAsync();
 
         Assert.Equal(SyncState.Synced, orch.Status.State);
+
+        // Sem canal não há o que reportar: nem saudável nem quebrado — ocioso.
+        Assert.Equal(SecretChannelState.Idle, orch.Status.SecretChannel);
     }
 
     /// <summary>
@@ -129,11 +132,14 @@ public sealed class SyncOrchestratorSecretsTests : IDisposable
     }
 
     /// <summary>
-    /// Falha no canal de segredos não derruba o app nem o laço: vira <see cref="SyncState.Error"/> e
-    /// o próximo intervalo tenta de novo (offline-first, ADR-002).
+    /// <b>A falha do canal de segredos tem estado PRÓPRIO.</b> Não relança (offline-first, ADR-002) e,
+    /// principalmente, não vira o <see cref="SyncState.Error"/> genérico do changelog: os metadados
+    /// FORAM, e dizer "Erro de sincronização" esconderia justamente a informação que importa — a de
+    /// que as SENHAS não estão subindo. Foi essa fusão que deixou o operador com "Sincronizado" na
+    /// tela enquanto nenhuma credencial sincronizava.
     /// </summary>
     [Fact]
-    public async Task FalhaNoCanalDeSegredos_ViraErrorSemRelancar()
+    public async Task FalhaNoCanalDeSegredos_EhReportadaSeparadaDoChangelog()
     {
         (FileVaultStore store, CredentialVault vault) = Vault();
         await vault.StoreAsync(
@@ -155,7 +161,74 @@ public sealed class SyncOrchestratorSecretsTests : IDisposable
 
         await orch.SyncOnceAsync(); // não relança
 
-        Assert.Equal(SyncState.Error, orch.Status.State);
+        Assert.Equal(SyncState.Synced, orch.Status.State); // o changelog passou
+        Assert.Equal(SecretChannelState.Failed, orch.Status.SecretChannel);
+    }
+
+    /// <summary>
+    /// Ciclo limpo reporta o canal SAUDÁVEL. Sem isto, "Degradado" seria vácuo — todo ciclo poderia
+    /// estar dizendo a mesma coisa.
+    /// </summary>
+    [Fact]
+    public async Task CicloLimpo_ReportaOCanalSaudavel()
+    {
+        (FileVaultStore store, CredentialVault vault) = Vault();
+        await vault.StoreAsync(
+            new VaultStoreRequest
+            {
+                WorkspaceId = VaultWorkspace,
+                CredentialId = "c1",
+                Type = "password",
+                ActorUserId = "op",
+            },
+            "senha".AsMemory());
+
+        var metadata = new FakeSyncMetadataStore();
+        var orch = new SyncOrchestrator(
+            ServerWorkspace, new FakeOutbox(), new FakeCloudSyncApi(),
+            new FakeRemoteChangeApplier(), metadata, pageSize: 200,
+            secrets: new SecretSyncOrchestrator(
+                ServerWorkspace, VaultWorkspace, store, new FakeSecretsApi(), metadata));
+
+        await orch.SyncOnceAsync();
+
+        Assert.Equal(SyncState.Synced, orch.Status.State);
+        Assert.Equal(SecretChannelState.Healthy, orch.Status.SecretChannel);
+    }
+
+    /// <summary>
+    /// Item PULADO não é ciclo limpo. O envelope malformado não trava mais nada (ver
+    /// <see cref="SecretChannelResilienceTests"/>), mas o operador precisa saber que uma senha ficou
+    /// para trás — senão trocamos um travamento silencioso por uma perda silenciosa.
+    /// </summary>
+    [Fact]
+    public async Task ItemPuladoNoCanalDeSegredos_ViraCanalDegradado()
+    {
+        (FileVaultStore store, CredentialVault vault) = Vault();
+        SecretEnvelope sadio = await vault.StoreAsync(
+            new VaultStoreRequest
+            {
+                WorkspaceId = VaultWorkspace,
+                CredentialId = "c1",
+                Type = "password",
+                ActorUserId = "op",
+            },
+            "senha".AsMemory());
+
+        // Envelope com id fora do formato GUID: o codec recusa, o item é pulado, o ciclo segue.
+        await store.SaveAsync(sadio with { EnvelopeId = "nao-e-um-guid", CredentialId = "c2" });
+
+        var metadata = new FakeSyncMetadataStore();
+        var orch = new SyncOrchestrator(
+            ServerWorkspace, new FakeOutbox(), new FakeCloudSyncApi(),
+            new FakeRemoteChangeApplier(), metadata, pageSize: 200,
+            secrets: new SecretSyncOrchestrator(
+                ServerWorkspace, VaultWorkspace, store, new FakeSecretsApi(), metadata));
+
+        await orch.SyncOnceAsync();
+
+        Assert.Equal(SyncState.Synced, orch.Status.State);
+        Assert.Equal(SecretChannelState.Degraded, orch.Status.SecretChannel);
     }
 
     private sealed class RecordingApplier(List<string> order) : IRemoteChangeApplier

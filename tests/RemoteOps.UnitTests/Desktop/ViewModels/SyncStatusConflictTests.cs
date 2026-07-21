@@ -23,7 +23,7 @@ public sealed class SyncStatusConflictTests
         public bool ThrowOnLoad { get; set; }
         public bool ThrowOnDismiss { get; set; }
 
-        public Task SyncNowAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public Task<bool> SyncNowAsync(CancellationToken ct = default) => Task.FromResult(true);
 
         public Task<IReadOnlyList<SyncConflictItem>> GetConflictsAsync(int limit, CancellationToken ct = default)
             => ThrowOnLoad

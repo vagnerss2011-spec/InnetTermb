@@ -1,6 +1,16 @@
 {
   "entries": [
     {
+      "version": "1.4.5",
+      "date": "2026-07-20",
+      "highlights": [
+        "NOVO: botão 'Reenviar tudo para a nuvem' (Configurações → Conta). Serve para reparar equipamentos cadastrados ANTES de você ligar a nuvem: eles subiram com um pedaço faltando (o vínculo com a credencial), então no outro computador apareciam com 'o endpoint não tem credencial'. O botão reenvia o cadastro completo — não altera nada, só manda de novo. Clique UMA vez no computador que tem os dados certos e aguarde; o outro recebe em seguida.",
+        "Por que era preciso: a fila de envio guarda o cadastro do jeito que ele foi gravado NA ÉPOCA. Um problema antigo (já corrigido) fazia o equipamento subir sem o vínculo da credencial — e o dado errado ficou congelado na fila. Corrigir o programa não desfaz o que já foi enviado; por isso o reenvio.",
+        "CORRIGIDO: trocar a senha de uma credencial no Chaveiro quebrava a credencial. A senha nova era guardada num lugar novo, mas o equipamento continuava apontando para o antigo (já descartado) — parava de conectar até no próprio computador, e a troca nunca chegava no outro. Agora o vínculo acompanha a troca.",
+        "CORRIGIDO: o canal de senhas era 'tudo ou nada'. Um único registro com problema travava o envio E o recebimento de TODAS as senhas, para sempre, sem avisar. Agora o registro problemático é pulado, o resto passa normalmente, e a falha das senhas aparece separada da dos equipamentos (antes virava um 'Erro' genérico que não dizia o que tinha falhado)."
+      ]
+    },
+    {
       "version": "1.4.4",
       "date": "2026-07-20",
       "highlights": [

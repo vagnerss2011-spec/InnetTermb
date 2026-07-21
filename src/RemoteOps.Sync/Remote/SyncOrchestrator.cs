@@ -8,7 +8,8 @@ namespace RemoteOps.Sync.Remote;
 /// grava conflitos) → <c>GET /sync/pull</c> → aplica via <see cref="IRemoteChangeApplier"/> → avança o
 /// server cursor → e, se houver, roda o canal dos <c>SecretEnvelope</c>
 /// (<see cref="SecretSyncOrchestrator"/>). Expõe estado (Offline/Syncing/Synced/Error) + contagem de
-/// conflitos. Nunca loga token, segredo ou patch — em falha apenas sinaliza <see cref="SyncState.Error"/>.
+/// conflitos + a saúde SEPARADA do canal de segredos (<see cref="SecretChannelState"/>). Nunca loga
+/// token, segredo ou patch — em falha apenas sinaliza o estado.
 /// </summary>
 public sealed class SyncOrchestrator
 {
@@ -81,13 +82,23 @@ public sealed class SyncOrchestrator
     /// Executa um ciclo completo de push + pull. Em falha de rede/servidor fica em
     /// <see cref="SyncState.Error"/> (não relança) para que o laço de fundo siga no próximo intervalo.
     /// Serializado: chamadas concorrentes (hint + intervalo) rodam uma após a outra, nunca em paralelo.
+    ///
+    /// <para><b>Devolve o <see cref="SyncStatus"/> em que ESTE ciclo terminou.</b> Como a postura de
+    /// erro é engolir (não relançar), quem precisa saber se o ciclo passou — o "Reenviar tudo", que
+    /// só pode re-emitir sobre um pull que DE FATO alinhou as versões — não tem outro jeito de saber:
+    /// ler <see cref="Status"/> depois do await seria corrida com o próximo ciclo do laço de fundo.</para>
     /// </summary>
-    public async Task SyncOnceAsync(CancellationToken ct = default)
+    public async Task<SyncStatus> SyncOnceAsync(CancellationToken ct = default)
     {
         await _gate.WaitAsync(ct);
         try
         {
             SetStatus(SyncState.Syncing);
+
+            // Declarada FORA do try porque o catch de baixo também precisa dela: se o ciclo estourar
+            // DEPOIS do canal de segredos (ex.: na contagem de conflitos), o que já se sabia sobre os
+            // segredos não pode ser apagado por uma falha de metadados.
+            SecretChannelState secretChannel = SecretChannelState.Idle;
             try
             {
                 SyncCursors cursors = await _metadata.GetCursorsAsync(_workspaceId, ct);
@@ -105,13 +116,13 @@ public sealed class SyncOrchestrator
 
                 // Segredos DEPOIS dos metadados, sempre: assim o credential_ref já existe localmente
                 // quando o envelope dele chega, e o device que recebe nunca fica com uma senha órfã.
-                if (_secrets is not null)
+                if (_secrets is { } secrets)
                 {
-                    await _secrets.SyncOnceAsync(ct);
+                    secretChannel = await RunSecretChannelAsync(secrets, ct);
                 }
 
                 int conflicts = await _metadata.GetConflictCountAsync(ct);
-                SetStatus(SyncState.Synced, conflicts);
+                SetStatus(SyncState.Synced, conflicts, secretChannel);
             }
             catch (OperationCanceledException)
             {
@@ -120,12 +131,49 @@ public sealed class SyncOrchestrator
             catch (Exception)
             {
                 // Sem detalhes da exceção no estado/log — garante no-secret-in-log (ADR-013).
-                SetStatus(SyncState.Error);
+                SetStatus(SyncState.Error, secretsChannel: secretChannel);
             }
+
+            // Ainda dentro do gate, então isto é o estado que ESTE ciclo gravou — não o do próximo.
+            return Status;
         }
         finally
         {
             _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Roda o canal de segredos com catch PRÓPRIO, e é isso que dá VOZ a ele.
+    ///
+    /// <para><b>Por que não deixar cair no catch do ciclo:</b> ali a falha do canal virava o mesmo
+    /// <see cref="SyncState.Error"/> genérico do changelog. "Erro de sincronização" não distingue
+    /// "nada subiu" de "os HOSTS subiram e só as SENHAS não" — e é exatamente essa segunda situação
+    /// que este app já viu em campo. Com estado independente, ela passa a ser dizível.</para>
+    ///
+    /// <para>Não relança: o changelog já terminou, e derrubar o ciclo por causa dos segredos
+    /// apagaria o <see cref="SyncState.Synced"/> que os metadados conquistaram.</para>
+    /// </summary>
+    private static async Task<SecretChannelState> RunSecretChannelAsync(
+        SecretSyncOrchestrator secrets, CancellationToken ct)
+    {
+        try
+        {
+            SecretSyncReport report = await secrets.SyncOnceAsync(ct);
+
+            // Item pulado NÃO é ciclo limpo: o envelope malformado deixou de travar os outros, mas
+            // continua sem subir. Chamar isso de "saudável" trocaria um travamento silencioso por
+            // uma perda silenciosa.
+            return report.Skipped.Count > 0 ? SecretChannelState.Degraded : SecretChannelState.Healthy;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // Sem detalhe da exceção no estado/log (ADR-013) — só o fato de o canal estar no chão.
+            return SecretChannelState.Failed;
         }
     }
 
@@ -238,9 +286,10 @@ public sealed class SyncOrchestrator
         }
     }
 
-    private void SetStatus(SyncState state, int conflictCount = 0)
+    private void SetStatus(
+        SyncState state, int conflictCount = 0, SecretChannelState secretsChannel = SecretChannelState.Idle)
     {
-        Status = new SyncStatus(state, conflictCount);
+        Status = new SyncStatus(state, conflictCount, secretsChannel);
         StatusChanged?.Invoke(Status);
     }
 }

@@ -103,6 +103,33 @@ public sealed class SqlCipherLocalStore : ILocalStore
             new() { ["name"] = newName }, baseVersion, ct);
     }
 
+    public async Task<AssetGroup> UpdateGroupAsync(AssetGroup group, CancellationToken ct = default)
+    {
+        using SqliteConnection conn = await _ctx.OpenConnectionAsync(ct);
+        await EnsureSchemaAsync(conn, ct);
+
+        // A versão do BANCO, mesmo motivo do UpdateAssetAsync: baseVersion obsoleta = mudança
+        // recusada pelo servidor, em silêncio.
+        int baseVersion = await CurrentVersionAsync(conn, "asset_groups", group.Id, ct);
+
+        using SqliteCommand cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE asset_groups SET
+                parent_id = $pid, name = $name, default_credential_ref_id = $dcr
+            WHERE id = $id
+            """;
+        cmd.Parameters.AddWithValue("$id", group.Id);
+        cmd.Parameters.AddWithValue("$pid", (object?)group.ParentId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$name", group.Name);
+        cmd.Parameters.AddWithValue("$dcr", (object?)group.DefaultCredentialRefId ?? DBNull.Value);
+        await cmd.ExecuteNonQueryAsync(ct);
+
+        // Patch COMPLETO (ao contrário do rename): é o que faz o reenvio do acervo reparar de fato.
+        await PushChangeAsync("asset_group", group.Id, "updated", GroupPatch(group), baseVersion, ct);
+
+        return group;
+    }
+
     public async Task DeleteGroupAsync(string id, CancellationToken ct = default)
     {
         using SqliteConnection conn = await _ctx.OpenConnectionAsync(ct);
