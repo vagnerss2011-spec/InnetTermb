@@ -85,7 +85,17 @@ public sealed class CloudResyncService
 
         // 1) PULL primeiro — o passo que transforma "700 conflitos" em "700 reparos". Ver o resumo
         // da classe: o servidor recusa base_version menor que a dele.
-        await sync.SyncNowAsync(ct);
+        //
+        // E se o pull FALHOU, aborta ANTES de re-emitir qualquer coisa: o orquestrador engole a
+        // falha do ciclo (offline-first) e só a devolve neste bool. Prosseguir seria encher o outbox
+        // de patches com base_version possivelmente atrasada — exatamente a enxurrada de conflitos
+        // que o pull inicial existe para impedir — e ainda dizer "concluído" na tela com a nuvem
+        // fora do ar. Relançar aqui é seguro: nada saiu do lugar, e a VM traduz em "não foi possível".
+        if (!await sync.SyncNowAsync(ct))
+        {
+            throw new InvalidOperationException(
+                "O sync inicial do reenvio falhou; nada foi re-emitido.");
+        }
 
         // Lido DEPOIS do pull, de propósito: é o acervo já reconciliado com o servidor que se re-emite.
         IReadOnlyList<AssetGroup> groups = await _store.GetGroupsAsync(_workspaceId, ct);
@@ -150,7 +160,16 @@ public sealed class CloudResyncService
 
         // 3) Drena o outbox agora, em vez de esperar o laço de fundo: o operador clicou no botão para
         // ver o problema resolvido, não para ficar sem saber se subiu.
-        await sync.SyncNowAsync(ct);
+        //
+        // Drenagem falhou = o reenvio NÃO chegou à nuvem, e dizer "concluído" seria a mentira mais
+        // cara da tela. Relançar é seguro: os patches ficam no outbox com a versão JÁ alinhada pelo
+        // pull inicial (o laço de fundo os entrega quando a rede voltar), e clicar de novo é
+        // idempotente — o novo pull realinha e o re-emit só soma versão.
+        if (!await sync.SyncNowAsync(ct))
+        {
+            throw new InvalidOperationException(
+                "A drenagem final do reenvio falhou; o envio será retomado pelo sync de fundo.");
+        }
 
         return new ResyncResult(Ran: true, reEmitted, failed);
     }

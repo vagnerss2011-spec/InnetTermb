@@ -39,9 +39,12 @@ public sealed class SettingsViewModelResyncTests
 
         public TaskCompletionSource? Gate { get; init; }
 
-        public bool Throw { get; init; }
+        public bool Fail { get; init; }
 
-        public async Task SyncNowAsync(CancellationToken ct = default)
+        // Espelha o controlador REAL: o orquestrador NÃO relança falha de rede (offline-first) — ele
+        // a devolve como `false`. Um fake que lançasse aqui testaria um caminho de falha que a
+        // produção nunca percorre, e o caminho real (false engolido em silêncio) ficaria sem teste.
+        public async Task<bool> SyncNowAsync(CancellationToken ct = default)
         {
             Calls++;
             if (Gate is not null)
@@ -49,10 +52,7 @@ public sealed class SettingsViewModelResyncTests
                 await Gate.Task;
             }
 
-            if (Throw)
-            {
-                throw new InvalidOperationException("rede fora (simulado)");
-            }
+            return !Fail;
         }
 
         public Task<IReadOnlyList<SyncConflictItem>> GetConflictsAsync(int limit, CancellationToken ct = default)
@@ -92,10 +92,10 @@ public sealed class SettingsViewModelResyncTests
     }
 
     private static async Task<(SettingsViewModel Vm, FakeSyncController Sync)> BuildAsync(
-        bool withCloud = true, TaskCompletionSource? gate = null, bool throwOnSync = false)
+        bool withCloud = true, TaskCompletionSource? gate = null, bool failSync = false)
     {
         InMemoryLocalStore store = await SeededStoreAsync();
-        var sync = new FakeSyncController { Gate = gate, Throw = throwOnSync };
+        var sync = new FakeSyncController { Gate = gate, Fail = failSync };
         var resync = new CloudResyncService(store, Ws, withCloud ? sync : null);
         return (new SettingsViewModel(new FakeStore(), resync: resync), sync);
     }
@@ -180,13 +180,15 @@ public sealed class SettingsViewModelResyncTests
     }
 
     /// <summary>
-    /// Rede fora no meio do reenvio: a tela DIZ que não deu, em vez de voltar ao estado ocioso como
-    /// se nada tivesse acontecido (falha silenciosa é a classe de defeito recorrente deste app).
+    /// Rede fora no reenvio: a tela DIZ que não deu, em vez de voltar ao estado ocioso como se nada
+    /// tivesse acontecido (falha silenciosa é a classe de defeito recorrente deste app). O fake
+    /// devolve <c>false</c> — o MESMO sinal do controlador real, que não relança — e ainda assim a
+    /// frase de falha tem que chegar na tela.
     /// </summary>
     [Fact]
     public async Task Failure_Is_Said_Out_Loud()
     {
-        (SettingsViewModel vm, _) = await BuildAsync(throwOnSync: true);
+        (SettingsViewModel vm, _) = await BuildAsync(failSync: true);
         vm.ResyncCommand.Execute(null);
 
         await vm.ResyncNowAsync();

@@ -29,7 +29,7 @@ public sealed class ConflictIndicatorRenderTests
 {
     private sealed class FakeController : ISyncController
     {
-        public Task SyncNowAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public Task<bool> SyncNowAsync(CancellationToken ct = default) => Task.FromResult(true);
 
         public Task<IReadOnlyList<SyncConflictItem>> GetConflictsAsync(int limit, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<SyncConflictItem>>(

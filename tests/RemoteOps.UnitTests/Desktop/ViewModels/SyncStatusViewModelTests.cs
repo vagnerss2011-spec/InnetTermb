@@ -22,7 +22,7 @@ public sealed class SyncStatusViewModelTests
         public TaskCompletionSource? Gate { get; init; }
         public bool Throw { get; init; }
 
-        public async Task SyncNowAsync(CancellationToken ct = default)
+        public async Task<bool> SyncNowAsync(CancellationToken ct = default)
         {
             Calls++;
             if (Gate is not null)
@@ -34,6 +34,8 @@ public sealed class SyncStatusViewModelTests
             {
                 throw new InvalidOperationException("falha simulada");
             }
+
+            return true;
         }
 
         public Task<IReadOnlyList<SyncConflictItem>> GetConflictsAsync(int limit, CancellationToken ct = default)

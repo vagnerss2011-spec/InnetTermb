@@ -82,8 +82,13 @@ public sealed class SyncOrchestrator
     /// Executa um ciclo completo de push + pull. Em falha de rede/servidor fica em
     /// <see cref="SyncState.Error"/> (não relança) para que o laço de fundo siga no próximo intervalo.
     /// Serializado: chamadas concorrentes (hint + intervalo) rodam uma após a outra, nunca em paralelo.
+    ///
+    /// <para><b>Devolve o <see cref="SyncStatus"/> em que ESTE ciclo terminou.</b> Como a postura de
+    /// erro é engolir (não relançar), quem precisa saber se o ciclo passou — o "Reenviar tudo", que
+    /// só pode re-emitir sobre um pull que DE FATO alinhou as versões — não tem outro jeito de saber:
+    /// ler <see cref="Status"/> depois do await seria corrida com o próximo ciclo do laço de fundo.</para>
     /// </summary>
-    public async Task SyncOnceAsync(CancellationToken ct = default)
+    public async Task<SyncStatus> SyncOnceAsync(CancellationToken ct = default)
     {
         await _gate.WaitAsync(ct);
         try
@@ -128,6 +133,9 @@ public sealed class SyncOrchestrator
                 // Sem detalhes da exceção no estado/log — garante no-secret-in-log (ADR-013).
                 SetStatus(SyncState.Error, secretsChannel: secretChannel);
             }
+
+            // Ainda dentro do gate, então isto é o estado que ESTE ciclo gravou — não o do próximo.
+            return Status;
         }
         finally
         {

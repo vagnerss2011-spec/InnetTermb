@@ -40,12 +40,14 @@ public sealed class SettingsResyncRenderTests
     {
         public TaskCompletionSource? Gate { get; init; }
 
-        public async Task SyncNowAsync(CancellationToken ct = default)
+        public async Task<bool> SyncNowAsync(CancellationToken ct = default)
         {
             if (Gate is not null)
             {
                 await Gate.Task;
             }
+
+            return true;
         }
 
         public Task<IReadOnlyList<SyncConflictItem>> GetConflictsAsync(int limit, CancellationToken ct = default)

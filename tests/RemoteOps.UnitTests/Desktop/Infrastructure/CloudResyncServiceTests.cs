@@ -172,10 +172,17 @@ public sealed class CloudResyncServiceTests
 
         public JournalingSyncController(Journal journal) => _journal = journal;
 
-        public Task SyncNowAsync(CancellationToken ct = default)
+        /// <summary>Em qual chamada devolver <c>false</c> (1 = pull inicial, 2 = drenagem final).</summary>
+        public int? FailOnCall { get; init; }
+
+        private int _calls;
+
+        // false, não exceção: é assim que o controlador real reporta ciclo falhado (o orquestrador
+        // engole a falha — offline-first) e é esse sinal que o serviço tem que respeitar.
+        public Task<bool> SyncNowAsync(CancellationToken ct = default)
         {
             _journal.Add("sync");
-            return Task.CompletedTask;
+            return Task.FromResult(++_calls != FailOnCall);
         }
 
         public Task<IReadOnlyList<SyncConflictItem>> GetConflictsAsync(int limit, CancellationToken ct = default)
@@ -263,12 +270,14 @@ public sealed class CloudResyncServiceTests
     }
 
     private static async Task<(CloudResyncService Service, Journal Journal, InMemoryLocalStore Inner)> BuildAsync(
-        bool withCloud = true, bool poisoned = false)
+        bool withCloud = true, bool poisoned = false, int? failSyncOnCall = null)
     {
         (InMemoryLocalStore inner, string poisonId) = await SeedAsync();
         var journal = new Journal();
         var store = new RecordingLocalStore(inner, journal, poisoned ? poisonId : null);
-        ISyncController? sync = withCloud ? new JournalingSyncController(journal) : null;
+        ISyncController? sync = withCloud
+            ? new JournalingSyncController(journal) { FailOnCall = failSyncOnCall }
+            : null;
         return (new CloudResyncService(store, Ws, sync), journal, inner);
     }
 
@@ -377,6 +386,46 @@ public sealed class CloudResyncServiceTests
 
         Assert.False(result.Ran);
         Assert.Empty(journal.Entries); // nem sync, nem update: não há para onde reenviar.
+    }
+
+    /// <summary>
+    /// O pull inicial FALHOU (nuvem fora, token vencido): o reenvio aborta ANTES de re-emitir
+    /// qualquer coisa. O orquestrador real engole a falha do ciclo (offline-first) e a devolve como
+    /// <c>false</c> — se o serviço ignorar esse sinal, ele enche o outbox de patches com
+    /// <c>base_version</c> atrasada (a enxurrada de conflitos que o pull existe pra impedir) e a
+    /// tela ainda diz "concluído" com a nuvem fora do ar.
+    /// </summary>
+    [Fact]
+    public async Task Resync_Aborts_Before_ReEmitting_When_The_Initial_Pull_Fails()
+    {
+        (CloudResyncService service, Journal journal, _) = await BuildAsync(failSyncOnCall: 1);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ResyncAllAsync());
+
+        // Só a tentativa de pull no diário: nenhum update saiu, nada entrou no outbox.
+        string entry = Assert.Single(journal.Entries);
+        Assert.Equal("sync", entry);
+    }
+
+    /// <summary>
+    /// A drenagem final FALHOU: o resultado não pode ser "concluído" — o acervo re-emitido está no
+    /// outbox, não na nuvem. A exceção vira "não foi possível" na tela; o laço de fundo (ou um novo
+    /// clique, idempotente) entrega o que ficou.
+    /// </summary>
+    [Fact]
+    public async Task Resync_Does_Not_Claim_Success_When_The_Final_Drain_Fails()
+    {
+        (CloudResyncService service, Journal journal, _) = await BuildAsync(failSyncOnCall: 2);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ResyncAllAsync());
+
+        // O re-emit aconteceu por inteiro (fica no outbox à espera do sync de fundo)...
+        Assert.Equal(2, journal.Count("group:"));
+        Assert.Equal(3, journal.Count("asset:"));
+        Assert.Equal(4, journal.Count("endpoint:"));
+        Assert.Equal(2, journal.Count("cred:"));
+        // ...e a drenagem foi TENTADA — a falha veio dela, não de um atalho que a pulou.
+        Assert.Equal(2, journal.Count("sync"));
     }
 
     /// <summary>

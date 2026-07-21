@@ -23,7 +23,14 @@ public sealed class OrchestratorSyncController : ISyncController
         _orchestrator = orchestrator;
     }
 
-    public Task SyncNowAsync(CancellationToken ct = default) => _orchestrator.SyncOnceAsync(ct);
+    // O orquestrador engole a falha do ciclo (offline-first) e a devolve como estado; aqui ela vira
+    // o bool do contrato — é o retorno do PRÓPRIO ciclo, não uma leitura de Status depois do await
+    // (que seria corrida com o próximo ciclo do laço de fundo).
+    public async Task<bool> SyncNowAsync(CancellationToken ct = default)
+    {
+        SyncStatus status = await _orchestrator.SyncOnceAsync(ct);
+        return status.State == SyncState.Synced;
+    }
 
     // A tradução para o tipo da UI acontece AQUI, na fronteira: é o que mantém a VM sem dependência
     // de RemoteOps.Sync.Remote (mesmo racional do ISyncController).
