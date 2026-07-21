@@ -27,6 +27,19 @@ a revogação que não propagava é falha de segurança real, independente de eq
   Endpoints passam a ser buscados em **lotes de 500**. Estourava no "Reenviar tudo" e em varreduras de
   workspace inteiro — a lista diária consulta por grupo e nunca encostou. O operador tem ~700 devices.
 
+### Endurecimento (achado da revisão de segurança)
+
+- **A lápide agora tem que ser VAZIA, não apenas poder ser.** A liberação de material vazio existia só
+  para o tombstone, mas não o *exigia*: uma lápide com material deixaria ciphertext circulando por
+  baixo da marca de revogação, e um device de versão anterior o gravaria como envelope **vivo**. Hoje
+  esse material não abriria (a versão entra no AAD), mas com a chave de workspace **compartilhada** dos
+  times isso viraria ressurreição de senha revogada. Recusado no servidor **e** descartado no cliente
+  (defesa em profundidade contra servidor comprometido).
+
+**Registrado como pré-requisito da próxima fatia** (não afeta esta versão): o upsert não tem token de
+concorrência, então um upsert vivo concorrente com um tombstone pode limpar o `RevokedAt`. Hoje o
+material plantado é indecifrável; com chave compartilhada deixa de ser. Detalhes e correção no spec.
+
 ### Compatibilidade (matriz conferida na revisão)
 
 - `IsSyncable` foi **estritamente ampliado**: tudo que subia antes continua subindo.

@@ -55,6 +55,20 @@ public sealed class SecretsService(
         var wrappedCek = Decode(dto.WrappedCek, nameof(dto.WrappedCek), isTombstone);
         var cekNonce = Decode(dto.CekNonce, nameof(dto.CekNonce), isTombstone);
         var cekTag = Decode(dto.CekTag, nameof(dto.CekTag), isTombstone);
+
+        // A lápide tem que ser VAZIA, não apenas PODER ser vazia. A liberação acima existe só para
+        // ela; aceitar uma lápide COM material deixaria ciphertext circulando por baixo da marca de
+        // revogação, e um device que não entende o campo (versão anterior) o gravaria como envelope
+        // VIVO. Hoje esse material não abriria — a versão entra no AAD —, mas com a chave de workspace
+        // COMPARTILHADA (times) isso vira ressurreição de senha revogada. Achado da revisão de
+        // segurança da v1.4.7: exigir vazio agora custa uma linha; depois custa um incidente.
+        if (isTombstone &&
+            (ciphertext.Length > 0 || nonce.Length > 0 || tag.Length > 0 ||
+             wrappedCek.Length > 0 || cekNonce.Length > 0 || cekTag.Length > 0))
+        {
+            throw new ArgumentException("Envelope revogado não pode carregar material.");
+        }
+
         if (string.IsNullOrWhiteSpace(dto.KeyVersion))
             throw new ArgumentException("keyVersion é obrigatório.");
 

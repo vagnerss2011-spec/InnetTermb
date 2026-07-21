@@ -246,6 +246,38 @@ public sealed class SecretsTransportTests
     }
 
     /// <summary>
+    /// Tombstone tem que ser VAZIO, não apenas PODER ser vazio (achado da revisão de segurança).
+    ///
+    /// <para>A liberação de material vazio existe só para a lápide; aceitar uma lápide COM material
+    /// deixaria ciphertext circulando por baixo da marca de revogação — e um device que não entende o
+    /// campo (versão anterior) o gravaria como envelope vivo. Hoje esse material não abriria (a versão
+    /// entra no AAD), mas com a chave de workspace COMPARTILHADA da Fatia 1 isso vira ressurreição de
+    /// senha revogada. Exigir vazio agora custa uma linha; depois custa um incidente.</para>
+    /// </summary>
+    [Fact]
+    public async Task Upsert_RecusaTombstone_ComMaterialNaoVazio()
+    {
+        using var ctx = new CloudTestContext();
+        var (_, ws, user, _) = await ctx.SeedActiveUserAsync("Owner");
+        var permCtx = new PermissionContext(user.Id, ws.Id);
+        var id = Guid.NewGuid();
+
+        await ctx.Secrets.UpsertAsync(ws.Id, NewEnvelope(id, ws.Id), permCtx, default);
+
+        // Lápide "suja": traz a marca de revogação E material — a combinação que não pode existir.
+        var vivo = NewEnvelope(id, ws.Id) with { Version = 2 };
+        var lapideSuja = vivo with { RevokedAt = DateTimeOffset.UtcNow };
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => ctx.Secrets.UpsertAsync(ws.Id, lapideSuja, permCtx, default));
+
+        // E o envelope vivo original segue intacto: a recusa não pode ter efeito colateral.
+        var pull = await ctx.Secrets.PullAsync(ws.Id, 0, 200, permCtx, default);
+        var got = Assert.Single(pull.Envelopes);
+        Assert.Null(got.RevokedAt);
+    }
+
+    /// <summary>
     /// Revogação é caminho SÓ DE IDA. Aceitar uma cópia viva por cima de um tombstone republicaria
     /// a senha velha em todos os devices do workspace — o oposto do que a revogação existe para
     /// fazer.

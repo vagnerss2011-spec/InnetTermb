@@ -114,6 +114,7 @@ internal static class SecretEnvelopeWireCodec
     internal static SecretEnvelope FromWire(SecretEnvelopeDto dto, string vaultWorkspaceId)
     {
         (string type, string credentialId) = ParseHeader(dto.KeyVersion);
+        bool revogado = dto.RevokedAt is not null;
 
         return new SecretEnvelope
         {
@@ -124,12 +125,17 @@ internal static class SecretEnvelopeWireCodec
             Type = type,
             Version = dto.Version,
             Algorithm = dto.Algorithm ?? VaultAlgorithms.AmkRootedV1,
-            WrappedCek = Decode(dto.WrappedCek, nameof(dto.WrappedCek)),
-            CekNonce = Decode(dto.CekNonce, nameof(dto.CekNonce)),
-            CekTag = Decode(dto.CekTag, nameof(dto.CekTag)),
-            Ciphertext = Decode(dto.Ciphertext, nameof(dto.Ciphertext)),
-            Nonce = Decode(dto.Nonce, nameof(dto.Nonce)),
-            Tag = Decode(dto.Tag, nameof(dto.Tag)),
+            // Revogado DESCARTA o material que veio junto, em vez de confiar no que o fio trouxe. O
+            // servidor já recusa lápide com material, mas isto é defesa em profundidade: um servidor
+            // comprometido não pode contrabandear ciphertext por baixo da marca de revogação e fazer
+            // este device gravar um envelope "revogado, porém com material" — estado que não deve
+            // existir. Achado da revisão de segurança da v1.4.7.
+            WrappedCek = revogado ? [] : Decode(dto.WrappedCek, nameof(dto.WrappedCek)),
+            CekNonce = revogado ? [] : Decode(dto.CekNonce, nameof(dto.CekNonce)),
+            CekTag = revogado ? [] : Decode(dto.CekTag, nameof(dto.CekTag)),
+            Ciphertext = revogado ? [] : Decode(dto.Ciphertext, nameof(dto.Ciphertext)),
+            Nonce = revogado ? [] : Decode(dto.Nonce, nameof(dto.Nonce)),
+            Tag = revogado ? [] : Decode(dto.Tag, nameof(dto.Tag)),
             // O fio não carrega CreatedAt: quem recebe carimba a chegada. Não entra no AAD.
             CreatedAt = DateTimeOffset.UtcNow,
             // Servidor antigo (ou cliente antigo do outro lado) não manda o campo → volta nulo, que

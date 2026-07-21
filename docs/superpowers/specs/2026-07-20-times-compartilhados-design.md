@@ -67,6 +67,17 @@ Dois defeitos que quebram em campo e valem **mesmo sem o time**:
 
 ### Fatia 1 — o time nasce (~2-3 semanas)
 
+> **PRÉ-REQUISITO DE SEGURANÇA herdado da v1.4.7** (achado da revisão, severidade BAIXA **hoje**, real
+> quando a chave passa a ser compartilhada): o upsert de segredo **não tem token de concorrência**. Um
+> upsert "vivo" concorrente com a chegada de um tombstone pode limpar o `RevokedAt`
+> (last-write-wins do EF) e **ressuscitar a senha revogada** — hoje o material plantado é
+> indecifrável (o atacante não tem a WDK da vítima), mas com a **WK compartilhada** ele passa a ser
+> decifrável. Correção: `UseXminAsConcurrencyToken` na `SecretEnvelopeEntity` + tratar
+> `DbUpdateConcurrencyException` como 409, ou write condicional
+> (`UPDATE ... WHERE "RevokedAt" IS NULL` para upsert vivo). **Não mergear a Fatia 1 sem isso.**
+>
+> O achado irmão (lápide obrigatoriamente vazia) **já foi corrigido na v1.4.7**, nos dois lados.
+
 - **WK aleatória** por workspace de time + `WkWorkspaceKeyRing` (3ª implementação de
   `IWorkspaceKeyRing`, ao lado de DPAPI e AMK) + carimbo `VaultAlgorithms.WkRootedV1`.
 - **Convite por código fora-de-banda:** o e-mail leva o link; o **código de 160 bits** (mesmo formato da
