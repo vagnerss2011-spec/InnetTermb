@@ -60,6 +60,53 @@
 
                     <Separator Margin="0,0,0,12"/>
 
+                    <!-- Reparo do acervo. A fila de envio congela o patch no momento da edição, então
+                         os equipamentos cadastrados numa versão antiga subiram SEM o vínculo com a
+                         credencial e continuariam assim para sempre no outro PC. Este botão reenvia o
+                         acervo pelo caminho de update normal, que monta o patch completo de hoje.
+                         Some inteiro sem nuvem ativa — não há para onde reenviar. -->
+                    <StackPanel x:Name="ResyncSection"
+                                Visibility="{Binding CanResync, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Text="Reenviar tudo para a nuvem" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                        <TextBlock Text="Use quando o outro PC lista as credenciais no Chaveiro mas, ao conectar, diz que o equipamento não tem credencial. Equipamentos cadastrados antes da nuvem subiram sem esse vínculo; só reenviando ele chega ao outro PC."
+                                   Foreground="{DynamicResource Brush.Text.Secondary}"
+                                   FontSize="{DynamicResource Font.Size.Caption}"
+                                   TextWrapping="Wrap" Margin="0,0,0,8"/>
+
+                        <Button x:Name="ResyncButton" Content="Reenviar tudo para a nuvem…"
+                                Command="{Binding ResyncCommand}"
+                                HorizontalAlignment="Left" Padding="10,4"/>
+
+                        <Border x:Name="ResyncConfirmPanel" Margin="0,10,0,0" Padding="12"
+                                Background="{DynamicResource Brush.Bg.Canvas}"
+                                BorderBrush="{DynamicResource Brush.Border.Subtle}"
+                                BorderThickness="1"
+                                CornerRadius="{DynamicResource Radius.Control}"
+                                Visibility="{Binding IsResyncConfirmVisible, Converter={StaticResource BoolToVis}}">
+                            <StackPanel>
+                                <TextBlock Text="Confirmar o reenvio?" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                                <TextBlock Text="Nada é alterado nem apagado neste PC. O RemoteOps apenas envia de novo, para a nuvem, os grupos, equipamentos e credenciais que já estão aqui — completos desta vez. Com centenas de equipamentos pode levar alguns minutos."
+                                           Foreground="{DynamicResource Brush.Text.Secondary}"
+                                           FontSize="{DynamicResource Font.Size.Caption}"
+                                           TextWrapping="Wrap" Margin="0,0,0,10"/>
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Content="Sim, reenviar" Command="{Binding ConfirmResyncCommand}"
+                                            Style="{DynamicResource Button.Primary}" Padding="10,4" Margin="0,0,8,0"/>
+                                    <Button Content="Cancelar" Command="{Binding CancelResyncCommand}" Padding="10,4"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock x:Name="ResyncStatusText" Text="{Binding ResyncStatus}"
+                                   Foreground="{DynamicResource Brush.Text.Secondary}"
+                                   TextWrapping="Wrap" Margin="0,8,0,0"
+                                   Visibility="{Binding HasResyncStatus, Converter={StaticResource BoolToVis}}"/>
+
+                        <!-- Separador DENTRO da seção: sem nuvem ela some inteira e não sobra um par
+                             de linhas coladas antes do 2FA. -->
+                        <Separator Margin="0,12,0,12"/>
+                    </StackPanel>
+
                     <TextBlock Text="Verificação em duas etapas (2FA)" FontWeight="SemiBold" Margin="0,0,0,4"/>
                     <TextBlock Text="Exige um código do seu aplicativo autenticador ao entrar na conta da nuvem. Protege o acesso ao servidor; não altera a senha do cofre."
                                Foreground="{DynamicResource Brush.Text.Secondary}"

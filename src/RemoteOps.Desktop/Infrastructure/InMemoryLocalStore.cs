@@ -46,6 +46,12 @@ public sealed class InMemoryLocalStore : ILocalStore
         return Task.CompletedTask;
     }
 
+    public Task<AssetGroup> UpdateGroupAsync(AssetGroup group, CancellationToken ct = default)
+    {
+        _groups[group.Id] = group;
+        return Task.FromResult(group);
+    }
+
     public Task DeleteGroupAsync(string id, CancellationToken ct = default)
     {
         _groups.Remove(id);

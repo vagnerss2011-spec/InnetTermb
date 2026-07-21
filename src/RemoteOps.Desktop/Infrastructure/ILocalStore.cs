@@ -13,6 +13,19 @@ public interface ILocalStore
     Task<IReadOnlyList<AssetGroup>> GetGroupsAsync(string workspaceId, CancellationToken ct = default);
     Task<AssetGroup> AddGroupAsync(string workspaceId, string name, string? parentId = null, CancellationToken ct = default);
     Task RenameGroupAsync(string id, string newName, CancellationToken ct = default);
+
+    /// <summary>
+    /// Regrava a linha INTEIRA do grupo e emite o patch COMPLETO no outbox.
+    ///
+    /// <para><b>Por que existe além do <see cref="RenameGroupAsync"/>:</b> o rename empurra um patch
+    /// PARCIAL (só <c>name</c>), o que é correto para renomear e inútil para reparar. O reenvio do
+    /// acervo (<see cref="CloudResyncService"/>) precisa subir o grupo inteiro — inclusive
+    /// <c>parent_id</c> e <c>default_credential_ref_id</c> —, senão um grupo que chegou incompleto no
+    /// outro device continua incompleto para sempre. Os outros três tipos já tinham o seu
+    /// <c>Update*Async</c>; o grupo era o único sem.</para>
+    /// </summary>
+    Task<AssetGroup> UpdateGroupAsync(AssetGroup group, CancellationToken ct = default);
+
     Task DeleteGroupAsync(string id, CancellationToken ct = default);
 
     // Ativos (hosts)

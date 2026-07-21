@@ -42,6 +42,15 @@ public sealed class WorkspaceViewModel : BaseViewModel
     /// </summary>
     public Func<IMfaApi?>? MfaApiFactory { get; set; }
 
+    /// <summary>
+    /// Fábrica LAZY do serviço de "Reenviar tudo para a nuvem". Lazy pelo MESMO motivo da
+    /// <see cref="MfaApiFactory"/>: o serviço precisa do orquestrador da sessão de sync, que só sobe
+    /// no fim do startup (ou depois, quando a conta é ativada) — e este VM é singleton do DI,
+    /// resolvido antes disso. Null (ou fábrica que devolve null) = modo local: a seção some das
+    /// Configurações, porque não há para onde reenviar.
+    /// </summary>
+    public Func<CloudResyncService?>? CloudResyncFactory { get; set; }
+
     public BrowserViewModel Browser { get; }
     public TabsViewModel Tabs { get; }
 
@@ -65,7 +74,8 @@ public sealed class WorkspaceViewModel : BaseViewModel
         ChangelogViewModel? changelog = _changelogSource is null ? null : new ChangelogViewModel(_changelogSource, store);
         BugReportViewModel? bugReport = _bugReportComposer is null ? null : new BugReportViewModel(_bugReportComposer);
         IMfaApi? mfaApi = MfaApiFactory?.Invoke();
-        return new SettingsViewModel(store, _updateService, changelog, bugReport, mfaApi);
+        CloudResyncService? resync = CloudResyncFactory?.Invoke();
+        return new SettingsViewModel(store, _updateService, changelog, bugReport, mfaApi, resync);
     }
 
     public string AppVersionText =>
