@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
 using System.Threading;
@@ -320,8 +321,179 @@ public sealed class SessionVaultScopeTests : IDisposable
         Assert.Equal(ServerWorkspace, File.ReadAllText(OwnerPath).Trim());
     }
 
+    /// <summary>
+    /// <b>O buraco por onde a suíte passava de raspão.</b> Havia teste para "sem banco pessoal +
+    /// escolhendo o time" e para "com banco pessoal + escolhendo o pessoal"; a combinação que faltava
+    /// é justamente a do operador: a máquina com os ~700 em <c>sync-local.db</c>, sem marcador de
+    /// dono e sem chave de time no disco, abrindo o TIME.
+    ///
+    /// <para>Adotar aqui grava <c>sync-local.owner</c> = <b>GUID DO TIME</b>, offline e sem uma linha
+    /// na tela. A partir daí o banco dos ~700 fica amarrado ao workspace do time, o cursor daquele
+    /// workspace é 0 e o <c>local_outbox</c> é append-only — ou seja, um "Reenviar tudo" empurra o
+    /// acervo inteiro do operador para os colegas. E o cofre pessoal dele passa a ser recusado na
+    /// abertura seguinte (regra 6), acusando-o de abrir cofre de outra instalação.</para>
+    /// </summary>
+    [Fact]
+    public async Task ComBancoPessoal_EscolhendoOTIME_NaoADOTA_OWorkspaceDoTIME()
+    {
+        using WkWorkspaceKeyRing ring = Ring();
+
+        // O banco com os ~700 está aqui. O que ele diz de si mesmo é que vinha sincronizando com o
+        // workspace PESSOAL — nunca com este que está sendo aberto.
+        File.WriteAllText(PersonalDbPath, "banco com os ~700");
+
+        SessionVaultScope escopo = await Resolver(ring).ResolveAsync(
+            OutroWorkspace, SondaQueRestaura(ring), BancoSincronizadoCom(ServerWorkspace));
+
+        Assert.Equal(SessionVaultKind.Team, escopo.Kind);
+        Assert.Equal("time:" + OutroWorkspace, escopo.VaultWorkspaceId);
+
+        // O que mais importa: o banco dos ~700 NÃO mudou de dono.
+        Assert.False(File.Exists(OwnerPath));
+    }
+
+    /// <summary>
+    /// <b>A evidência positiva do banco adota SEM REDE</b> — e é ela que segura o boot diário do
+    /// operador que já tem um time. Sem esta metade, a correção acima viraria um imposto de rede
+    /// (ou, pior, uma sonda respondendo "não é de time" sobre o cofre pessoal dele) toda vez que o
+    /// marcador ainda não existisse.
+    /// </summary>
+    [Fact]
+    public async Task BancoQueSincronizouComESTEWorkspace_ADOTA_SemSonda_MesmoComTimeNaConta()
+    {
+        using WkWorkspaceKeyRing ring = Ring();
+        File.WriteAllText(PersonalDbPath, "banco com os ~700");
+
+        SessionVaultScope escopo = await Resolver(ring).ResolveAsync(
+            ServerWorkspace,
+            ProbeThatExplodes(),
+            BancoSincronizadoCom(ServerWorkspace),
+            accountWorkspaceCount: 2);
+
+        Assert.Equal(SessionVaultKind.Personal, escopo.Kind);
+        Assert.Equal(ServerWorkspace, File.ReadAllText(OwnerPath).Trim());
+    }
+
+    /// <summary>
+    /// <b>A segunda rede: banco que nunca sincronizou com ninguém não afirma nada.</b> É o segundo
+    /// computador do operador, usado local antes da conta: <c>sync-local.db</c> existe e não tem o
+    /// que dizer sobre si. Quem tem 2+ workspaces tem um time — e acabou de usar a rede para o
+    /// próprio login, que é de onde saiu o chooser onde ele escolheu o time. A sonda decide.
+    /// </summary>
+    [Fact]
+    public async Task BancoSemEvidencia_ContaComTIME_NaoADOTA_ASondaDecide()
+    {
+        using WkWorkspaceKeyRing ring = Ring();
+        File.WriteAllText(PersonalDbPath, "banco local, ainda sem sync");
+
+        SessionVaultScope escopo = await Resolver(ring).ResolveAsync(
+            OutroWorkspace,
+            SondaQueRestaura(ring),
+            BancoQueNuncaSincronizou(),
+            accountWorkspaceCount: 2);
+
+        Assert.Equal(SessionVaultKind.Team, escopo.Kind);
+        Assert.False(File.Exists(OwnerPath));
+    }
+
+    /// <summary>
+    /// A metade que impede "recusar tudo": a MESMA falta de evidência, numa conta de um workspace
+    /// só, adota offline. Não existe outro dono possível ali, e exigir rede seria o imposto de boot
+    /// que a regra 5 existe para não cobrar da frota inteira.
+    /// </summary>
+    [Fact]
+    public async Task BancoSemEvidencia_ContaDeUmWorkspaceSO_ADOTA_SemSonda()
+    {
+        using WkWorkspaceKeyRing ring = Ring();
+        File.WriteAllText(PersonalDbPath, "banco local, ainda sem sync");
+
+        SessionVaultScope escopo = await Resolver(ring).ResolveAsync(
+            ServerWorkspace,
+            ProbeThatExplodes(),
+            BancoQueNuncaSincronizou(),
+            accountWorkspaceCount: 1);
+
+        Assert.Equal(SessionVaultKind.Personal, escopo.Kind);
+        Assert.Equal(ServerWorkspace, File.ReadAllText(OwnerPath).Trim());
+    }
+
+    /// <summary>
+    /// Evidência CONTRÁRIA e a sonda dizendo "não é de time": o banco desta máquina é de outro
+    /// workspace e este aqui é o cofre pessoal de outra instalação. Recusa alta — adotar misturaria
+    /// os dois acervos contra uma evidência medida, que é pior do que fazê-lo na ausência dela.
+    /// </summary>
+    [Fact]
+    public async Task EvidenciaCONTRARIA_ESondaDizQueNaoEDeTime_RECUSA()
+    {
+        using WkWorkspaceKeyRing ring = Ring();
+        File.WriteAllText(PersonalDbPath, "banco com os ~700");
+
+        var erro = await Assert.ThrowsAsync<SessionVaultScopeException>(
+            () => Resolver(ring).ResolveAsync(
+                OutroWorkspace, Probe(false), BancoSincronizadoCom(ServerWorkspace)));
+
+        Assert.Contains("outra instalação", erro.Message, StringComparison.Ordinal);
+        Assert.False(File.Exists(OwnerPath));
+    }
+
+    /// <summary>
+    /// A leitura do banco é evidência, nunca um modo de falha novo: se ela estourar, o boot segue
+    /// com "não sei" — o valor mais fraco, que não autoriza adotar contra a contagem. Derrubar o
+    /// app por causa de uma sondagem opcional trocaria um vazamento por um app que não abre.
+    /// </summary>
+    [Fact]
+    public async Task LeituraDoBancoQueESTOURA_NaoDerrubaOBoot_EVira_NaoSei()
+    {
+        using WkWorkspaceKeyRing ring = Ring();
+        File.WriteAllText(PersonalDbPath, "banco com os ~700");
+
+        SessionVaultScope escopo = await Resolver(ring).ResolveAsync(
+            ServerWorkspace,
+            ProbeThatExplodes(),
+            _ => throw new IOException("banco em uso (teste)"),
+            accountWorkspaceCount: 1);
+
+        Assert.Equal(SessionVaultKind.Personal, escopo.Kind);
+    }
+
+    /// <summary>
+    /// <b>A regra 6 não pode ser a mensagem que o operador recebe sobre o PRÓPRIO cofre.</b> A
+    /// recusa "cofre pessoal de outra instalação" é certa para o caso que ela descreve — e era
+    /// também o beco sem saída de quem tinha acabado de abrir o time: o marcador ficava com o GUID
+    /// do time, e o <c>sync-local.owner</c> é invisível para o operador.
+    /// </summary>
+    [Fact]
+    public async Task DepoisDeAbrirOTIME_OCofrePESSOAL_CONTINUA_Abrindo()
+    {
+        using WkWorkspaceKeyRing ring = Ring();
+        File.WriteAllText(PersonalDbPath, "banco com os ~700");
+
+        await Resolver(ring).ResolveAsync(
+            OutroWorkspace, SondaQueRestaura(ring), BancoSincronizadoCom(ServerWorkspace));
+
+        // No dia seguinte ele abre o PRÓPRIO cofre. Offline, e sem acusação nenhuma.
+        SessionVaultScope pessoal = await Resolver(ring).ResolveAsync(
+            ServerWorkspace, ProbeThatExplodes(), BancoSincronizadoCom(ServerWorkspace));
+
+        Assert.Equal(SessionVaultKind.Personal, pessoal.Kind);
+        Assert.Equal(ServerWorkspace, File.ReadAllText(OwnerPath).Trim());
+    }
+
     private static Func<string, CancellationToken, Task<bool>> Probe(bool resposta) =>
         (_, _) => Task.FromResult(resposta);
+
+    /// <summary>A sonda de produção responde "é de time" e RESTAURA a chave na mesma ida.</summary>
+    private static Func<string, CancellationToken, Task<bool>> SondaQueRestaura(WkWorkspaceKeyRing ring) =>
+        (ws, ct) => ring.MintWorkspaceKeyAsync(AppRuntime.TeamVaultWorkspace(ws), ct)
+            .ContinueWith(t => { t.Result.Dispose(); return true; }, TaskScheduler.Default);
+
+    /// <summary>O <c>sync_cursor</c> do banco pessoal (ver <c>PersonalDbOwnerProbe</c>).</summary>
+    private static Func<CancellationToken, Task<IReadOnlyList<string>?>> BancoSincronizadoCom(
+        params string[] workspaces) => _ => Task.FromResult<IReadOnlyList<string>?>(workspaces);
+
+    /// <summary>Lista VAZIA — o banco abriu e nunca sincronizou. É medição, não "não deu para ler".</summary>
+    private static Func<CancellationToken, Task<IReadOnlyList<string>?>> BancoQueNuncaSincronizou() =>
+        _ => Task.FromResult<IReadOnlyList<string>?>([]);
 
     /// <summary>A sonda não pode nem ser tocada quando o disco já respondeu.</summary>
     private static Func<string, CancellationToken, Task<bool>> ProbeThatExplodes() =>

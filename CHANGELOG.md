@@ -82,6 +82,17 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   o workspace escolhido e não há internet para perguntar, o RemoteOps **não abre** aquele workspace e
   explica por quê, em vez de assumir "é o pessoal". Assumir errado faria os equipamentos pessoais do
   operador **subirem para o cofre de outra pessoa** — em silêncio.
+- **Abrir o time deixou de poder "adotar" o banco dos seus equipamentos.** Na primeira abertura
+  depois desta atualização, o aplicativo precisa descobrir de quem é o banco local deste computador —
+  e a única coisa que ele olhava era se o arquivo existia. Escolhendo o **time** nessa abertura, ele
+  registrava o time como dono do banco com **todos os seus clientes**: nada mudava na tela (a barra
+  continuava dizendo "cofre pessoal"), mas um clique em "Reenviar tudo para a nuvem" passaria a
+  mandar **o seu acervo inteiro** para os colegas — e, na abertura seguinte, o seu próprio cofre
+  pessoal era **recusado** com a mensagem de "cofre de outra instalação", sem saída. Agora quem
+  responde de quem é o banco é **o próprio banco**: ele guarda com qual cofre vinha sincronizando, e
+  um cofre diferente **nunca** é adotado como dono. Se o banco ainda não tem o que dizer (nunca
+  sincronizou) e a sua conta já tem um time, o aplicativo **pergunta** em vez de chutar. Para quem só
+  tem o cofre pessoal nada muda: continua abrindo direto, sem internet e sem uma pergunta a mais.
 - **Cofre de time sem a chave RECUSA em voz alta, e não sorteia chave nenhuma.** Antes isso dependia
   de uma opção de configuração que alguém poderia ligar por engano; agora é impossível por
   construção — o cofre simplesmente não tem como criar chave de time. Sortear "só desta vez"

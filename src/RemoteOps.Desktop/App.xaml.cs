@@ -37,6 +37,15 @@ public partial class App : Application
     /// sob qual identidade e sob qual RAIZ os segredos desta sessão sobem e descem.
     /// </summary>
     private SessionVaultScope _sessionScope = SessionVaultScope.Personal;
+
+    /// <summary>
+    /// Quantos workspaces esta conta tem, quando esta abertura passou pelo LOGIN — e <c>null</c> no
+    /// relaunch pelo cache da AMK, que por desenho não fala com o servidor. É a segunda rede da
+    /// regra 5 do <see cref="SessionVaultScopeResolver"/>: 2+ workspaces significa "esta conta tem
+    /// um time", e aí nada é adotado offline. Fica <c>null</c> em vez de 1 de propósito — "não
+    /// perguntei" e "tem um só" são fatos diferentes, e colapsá-los é como um erro vira estado.
+    /// </summary>
+    private int? _accountWorkspaceCount;
     private SyncStartContext? _syncContext;
     private AccountConfig? _accountConfig;
     private IntegrityReport? _integrityReport;
@@ -162,13 +171,20 @@ public partial class App : Application
             CredentialVault vault = activated
                 ?? new CredentialVault(fileStore, legacyKeyRing, new InMemoryVaultAuditSink());
 
+            // ⚠️ A fábrica do banco sobe ANTES do escopo porque a decisão do escopo INTERROGA o
+            // banco pessoal (PersonalDbOwnerProbe): é o `sync_cursor` dentro dele que diz com qual
+            // workspace de servidor ele vinha sincronizando. A leitura é a que só OLHA
+            // (TryOpenExistingWorkspaceAsync) — a abertura normal é um GetOrCreate e recriaria a
+            // chave de um banco que esta sessão talvez nem vá usar.
+            var syncFactory = new LocalSyncClientFactory(vault, dataDir);
+
             // Em QUAL COFRE esta sessão escreve — decidido UMA vez, aqui, e nunca no meio. Só de
             // disco (a sonda online roda no máximo uma vez por workspace por máquina). Sem conta
             // ativa, é o escopo pessoal: byte a byte o app de hoje.
             SessionVaultScope scope;
             try
             {
-                scope = await ResolveSessionScopeAsync(dataDir, fileStore);
+                scope = await ResolveSessionScopeAsync(dataDir, fileStore, syncFactory);
             }
             catch (SessionVaultScopeException ex)
             {
@@ -196,7 +212,6 @@ public partial class App : Application
             // MÁQUINA e continua guardada no cofre pessoal. Guardá-la sob "time:{W}" a faria nascer
             // WkRootedV1 — e o IsSyncable ACEITA WkRootedV1: a chave do banco de cada máquina
             // subiria para o servidor e desceria para os colegas. O inverso exato da intenção.
-            var syncFactory = new LocalSyncClientFactory(vault, dataDir);
             WorkspaceContext ctx = await syncFactory.OpenWorkspaceAsync(scope.DbName, AppRuntime.DbWorkspace);
 
             // Validação de integridade na reabertura (Fase 2, item C): ANTES de confiar no cofre/outbox,
@@ -745,6 +760,11 @@ public partial class App : Application
                 return null;
             }
 
+            // A contagem é lida ANTES da ativação porque ela CONSOME a sessão (zera a AMK). É o
+            // único momento em que este app sabe quantos cofres a conta tem: quem escolheu um time
+            // no chooser tem 2+, e a regra 5 usa isso para nunca adotar um dono sem evidência.
+            _accountWorkspaceCount = session.Workspaces.Count;
+
             await _coordinator.ActivateFromLoginAsync(session);
             return activator.Vault;
         }
@@ -837,7 +857,8 @@ public partial class App : Application
     /// rede quando não há chave local — e essa mesma ida <b>restaura</b> a chave. Sem contexto de
     /// time (modo local), a sonda nunca é chamada, porque a regra 1 ou 2 já respondeu.</para>
     /// </summary>
-    private async Task<SessionVaultScope> ResolveSessionScopeAsync(string dataDir, FileVaultStore fileStore)
+    private async Task<SessionVaultScope> ResolveSessionScopeAsync(
+        string dataDir, FileVaultStore fileStore, LocalSyncClientFactory syncFactory)
     {
         if (_coordinator?.ActiveWorkspaceId is not { } workspaceId
             || _accountActivator is not VaultRootActivator { TeamKeyRing: { } teamKeyRing })
@@ -862,7 +883,16 @@ public partial class App : Application
                 // chega aqui quando o disco NÃO sabe responder, e inventar "false" traria de volta o
                 // cenário de abrir o banco pessoal contra o workspace de outra pessoa.
                 : throw new InvalidOperationException(
-                    "Não há conexão configurada com o servidor para identificar este workspace."));
+                    "Não há conexão configurada com o servidor para identificar este workspace."),
+
+            // ⚠️ A evidência autoritativa da regra 5, e o motivo de este método existir: sem ela, a
+            // regra adota como dono do banco pessoal QUALQUER workspace que esteja sendo aberto —
+            // inclusive o do TIME — só porque o arquivo `sync-local.db` está no disco.
+            new PersonalDbOwnerProbe(syncFactory, AppRuntime.DbWorkspace).ReadSyncedWorkspacesAsync,
+
+            // A segunda rede, para o banco que ainda não tem o que dizer sobre si. Vem do login
+            // (null no relaunch pelo cache) — e é do login que sai o chooser que oferece o time.
+            _accountWorkspaceCount);
     }
 
     private TeamContext? TryCreateTeamContext()
