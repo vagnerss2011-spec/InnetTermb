@@ -154,7 +154,12 @@ public sealed class WorkspaceChoiceWindowRenderTests
 
         Assert.Null(error);
         Assert.Contains(probe.Texts, t => t.Contains("Em qual cofre", StringComparison.Ordinal));
-        Assert.Contains(probe.Texts, t => t.Contains("fica no cofre escolhido", StringComparison.Ordinal));
+
+        // O texto desenhado é comparado com a CONSTANTE da VM, e não com uma substring escrita à
+        // mão. Substring passa com o binding perdido desde que outro TextBlock qualquer contenha o
+        // trecho — e passava mesmo quando a explicação mandava o operador para um controle que não
+        // existe ("saia da conta"). Igualdade com a constante amarra as duas pontas.
+        Assert.Contains(WorkspaceChoiceViewModel.ExplanationText, probe.Texts);
     }
 
     /// <summary>

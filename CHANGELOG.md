@@ -224,6 +224,21 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ### Corrigido
 
+- **A tela de escolha do cofre mandava usar um botão que não existe.** Ao abrir com mais de um cofre,
+  a explicação dizia *"para trocar de cofre, saia da conta e entre de novo"* — e não existe "Sair da
+  conta" em lugar nenhum do RemoteOps. Quem fosse procurar não acharia e concluiria o de sempre: que
+  o recurso não funciona. Essa tela nasceu **antes** do botão "Trocar de cofre…" e ficou sendo a
+  **quinta** cópia de um conselho que as outras quatro já tinham parado de dar. Agora ela usa o
+  **mesmo texto** das outras, que nomeia o botão de verdade e diz o que vai acontecer (o RemoteOps
+  envia a fila, reinicia e pede a sua senha) — e o teste que vigia as outras quatro vigia esta também.
+- **Um erro de validação do servidor não é mais anunciado como "você está no seu cofre pessoal".** A
+  janela de convite reconhecia a recusa *"isto aqui é cofre pessoal"* **pelo número** da resposta e
+  não pelo motivo que o servidor manda junto com ela. Hoje aquele número tem um significado só, então
+  a frase acerta; no dia em que o servidor recusar um convite por outro motivo de validação — um
+  e-mail digitado errado, por exemplo — o operador leria *"você está no seu cofre pessoal, crie um
+  time"*, criaria um segundo time, e o time certo continuaria sem o convite. Agora a frase específica
+  só aparece quando o servidor **diz** que é esse o motivo; qualquer outra recusa mostra o recado
+  genérico com o número, que informa sem afirmar o que o aplicativo não sabe.
 - **"Conecte-se à internet" não resolvia nada — agora o aplicativo realmente busca a chave do time ao
   abrir.** Quando o cofre do time está aberto mas a **chave ainda não chegou neste computador**, o
   aviso da barra mandava conectar à internet "para o RemoteOps buscar a chave". Só que nada na

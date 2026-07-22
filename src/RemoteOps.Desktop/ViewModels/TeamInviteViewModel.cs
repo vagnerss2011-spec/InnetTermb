@@ -433,7 +433,22 @@ public sealed class TeamInviteViewModel : BaseViewModel
         // (HTTP 422)" — um número que não diz ao operador nem o que aconteceu nem o que fazer. Este
         // caminho só é alcançável com a guarda local contornada (cliente antigo, chave de time
         // plantada no cofre pessoal por um build anterior), e é justamente aí que a frase importa.
-        CloudSyncException { StatusCode: HttpStatusCode.UnprocessableEntity }
+        //
+        // ⚠️ O MOTIVO entra no casamento, e não só o número. Casar 422 sozinho funciona enquanto ele
+        // tiver um desfecho só — e 422 é justamente o status de "pedido bem formado, conteúdo
+        // inválido", então o segundo desfecho é questão de tempo. A partir dali o operador leria
+        // "você está no seu cofre pessoal, crie um time" para um e-mail digitado errado: ele criaria
+        // um segundo time, e o time certo continuaria sem o convite. O `reason` já chega aqui
+        // (TeamApiClient lê o ProblemDetails) e o serviço já casa por ele — a tela era o último
+        // ponto que ainda AFIRMAVA um motivo que não tinha lido.
+        //
+        // `Reason` null significa "o servidor não disse", nunca "não é aquele motivo": sem motivo o
+        // recado cai no genérico logo abaixo, que informa sem afirmar.
+        CloudSyncException
+        {
+            StatusCode: HttpStatusCode.UnprocessableEntity,
+            Reason: CloudRefusalReasons.PersonalWorkspace,
+        }
             => TeamInviteService.PersonalSessionRefusal,
 
         CloudSyncException { StatusCode: HttpStatusCode.Forbidden }

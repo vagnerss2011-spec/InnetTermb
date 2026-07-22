@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
+using RemoteOps.Desktop.Account;
 using RemoteOps.Sync.Remote;
 
 namespace RemoteOps.Desktop.ViewModels;
@@ -65,9 +66,24 @@ public sealed class WorkspaceChoiceViewModel : BaseViewModel
 
     public string Title => "Em qual cofre você quer entrar?";
 
-    public string Explanation =>
+    /// <summary>
+    /// ⚠️ <b>A instrução tem de nomear um controle QUE EXISTE.</b> Esta tela nasceu no 1d, antes de o
+    /// botão de trocar de cofre existir, e mandava <i>"saia da conta e entre de novo"</i> — não há
+    /// "Sair da conta" em lugar nenhum do RemoteOps. O operador procuraria, não acharia, e concluiria
+    /// o de sempre: que o recurso não funciona. É a mesma classe de defeito das outras quatro
+    /// mensagens que diziam "feche e abra o RemoteOps", achada por outro caminho.
+    ///
+    /// <para>Por isso o "como" sai da MESMA constante das outras (<see cref="VaultSwitchText"/>):
+    /// rótulo do botão e instrução não podem divergir em compilação nenhuma, e um teste afirma que
+    /// nenhuma das cinco voltou a mandar o operador para um caminho que a tela não tem.</para>
+    /// </summary>
+    public const string ExplanationText =
         "Sua conta tem acesso a mais de um cofre. Tudo o que você cadastrar (clientes, equipamentos "
-        + "e senhas) fica no cofre escolhido aqui. Para trocar de cofre, saia da conta e entre de novo.";
+        + "e senhas) fica no cofre escolhido aqui. Para trocar de cofre depois, "
+        + VaultSwitchText.HowToSwitch;
+
+    /// <summary>O que está escrito na tela — a constante acima, para um teste poder afirmá-la.</summary>
+    public string Explanation => ExplanationText;
 
     public WorkspaceChoiceItem? Selected
     {

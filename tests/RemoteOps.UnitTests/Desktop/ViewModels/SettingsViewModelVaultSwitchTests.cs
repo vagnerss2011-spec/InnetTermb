@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using RemoteOps.Desktop.Account;
 using RemoteOps.Desktop.Infrastructure;
 using RemoteOps.Desktop.ViewModels;
+using RemoteOps.Sync.Remote;
 
 using Xunit;
 
@@ -204,10 +205,31 @@ public sealed class SettingsViewModelVaultSwitchTests
     [InlineData(TeamInviteViewModel.EmptyTeamWarning)]
     [InlineData(TeamInviteViewModel.TeamCreatedNotice)]
     [InlineData(TeamInviteViewModel.TeamCreatedInThisWindowNotice)]
+    // A QUINTA, achada na varredura do H3: a tela de escolha do cofre nasceu no 1d, antes de o botão
+    // existir, e mandava "saia da conta e entre de novo" — um controle chamado "Sair da conta" que
+    // NÃO EXISTE em lugar nenhum do app (o que existe é "Trocar de cofre…"). É a mesma classe de
+    // defeito das outras quatro por outro caminho: instrução apontando para um caminho que a tela
+    // não tem, e o operador concluindo que a feature sumiu. Entra aqui, na guarda que já existe,
+    // porque uma segunda guarda para a mesma regra é a duplicata que envelhece torto.
+    [InlineData(WorkspaceChoiceViewModel.ExplanationText)]
     public void AsQuatroMensagens_APONTAM_ParaOBotao_EmVezDeMentir(string texto)
     {
         Assert.Contains(VaultSwitchText.HowToSwitch, texto, StringComparison.Ordinal);
         Assert.DoesNotContain("feche e abra", texto, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// A tela de escolha do cofre mostra EXATAMENTE a constante acima — sem esta amarra, a explicação
+    /// poderia ser reescrita no XAML/VM e a guarda ficaria vigiando um texto que ninguém desenha.
+    /// </summary>
+    [Fact]
+    public void ATelaDeEscolha_MOSTRA_AExplicacaoQueAPONTA_ParaOBotao()
+    {
+        var vm = new WorkspaceChoiceViewModel(
+            [new AccountWorkspace("11111111-1111-4111-8111-111111111111", "Pessoal", "Owner")]);
+
+        Assert.Equal(WorkspaceChoiceViewModel.ExplanationText, vm.Explanation);
+        Assert.Contains(VaultSwitchText.ButtonLabel, vm.Explanation, StringComparison.Ordinal);
     }
 
     /// <summary>

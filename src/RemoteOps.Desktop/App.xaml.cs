@@ -864,13 +864,6 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// O contexto de time (convite + membros + workspace ativo), ou <c>null</c> em modo local (sem
-    /// conta ativa). Reusa o token store do coordenador — mesmo cache do sync, logo um refresh
-    /// coerente — e o chaveiro de time do ativador, que é quem guarda a WK embrulhada sob a AMK.
-    ///
-    /// <para>Lazy pelo mesmo motivo do 2FA: quando este factory é montado, a conta ainda não existe.</para>
-    /// </summary>
-    /// <summary>
     /// Resolve o <see cref="SessionVaultScope"/> desta sessão. Roda no boot, DEPOIS da conta e ANTES
     /// de abrir o banco — porque é ele que decide QUAL banco abrir.
     ///
@@ -935,6 +928,13 @@ public partial class App : Application
             ? new VaultSwitch(coordinator, workspace, FlushOutboxOnceAsync)
             : null;
 
+    /// <summary>
+    /// O contexto de time (convite + membros + workspace ativo), ou <c>null</c> em modo local (sem
+    /// conta ativa). Reusa o token store do coordenador — mesmo cache do sync, logo um refresh
+    /// coerente — e o chaveiro de time do ativador, que é quem guarda a WK embrulhada sob a AMK.
+    ///
+    /// <para>Lazy pelo mesmo motivo do 2FA: quando este factory é montado, a conta ainda não existe.</para>
+    /// </summary>
     private TeamContext? TryCreateTeamContext()
     {
         if (_coordinator?.ActiveTokenStore is not { } tokens
