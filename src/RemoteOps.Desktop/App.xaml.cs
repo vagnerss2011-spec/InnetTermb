@@ -31,6 +31,12 @@ public partial class App : Application
     private SingleInstanceGuard? _singleInstance;
     private AccountSyncCoordinator? _coordinator;
     private VaultRootActivator? _accountActivator;
+
+    /// <summary>
+    /// O cofre desta sessão, decidido no boot. Guardado porque o sync (mais adiante) precisa saber
+    /// sob qual identidade e sob qual RAIZ os segredos desta sessão sobem e descem.
+    /// </summary>
+    private SessionVaultScope _sessionScope = SessionVaultScope.Personal;
     private SyncStartContext? _syncContext;
     private AccountConfig? _accountConfig;
     private IntegrityReport? _integrityReport;
@@ -156,23 +162,54 @@ public partial class App : Application
             CredentialVault vault = activated
                 ?? new CredentialVault(fileStore, legacyKeyRing, new InMemoryVaultAuditSink());
 
+            // Em QUAL COFRE esta sessão escreve — decidido UMA vez, aqui, e nunca no meio. Só de
+            // disco (a sonda online roda no máximo uma vez por workspace por máquina). Sem conta
+            // ativa, é o escopo pessoal: byte a byte o app de hoje.
+            SessionVaultScope scope;
+            try
+            {
+                scope = await ResolveSessionScopeAsync(dataDir, fileStore);
+            }
+            catch (SessionVaultScopeException ex)
+            {
+                // RECUSA ALTA, com texto escrito. Assumir "pessoal" aqui abriria sync-local.db e
+                // ws-local sincronizando contra um workspace de servidor que NÃO é dono deles: os
+                // ~700 equipamentos do operador subiriam para o cofre de outra pessoa. "Não sei"
+                // nunca pode virar "escreve no banco pessoal".
+                MessageBox.Show(
+                    ex.Message,
+                    "RemoteOps — Não foi possível identificar o cofre",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                Shutdown();
+                return;
+            }
+
+            _sessionScope = scope;
+
             // SQLCipher local store (ADR-008): banco criptografado por workspace.
             // Depende do cofre (a chave do banco é um segredo dele), por isso vem DEPOIS da conta:
             // abrir o banco com a raiz antiga e migrar em seguida deixaria a chave ilegível.
+            //
+            // ⚠️ DOIS argumentos, e o segundo é SEMPRE AppRuntime.DbWorkspace: o nome do ARQUIVO
+            // muda com o escopo (o banco do time é outro), mas a chave AES do SQLCipher é POR
+            // MÁQUINA e continua guardada no cofre pessoal. Guardá-la sob "time:{W}" a faria nascer
+            // WkRootedV1 — e o IsSyncable ACEITA WkRootedV1: a chave do banco de cada máquina
+            // subiria para o servidor e desceria para os colegas. O inverso exato da intenção.
             var syncFactory = new LocalSyncClientFactory(vault, dataDir);
-            WorkspaceContext ctx = await syncFactory.OpenWorkspaceAsync(AppRuntime.DbWorkspace);
+            WorkspaceContext ctx = await syncFactory.OpenWorkspaceAsync(scope.DbName, AppRuntime.DbWorkspace);
 
             // Validação de integridade na reabertura (Fase 2, item C): ANTES de confiar no cofre/outbox,
             // roda quick_check + recuperação do WAL + consistência dos cursores. Fail-open — nunca trava
             // o boot; recupera o que der, sinaliza o grave. O resultado vai pros Logs quando a UI subir.
             _integrityReport = await TryValidateIntegrityAsync(
-                ctx, syncFactory.DbPath(AppRuntime.DbWorkspace));
+                ctx, syncFactory.DbPath(scope.DbName));
 
             ILocalStore store = new SqlCipherLocalStore(ctx);
 
             // Composition root (ADR-011): injeta o vault de produção + store SQLCipher
             // e resolve o restante do grafo (adapters de terminal/WinBox, providers, VM).
-            _serviceProvider = AppCompositionRoot.Build(vault, store);
+            _serviceProvider = AppCompositionRoot.Build(vault, store, scope);
 
             // Update forçado (ADR-019 §3): só existe se REMOTEOPS_UPDATE_FEED_REPO_URL/
             // REMOTEOPS_UPDATE_POLICY_URL estiverem configurados (fail-open sem config).
@@ -782,6 +819,39 @@ public partial class App : Application
     ///
     /// <para>Lazy pelo mesmo motivo do 2FA: quando este factory é montado, a conta ainda não existe.</para>
     /// </summary>
+    /// <summary>
+    /// Resolve o <see cref="SessionVaultScope"/> desta sessão. Roda no boot, DEPOIS da conta e ANTES
+    /// de abrir o banco — porque é ele que decide QUAL banco abrir.
+    ///
+    /// <para><b>Sem conta ativa, é sempre o pessoal.</b> Não há workspace de servidor para
+    /// classificar, e o app em modo local é exatamente o de hoje (ADR-002: nuvem é opt-in).</para>
+    ///
+    /// <para>A sonda online é o <c>IsTeamWorkspaceAsync</c>, que consulta o DISCO primeiro e só vai à
+    /// rede quando não há chave local — e essa mesma ida <b>restaura</b> a chave. Sem contexto de
+    /// time (modo local), a sonda nunca é chamada, porque a regra 1 ou 2 já respondeu.</para>
+    /// </summary>
+    private async Task<SessionVaultScope> ResolveSessionScopeAsync(string dataDir, FileVaultStore fileStore)
+    {
+        if (_coordinator?.ActiveWorkspaceId is not { } workspaceId
+            || _accountActivator is not VaultRootActivator { TeamKeyRing: { } teamKeyRing })
+        {
+            return SessionVaultScope.Personal;
+        }
+
+        var resolver = new SessionVaultScopeResolver(
+            teamKeyRing, fileStore, Path.Combine(dataDir, "sync-local.owner"));
+
+        return await resolver.ResolveAsync(
+            workspaceId,
+            (ws, ct) => TryCreateTeamContext() is { } team
+                ? team.Service.IsTeamWorkspaceAsync(ws, ct)
+                // Sem transporte de time não há como perguntar. Recusar é o certo: o resolvedor só
+                // chega aqui quando o disco NÃO sabe responder, e inventar "false" traria de volta o
+                // cenário de abrir o banco pessoal contra o workspace de outra pessoa.
+                : throw new InvalidOperationException(
+                    "Não há conexão configurada com o servidor para identificar este workspace."));
+    }
+
     private TeamContext? TryCreateTeamContext()
     {
         if (_coordinator?.ActiveTokenStore is not { } tokens
@@ -924,7 +994,13 @@ public partial class App : Application
             // (AppRuntime.DbWorkspace) e os tokens (workspace = GUID do servidor) também moram no
             // cofre e não podem sair daqui nunca.
             EnvelopeStore = context.EnvelopeStore,
-            VaultWorkspaceId = AppRuntime.CredentialsWorkspace,
+            VaultWorkspaceId = _sessionScope.VaultWorkspaceId,
+
+            // A RAIZ desta sessão vai junto. Ela só entra em jogo quando o fio NÃO ecoa
+            // `algorithm` (registro gravado antes do campo, ou servidor antigo): ali, assumir AMK
+            // num cofre de TIME gravaria um envelope que monta o AAD errado e nunca abre. O default
+            // do tipo preserva o cofre pessoal, então quem nunca tiver time não muda em nada.
+            VaultAlgorithm = _sessionScope.VaultAlgorithm,
         });
         return Task.CompletedTask;
     }

@@ -32,7 +32,7 @@ public sealed class VaultBadgeRenderTests
     {
         var store = new InMemoryLocalStore();
         var hosts = new HostsViewModel(store, NewLauncher(), "ws-local");
-        var keychain = new KeychainViewModel(store, new FakeVault(), "ws-local");
+        var keychain = new KeychainViewModel(store, new FakeVault(), "ws-local", "ws-local");
         return new BrowserViewModel(hosts, keychain, new LogsViewModel());
     }
 
@@ -202,7 +202,7 @@ public sealed class VaultBadgeRenderTests
         Exception? error = StaThreadRunner.Run(() =>
         {
             var window = new RemoteOps.Desktop.MainWindow(
-                workspace, store, new InlineCredentialService(store, new FakeVault()))
+                workspace, store, new InlineCredentialService(store, new FakeVault(), "ws-local"))
             {
                 ShowInTaskbar = false,
                 WindowStyle = WindowStyle.None,

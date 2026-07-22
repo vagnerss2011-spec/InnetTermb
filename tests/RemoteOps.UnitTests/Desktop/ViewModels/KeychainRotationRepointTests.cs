@@ -20,7 +20,7 @@ public sealed class KeychainRotationRepointTests
     {
         var store = new InMemoryLocalStore();
         var vault = new FakeVault();
-        return (new KeychainViewModel(store, vault, "ws-local"), store, vault);
+        return (new KeychainViewModel(store, vault, "ws-local", "ws-local"), store, vault);
     }
 
     private static async Task<CredentialRef> SavedAsync(InMemoryLocalStore store)

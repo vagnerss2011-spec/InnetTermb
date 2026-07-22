@@ -22,25 +22,44 @@ namespace RemoteOps.Desktop.Integration;
 
 internal static class AppCompositionRoot
 {
-    // Workspace único local (Fase 1 — sem multi-workspace na UI ainda).
+    /// <summary>
+    /// Escopo das ENTIDADES no banco local (<c>assets.workspace_id</c>) — e não a identidade do
+    /// cofre.
+    ///
+    /// <para><b>Fica <c>"ws-local"</c> inclusive no banco do TIME</b>, de propósito: o
+    /// <c>SqlCipherLocalStore</c> consulta <c>WHERE workspace_id = $wid</c> e o valor viaja DENTRO
+    /// do <c>data_json</c> de cada entidade. Dono e colega precisam calcular a MESMA string, senão a
+    /// lista do outro fica VAZIA — em silêncio. Derivar essa string do workspace de servidor
+    /// funcionaria só enquanto todo cliente a calculasse igual: uma falha silenciosa nova, de
+    /// graça. Quem separa os dois acervos é o ARQUIVO do banco, que é outro.</para>
+    /// </summary>
     private const string DefaultWorkspaceId = "ws-local";
 
     /// <summary>
     /// Caminho in-memory (testes/smoke): registra `InMemoryLocalStore` e um
-    /// `CredentialVault` volátil construído pelo container.
+    /// `CredentialVault` volátil construído pelo container. Escopo pessoal, como o app de hoje.
     /// </summary>
-    internal static ServiceProvider Build() => BuildInternal(store: null, vault: null);
+    internal static ServiceProvider Build() =>
+        BuildInternal(store: null, vault: null, Account.SessionVaultScope.Personal);
 
     /// <summary>
     /// Caminho de produção (INT-3): recebe o `CredentialVault` (DPAPI/FileVaultStore)
     /// e o `SqlCipherLocalStore` já inicializados de forma assíncrona em `App.OnStartup`
     /// — DI é síncrono e não pode abrir o workspace/vault. Ambos entram como instâncias.
     /// </summary>
-    internal static ServiceProvider Build(CredentialVault vault, ILocalStore store)
-        => BuildInternal(store, vault);
+    /// <param name="scope">
+    /// Em qual cofre esta sessão escreve. Entra como VALOR, decidido no boot: um escopo consultado
+    /// sob demanda poderia responder coisas diferentes a dois ViewModels da mesma janela, e o
+    /// desfecho seria a senha do cliente gravada no cofre pessoal — sem erro nenhum na tela.
+    /// </param>
+    internal static ServiceProvider Build(
+        CredentialVault vault, ILocalStore store, Account.SessionVaultScope scope)
+        => BuildInternal(store, vault, scope);
 
-    private static ServiceProvider BuildInternal(ILocalStore? store, CredentialVault? vault)
+    private static ServiceProvider BuildInternal(
+        ILocalStore? store, CredentialVault? vault, Account.SessionVaultScope scope)
     {
+        ArgumentNullException.ThrowIfNull(scope);
         var services = new ServiceCollection();
 
         // Infraestrutura local
@@ -69,9 +88,12 @@ internal static class AppCompositionRoot
         services.AddSingleton<ICredentialVault>(sp => sp.GetRequiredService<CredentialVault>());
 
         // Credenciais "inline" (senha só deste device, cifrada no cofre, escondida do Keychain).
+        // O cofre vem do ESCOPO da sessão, e não mais por parâmetro do chamador: duas fontes para a
+        // mesma verdade é como um lado acaba gravando no cofre errado enquanto o outro acerta.
         services.AddSingleton<Credentials.IInlineCredentialService>(sp => new Credentials.InlineCredentialService(
             sp.GetRequiredService<ILocalStore>(),
-            sp.GetRequiredService<IVault>()));
+            sp.GetRequiredService<IVault>(),
+            scope.VaultWorkspaceId));
 
         // Adaptadores Desktop→Terminal (ADR-011)
         services.AddSingleton<ITerminalSecurityContext, AppTerminalSecurityContext>();
@@ -160,10 +182,15 @@ internal static class AppCompositionRoot
             sp.GetRequiredService<Sessions.SessionLauncher>(),
             DefaultWorkspaceId,
             sp.GetRequiredService<Credentials.IInlineCredentialService>()));
+        // ⚠️ DOIS escopos, e eles NÃO são o mesmo: o 3º argumento é o do STORE (onde a lista de
+        // credenciais é indexada, igual em todo cliente) e o 4º é o do COFRE (onde o envelope da
+        // senha é selado). Antes eram uma variável só — e é essa conflação que faria a senha do
+        // cliente do time nascer no cofre pessoal do operador.
         services.AddSingleton<ViewModels.KeychainViewModel>(sp => new ViewModels.KeychainViewModel(
             sp.GetRequiredService<ILocalStore>(),
             sp.GetRequiredService<RemoteOps.Security.Vault.IVault>(),
-            DefaultWorkspaceId));
+            DefaultWorkspaceId,
+            scope.VaultWorkspaceId));
         // Indicador de sync + "Sincronizar agora" (Fase 2, item B). Nasce SEM controlador (offline —
         // comando desabilitado); o App liga o controlador quando a sessão de sync sobe.
         services.AddSingleton<ViewModels.SyncStatusViewModel>(_ => new ViewModels.SyncStatusViewModel());

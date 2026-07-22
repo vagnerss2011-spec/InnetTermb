@@ -198,7 +198,7 @@ public sealed class SettingsViewModelTeamTests
     {
         var browser = new BrowserViewModel(
             new HostsViewModel(new InMemoryLocalStore(), NewLauncher(), "ws-local"),
-            new KeychainViewModel(new InMemoryLocalStore(), new FakeVault(), "ws-local"),
+            new KeychainViewModel(new InMemoryLocalStore(), new FakeVault(), "ws-local", "ws-local"),
             new LogsViewModel());
         var workspace = new WorkspaceViewModel(browser, new TabsViewModel());
 

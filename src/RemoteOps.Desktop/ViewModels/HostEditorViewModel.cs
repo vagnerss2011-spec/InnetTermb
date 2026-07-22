@@ -353,7 +353,10 @@ public sealed class HostEditorViewModel : BaseViewModel
             // Cria a credencial cifrada presa a este endpoint (escondida do Keychain). Zera a senha.
             if (_inlineCreds is not null)
             {
-                credentialRefId = await _inlineCreds.CreateForEndpointAsync(_workspaceId, ep.Id, draft.Username, draft.Password);
+                // Sem workspace: o cofre é o da SESSÃO, e quem o conhece é o serviço. O editor não
+                // escolhe cofre — escolher errado aqui gravaria a senha do cliente do time no cofre
+                // pessoal do operador, e nada na tela denunciaria.
+                credentialRefId = await _inlineCreds.CreateForEndpointAsync(ep.Id, draft.Username, draft.Password);
             }
             else
             {

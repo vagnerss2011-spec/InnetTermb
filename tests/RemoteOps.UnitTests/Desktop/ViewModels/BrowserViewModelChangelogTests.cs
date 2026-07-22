@@ -21,7 +21,7 @@ public sealed class BrowserViewModelChangelogTests
     {
         var logs = new LogsViewModel();
         var hosts = new HostsViewModel(new InMemoryLocalStore(), null!, "ws-local");
-        var keychain = new KeychainViewModel(new InMemoryLocalStore(), new FakeVault(), "ws-local");
+        var keychain = new KeychainViewModel(new InMemoryLocalStore(), new FakeVault(), "ws-local", "ws-local");
         return new BrowserViewModel(hosts, keychain, logs, new FakeSource("1.0.0"), store);
     }
 

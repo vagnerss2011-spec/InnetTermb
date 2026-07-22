@@ -45,7 +45,7 @@ public sealed class ConflictIndicatorRenderTests
     {
         var store = new InMemoryLocalStore();
         var hosts = new HostsViewModel(store, NewLauncher(), "ws-local");
-        var keychain = new KeychainViewModel(store, new FakeVault(), "ws-local");
+        var keychain = new KeychainViewModel(store, new FakeVault(), "ws-local", "ws-local");
         return new BrowserViewModel(hosts, keychain, new LogsViewModel(), sync: sync);
     }
 

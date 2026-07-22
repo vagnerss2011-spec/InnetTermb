@@ -17,14 +17,26 @@ public sealed class KeychainViewModel : BaseViewModel
     private const string Actor = "local-user";
     private readonly ILocalStore _store;
     private readonly IVault _vault;
-    private readonly string _workspaceId;
+    private readonly string _storeWorkspaceId;
+    private readonly string _vaultWorkspaceId;
     private CredentialRef? _selected;
 
-    public KeychainViewModel(ILocalStore store, IVault vault, string workspaceId)
+    /// <param name="storeWorkspaceId">
+    /// Escopo das ENTIDADES (<c>assets.workspace_id</c>): fica <c>"ws-local"</c> nos dois bancos,
+    /// porque dono e colega precisam consultar a lista com a MESMA string dentro do banco do time.
+    /// </param>
+    /// <param name="vaultWorkspaceId">
+    /// Identidade do COFRE onde o envelope da senha é selado: <c>"ws-local"</c> no pessoal,
+    /// <c>"time:{W}"</c> no do time. É OUTRO eixo — conflatá-lo com o de cima faria a senha do
+    /// cliente do time nascer no cofre pessoal do operador, sem erro nenhum na tela.
+    /// </param>
+    public KeychainViewModel(
+        ILocalStore store, IVault vault, string storeWorkspaceId, string vaultWorkspaceId)
     {
         _store = store;
         _vault = vault;
-        _workspaceId = workspaceId;
+        _storeWorkspaceId = storeWorkspaceId;
+        _vaultWorkspaceId = vaultWorkspaceId;
     }
 
     public ObservableCollection<CredentialRef> Credentials { get; } = [];
@@ -38,7 +50,7 @@ public sealed class KeychainViewModel : BaseViewModel
     public async Task LoadAsync()
     {
         Credentials.Clear();
-        foreach (var c in await _store.GetCredentialRefsAsync(_workspaceId))
+        foreach (var c in await _store.GetCredentialRefsAsync(_storeWorkspaceId))
             Credentials.Add(c);
     }
 
@@ -46,7 +58,7 @@ public sealed class KeychainViewModel : BaseViewModel
     {
         string credId = Guid.NewGuid().ToString("n");
         SecretEnvelope env = await _vault.StoreAsync(
-            new VaultStoreRequest { WorkspaceId = _workspaceId, CredentialId = credId, Type = CredentialTypes.Password, ActorUserId = Actor },
+            new VaultStoreRequest { WorkspaceId = _vaultWorkspaceId, CredentialId = credId, Type = CredentialTypes.Password, ActorUserId = Actor },
             password);
         Array.Clear(password);
         await _store.AddCredentialRefAsync(new CredentialRef
@@ -65,7 +77,7 @@ public sealed class KeychainViewModel : BaseViewModel
     {
         string credId = Guid.NewGuid().ToString("n");
         SecretEnvelope keyEnv = await _vault.StoreAsync(
-            new VaultStoreRequest { WorkspaceId = _workspaceId, CredentialId = credId, Type = CredentialTypes.PrivateKey, ActorUserId = Actor },
+            new VaultStoreRequest { WorkspaceId = _vaultWorkspaceId, CredentialId = credId, Type = CredentialTypes.PrivateKey, ActorUserId = Actor },
             privateKey);
         Array.Clear(privateKey);
 
@@ -73,7 +85,7 @@ public sealed class KeychainViewModel : BaseViewModel
         if (passphrase is { Length: > 0 })
         {
             SecretEnvelope ppEnv = await _vault.StoreAsync(
-                new VaultStoreRequest { WorkspaceId = _workspaceId, CredentialId = credId + "-pp", Type = CredentialTypes.PrivateKeyPassphrase, ActorUserId = Actor },
+                new VaultStoreRequest { WorkspaceId = _vaultWorkspaceId, CredentialId = credId + "-pp", Type = CredentialTypes.PrivateKeyPassphrase, ActorUserId = Actor },
                 passphrase);
             passphraseEnvelopeId = ppEnv.EnvelopeId;
         }
@@ -116,7 +128,7 @@ public sealed class KeychainViewModel : BaseViewModel
         else
         {
             SecretEnvelope ppEnv = await _vault.StoreAsync(
-                new VaultStoreRequest { WorkspaceId = _workspaceId, CredentialId = cred.Id + "-pp", Type = CredentialTypes.PrivateKeyPassphrase, ActorUserId = Actor },
+                new VaultStoreRequest { WorkspaceId = _vaultWorkspaceId, CredentialId = cred.Id + "-pp", Type = CredentialTypes.PrivateKeyPassphrase, ActorUserId = Actor },
                 newPassphrase);
             await _store.UpdateCredentialRefAsync(new CredentialRef
             {

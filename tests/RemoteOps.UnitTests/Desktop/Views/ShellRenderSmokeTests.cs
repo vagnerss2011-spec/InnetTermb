@@ -41,7 +41,7 @@ public sealed class ShellRenderSmokeTests
     private static WorkspaceViewModel NewWorkspace(InMemoryLocalStore store)
     {
         var hosts = new HostsViewModel(store, NewLauncher(), "ws-local");
-        var keychain = new KeychainViewModel(store, new FakeVault(), "ws-local");
+        var keychain = new KeychainViewModel(store, new FakeVault(), "ws-local", "ws-local");
         var browser = new BrowserViewModel(hosts, keychain, new LogsViewModel());
         return new WorkspaceViewModel(browser, new TabsViewModel());
     }
@@ -54,7 +54,7 @@ public sealed class ShellRenderSmokeTests
 
         Exception? captured = StaThreadRunner.Run(() =>
         {
-            var window = new MainWindow(vm, store, new InlineCredentialService(store, new FakeVault()))
+            var window = new MainWindow(vm, store, new InlineCredentialService(store, new FakeVault(), "ws-local"))
             {
                 ShowInTaskbar = false,
                 WindowStyle = WindowStyle.None,

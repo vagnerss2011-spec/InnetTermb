@@ -32,7 +32,7 @@ public sealed class WorkspaceViewModelUpdateTests
         var store = new InMemoryLocalStore();
         var logs = new LogsViewModel();
         var hosts = new HostsViewModel(store, new SessionLauncher(new TabsViewModel(), null, null, null, null, null, null), "ws-local");
-        var keychain = new KeychainViewModel(store, new FakeVault(), "ws-local");
+        var keychain = new KeychainViewModel(store, new FakeVault(), "ws-local", "ws-local");
         var browser = new BrowserViewModel(hosts, keychain, logs);
         return new WorkspaceViewModel(browser, new TabsViewModel(), updateService: svc);
     }

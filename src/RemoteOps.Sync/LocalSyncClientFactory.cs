@@ -30,22 +30,46 @@ public sealed class LocalSyncClientFactory
     }
 
     /// <summary>
-    /// Abre (ou cria) o banco SQLCipher para <paramref name="workspaceId"/> e retorna
-    /// um <see cref="WorkspaceContext"/> que expõe o <see cref="ISyncClient"/> e
-    /// a abertura de conexões para o mesmo banco — reutilizável por SqlCipherLocalStore.
-    /// A chave AES-256 é derivada uma única vez via vault (ADR-003/ADR-008).
+    /// Comportamento de hoje, byte a byte: o id serve de nome de arquivo <b>E</b> de identidade do
+    /// cofre onde a chave do banco fica guardada.
     /// </summary>
-    public async Task<WorkspaceContext> OpenWorkspaceAsync(
+    public Task<WorkspaceContext> OpenWorkspaceAsync(
         string workspaceId, CancellationToken ct = default)
-    {
-        if (workspaceId.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-            throw new ArgumentException("workspaceId contains invalid path characters.", nameof(workspaceId));
+        => OpenWorkspaceAsync(workspaceId, workspaceId, ct);
 
-        string dbPath = DbPath(workspaceId);
-        string keyRefPath = KeyRefPath(workspaceId);
+    /// <summary>
+    /// Abre (ou cria) o banco SQLCipher e retorna um <see cref="WorkspaceContext"/> que expõe o
+    /// <see cref="ISyncClient"/> e a abertura de conexões para o mesmo banco — reutilizável por
+    /// SqlCipherLocalStore. A chave AES-256 é derivada uma única vez via vault (ADR-003/ADR-008).
+    /// </summary>
+    /// <param name="dbName">
+    /// Nome do ARQUIVO (<c>sync-{dbName}.db</c>). Um banco por escopo: o outbox não é escopado, e
+    /// com banco único a fila empurraria host do time para o cofre pessoal.
+    /// </param>
+    /// <param name="dbKeyVaultWorkspaceId">
+    /// Onde a chave AES do SQLCipher DESTE banco fica guardada no cofre. É <b>sempre</b>
+    /// <c>"local"</c> no app, inclusive para o banco do time: a chave do banco é POR MÁQUINA. Se ela
+    /// morasse em <c>"time:{W}"</c>, nasceria <c>WkRootedV1</c> — e o <c>IsSyncable</c> ACEITA
+    /// <c>WkRootedV1</c>: a chave do banco de cada máquina subiria para o servidor e desceria para
+    /// os colegas. O inverso exato da intenção.
+    /// </param>
+    public async Task<WorkspaceContext> OpenWorkspaceAsync(
+        string dbName, string dbKeyVaultWorkspaceId, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(dbName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(dbKeyVaultWorkspaceId);
+
+        // ⚠️ Só o NOME DO ARQUIVO passa por esta guarda. A identidade do cofre pode (e no time,
+        // precisa) conter ':', que é caractere inválido em nome de arquivo no Windows — é por isso
+        // que as duas deixaram de ser a mesma string.
+        if (dbName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            throw new ArgumentException("dbName contains invalid path characters.", nameof(dbName));
+
+        string dbPath = DbPath(dbName);
+        string keyRefPath = KeyRefPath(dbName);
 
         var keyProvider = new VaultDbKeyProvider(_vault, keyRefPath);
-        string hexKey = await keyProvider.GetOrCreateKeyAsync(workspaceId, ct);
+        string hexKey = await keyProvider.GetOrCreateKeyAsync(dbKeyVaultWorkspaceId, ct);
 
         var connFactory = new SqliteConnectionFactory(dbPath, hexKey);
         var syncClient = new LocalSyncClient(connFactory);

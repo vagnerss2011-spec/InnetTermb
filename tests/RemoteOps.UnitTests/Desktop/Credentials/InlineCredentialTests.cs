@@ -19,9 +19,9 @@ public sealed class InlineCredentialTests
     public async Task Create_HiddenFromWorkspaceList_ButResolvableById()
     {
         var store = new InMemoryLocalStore();
-        var svc = new InlineCredentialService(store, new FakeVault());
+        var svc = new InlineCredentialService(store, new FakeVault(), "ws-local");
 
-        string credId = await svc.CreateForEndpointAsync("ws-local", "ep-1", "admin", "p".ToCharArray());
+        string credId = await svc.CreateForEndpointAsync("ep-1", "admin", "p".ToCharArray());
 
         // Resolvível por id (é assim que o provider SSH/Telnet a busca para conectar)...
         Assert.NotNull(await store.GetCredentialRefAsync(credId));
@@ -35,9 +35,9 @@ public sealed class InlineCredentialTests
     {
         var store = new InMemoryLocalStore();
         var vault = new FakeVault();
-        var svc = new InlineCredentialService(store, vault);
+        var svc = new InlineCredentialService(store, vault, "ws-local");
 
-        string credId = await svc.CreateForEndpointAsync("ws-local", "ep-42", "root", "x".ToCharArray());
+        string credId = await svc.CreateForEndpointAsync("ep-42", "root", "x".ToCharArray());
 
         Assert.Contains(credId, vault.StoredCredentialIds); // segredo foi pro cofre
         var cred = await store.GetCredentialRefAsync(credId);
@@ -50,10 +50,10 @@ public sealed class InlineCredentialTests
     public async Task Create_ZeroesPasswordBuffer()
     {
         var store = new InMemoryLocalStore();
-        var svc = new InlineCredentialService(store, new FakeVault());
+        var svc = new InlineCredentialService(store, new FakeVault(), "ws-local");
 
         char[] pw = "secret".ToCharArray();
-        await svc.CreateForEndpointAsync("ws-local", "ep-1", "u", pw);
+        await svc.CreateForEndpointAsync("ep-1", "u", pw);
 
         Assert.All(pw, c => Assert.Equal('\0', c)); // buffer zerado após guardar no cofre
     }
@@ -63,8 +63,8 @@ public sealed class InlineCredentialTests
     {
         var store = new InMemoryLocalStore();
         var vault = new FakeVault();
-        var svc = new InlineCredentialService(store, vault);
-        string credId = await svc.CreateForEndpointAsync("ws-local", "ep-1", "admin", "pw".ToCharArray());
+        var svc = new InlineCredentialService(store, vault, "ws-local");
+        string credId = await svc.CreateForEndpointAsync("ep-1", "admin", "pw".ToCharArray());
         var ep = new Endpoint { Id = "ep-1", AssetId = "a", Protocol = "ssh", CredentialRefId = credId };
 
         await svc.DeleteForEndpointAsync(ep);
@@ -78,7 +78,7 @@ public sealed class InlineCredentialTests
     {
         var store = new InMemoryLocalStore();
         var vault = new FakeVault();
-        var svc = new InlineCredentialService(store, vault);
+        var svc = new InlineCredentialService(store, vault, "ws-local");
         // Credencial do Keychain (escopo null = compartilhada) apontada por um endpoint.
         await store.AddCredentialRefAsync(new CredentialRef
         {
@@ -101,7 +101,7 @@ public sealed class InlineCredentialTests
     {
         var store = new InMemoryLocalStore();
         var vault = new FakeVault();
-        var svc = new InlineCredentialService(store, vault);
+        var svc = new InlineCredentialService(store, vault, "ws-local");
         var vm = new HostEditorViewModel(store, "ws-local", existing: null, groupId: null, inlineCreds: svc);
 
         vm.Name = "OLT-1";
@@ -157,7 +157,7 @@ public sealed class InlineCredentialTests
     {
         var store = new InMemoryLocalStore();
         var vault = new FakeVault();
-        var svc = new InlineCredentialService(store, vault);
+        var svc = new InlineCredentialService(store, vault, "ws-local");
 
         // Cria um device com endpoint + credencial inline.
         var create = new HostEditorViewModel(store, "ws-local", existing: null, groupId: null, inlineCreds: svc);

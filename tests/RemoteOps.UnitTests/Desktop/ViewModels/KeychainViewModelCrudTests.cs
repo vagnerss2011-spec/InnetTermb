@@ -62,7 +62,7 @@ public sealed class KeychainViewModelCrudTests
     {
         var store = new InMemoryLocalStore();
         var vault = new FakeVault();
-        var vm = new KeychainViewModel(store, vault, "ws-local");
+        var vm = new KeychainViewModel(store, vault, "ws-local", "ws-local");
         await vm.CreateAsync("root@r1", "root", "s3cr3t".ToCharArray());
         var refs = await store.GetCredentialRefsAsync("ws-local");
         var cred = refs.Single();
@@ -77,7 +77,7 @@ public sealed class KeychainViewModelCrudTests
     {
         var store = new InMemoryLocalStore();
         var vault = new FakeVault();
-        var vm = new KeychainViewModel(store, vault, "ws-local");
+        var vm = new KeychainViewModel(store, vault, "ws-local", "ws-local");
         await vm.CreateAsync("c", "u", "p".ToCharArray());
         var cred = (await store.GetCredentialRefsAsync("ws-local")).Single();
         await vm.DeleteAsync(cred);
@@ -90,7 +90,7 @@ public sealed class KeychainViewModelCrudTests
     {
         var store = new InMemoryLocalStore();
         var vault = new FakeVault();
-        var vm = new KeychainViewModel(store, vault, "ws-local");
+        var vm = new KeychainViewModel(store, vault, "ws-local", "ws-local");
         await vm.CreateAsync("old", "olduser", "p".ToCharArray());
         var cred = (await store.GetCredentialRefsAsync("ws-local")).Single();
         await vm.UpdateAsync(cred, "new", "newuser");

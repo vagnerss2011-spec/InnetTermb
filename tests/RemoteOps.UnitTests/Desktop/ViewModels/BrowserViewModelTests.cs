@@ -11,7 +11,7 @@ public sealed class BrowserViewModelTests
     {
         var store = new InMemoryLocalStore();
         var hosts = new HostsViewModel(store, new SessionLauncher(new TabsViewModel(), null, null, null, null, null, null), "ws-local");
-        return new BrowserViewModel(hosts, new KeychainViewModel(store, new FakeVault(), "ws-local"), new LogsViewModel());
+        return new BrowserViewModel(hosts, new KeychainViewModel(store, new FakeVault(), "ws-local", "ws-local"), new LogsViewModel());
     }
 
     [Fact]

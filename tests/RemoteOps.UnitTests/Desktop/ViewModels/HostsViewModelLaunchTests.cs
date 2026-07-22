@@ -71,7 +71,7 @@ public sealed class HostsViewModelLaunchTests
     // Serviço de credencial inline que SEMPRE falha — simula cofre/DB indisponível na exclusão.
     private sealed class ThrowingInlineCredentialService : IInlineCredentialService
     {
-        public Task<string> CreateForEndpointAsync(string workspaceId, string endpointId, string username, char[] password, CancellationToken ct = default)
+        public Task<string> CreateForEndpointAsync(string endpointId, string username, char[] password, CancellationToken ct = default)
             => throw new NotImplementedException();
         public Task DeleteForEndpointAsync(Endpoint endpoint, CancellationToken ct = default)
             => throw new InvalidOperationException("cofre indisponível");

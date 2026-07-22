@@ -22,9 +22,15 @@ public interface IInlineCredentialService
     /// <summary>
     /// Cria uma credencial de senha presa ao endpoint (escondida do Keychain) e devolve o id do
     /// <see cref="CredentialRef"/>. Zera <paramref name="password"/> após guardar no cofre.
+    ///
+    /// <para><b>Não recebe workspace</b> desde a Fatia 1: o cofre é o da SESSÃO, injetado no
+    /// serviço. O <c>CredentialRef</c> de uma credencial inline já usa <c>Scope="endpoint:{id}"</c>,
+    /// e não o workspace — então o parâmetro só servia para o chamador escolher um cofre. Um
+    /// chamador que escolhesse errado gravaria a senha do cliente do time no cofre pessoal, sem erro
+    /// nenhum na tela: duas fontes para a mesma verdade, o defeito estrutural desta base.</para>
     /// </summary>
     Task<string> CreateForEndpointAsync(
-        string workspaceId, string endpointId, string username, char[] password, CancellationToken ct = default);
+        string endpointId, string username, char[] password, CancellationToken ct = default);
 
     /// <summary>
     /// Se o endpoint usa uma credencial INLINE, revoga o segredo no cofre e apaga o
@@ -43,11 +49,19 @@ public sealed class InlineCredentialService : IInlineCredentialService
 
     private readonly ILocalStore _store;
     private readonly IVault _vault;
+    private readonly string _vaultWorkspaceId;
 
-    public InlineCredentialService(ILocalStore store, IVault vault)
+    /// <param name="vaultWorkspaceId">
+    /// A identidade do COFRE desta sessão (<c>"ws-local"</c> ou <c>"time:{W}"</c>). Injetada uma vez,
+    /// e não passada em cada chamada: o escopo do cofre é decidido no boot, e deixá-lo variar por
+    /// chamada é exatamente como um caminho acaba gravando no cofre errado enquanto o outro acerta.
+    /// </param>
+    public InlineCredentialService(ILocalStore store, IVault vault, string vaultWorkspaceId)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(vaultWorkspaceId);
         _store = store;
         _vault = vault;
+        _vaultWorkspaceId = vaultWorkspaceId;
     }
 
     /// <summary>Escopo de uma credencial inline presa ao endpoint informado.</summary>
@@ -57,7 +71,7 @@ public sealed class InlineCredentialService : IInlineCredentialService
         scope is not null && scope.StartsWith(ScopePrefix, StringComparison.Ordinal);
 
     public async Task<string> CreateForEndpointAsync(
-        string workspaceId, string endpointId, string username, char[] password, CancellationToken ct = default)
+        string endpointId, string username, char[] password, CancellationToken ct = default)
     {
         string credId = Guid.NewGuid().ToString("n");
         try
@@ -65,7 +79,7 @@ public sealed class InlineCredentialService : IInlineCredentialService
             SecretEnvelope env = await _vault.StoreAsync(
                 new VaultStoreRequest
                 {
-                    WorkspaceId = workspaceId,
+                    WorkspaceId = _vaultWorkspaceId,
                     CredentialId = credId,
                     Type = CredentialTypes.Password,
                     ActorUserId = Actor,

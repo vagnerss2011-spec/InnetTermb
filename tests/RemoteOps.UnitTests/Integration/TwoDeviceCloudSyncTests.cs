@@ -364,7 +364,7 @@ public sealed class TwoDeviceCloudSyncTests
         }
 
         // ── A troca acontece pela VM real do Chaveiro, não por um atalho no cofre ─────────
-        var keychain = new KeychainViewModel(deviceA.Store, deviceA.Vault, CloudSyncedDevice.VaultWorkspaceId);
+        var keychain = new KeychainViewModel(deviceA.Store, deviceA.Vault, CloudSyncedDevice.VaultWorkspaceId, CloudSyncedDevice.VaultWorkspaceId);
         CredentialRef credOnA = (await deviceA.Store.GetCredentialRefAsync(credId))!;
         await keychain.ChangePasswordAsync(credOnA, RotatedPassword.ToCharArray());
 

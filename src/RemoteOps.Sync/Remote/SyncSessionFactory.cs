@@ -1,5 +1,6 @@
 using RemoteOps.Security;
 using RemoteOps.Security.Storage;
+using RemoteOps.Security.Vault;
 
 namespace RemoteOps.Sync.Remote;
 
@@ -49,6 +50,17 @@ public sealed record SyncSessionOptions
 
     /// <summary>Versão do esquema de embrulho da AMK da conta (spec §4.2).</summary>
     public int AmkKeyVersion { get; init; } = 1;
+
+    /// <summary>
+    /// RAIZ das senhas desta sessão (<c>VaultAlgorithms.*</c>). Só entra em jogo quando o fio NÃO
+    /// ecoa <c>algorithm</c> — registro gravado antes do campo existir, ou servidor antigo: ali,
+    /// assumir AMK num cofre de TIME grava um envelope que monta o AAD errado e nunca abre, sem
+    /// erro na hora. O default preserva o cofre pessoal, byte a byte.
+    ///
+    /// <para>Antes desta fatia o parâmetro existia no <c>SecretSyncOrchestrator</c> e esta fábrica
+    /// simplesmente não o informava — o valor certo existia e não chegava a quem precisava dele.</para>
+    /// </summary>
+    public string VaultAlgorithm { get; init; } = VaultAlgorithms.AmkRootedV1;
 }
 
 /// <summary>
@@ -125,6 +137,7 @@ public static class SyncSessionFactory
             new SecretsApiClient(channel),
             metadata,
             options.AmkKeyVersion,
-            options.PageSize);
+            options.PageSize,
+            options.VaultAlgorithm);
     }
 }

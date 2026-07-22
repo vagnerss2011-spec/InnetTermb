@@ -45,6 +45,21 @@ internal static class AppRuntime
     internal const string TeamVaultPrefix = "time:";
 
     /// <summary>
+    /// Nome do ARQUIVO do banco do time (<c>sync-team-{W}.db</c>) — e por isso separado da
+    /// identidade do cofre (<see cref="TeamVaultWorkspace"/>).
+    ///
+    /// <para>⚠️ <b>Boot.</b> <c>LocalSyncClientFactory.OpenWorkspaceAsync</c> recusa
+    /// <c>Path.GetInvalidFileNameChars()</c>, e ':' é um deles no Windows. Passar <c>time:{W}</c>
+    /// como nome de banco derruba o <c>OnStartup</c> com "Não foi possível iniciar" — exatamente a
+    /// classe de defeito que já trancou esta base duas vezes. Duas nomenclaturas, de propósito.</para>
+    /// </summary>
+    internal static string TeamDbName(string serverWorkspaceId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serverWorkspaceId);
+        return "team-" + serverWorkspaceId;
+    }
+
+    /// <summary>
     /// ⚠️ <b>Boot.</b> A lista que a ativação da conta percorre. Um workspace de fora dela não
     /// degrada: TRAVA o app na abertura (já mordeu duas vezes nesta base). Por isso o cofre do time
     /// entra AQUI, e não numa segunda lista que alguém esqueceria de atualizar.

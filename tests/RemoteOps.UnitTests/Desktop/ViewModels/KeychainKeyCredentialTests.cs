@@ -13,7 +13,7 @@ public sealed class KeychainKeyCredentialTests
     {
         var store = new InMemoryLocalStore();
         var vault = new FakeVault();
-        return (new KeychainViewModel(store, vault, "ws-local"), store, vault);
+        return (new KeychainViewModel(store, vault, "ws-local", "ws-local"), store, vault);
     }
 
     [Fact]
