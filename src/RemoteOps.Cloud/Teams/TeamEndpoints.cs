@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using RemoteOps.Cloud.Errors;
+using RemoteOps.Cloud.Rbac;
 using RemoteOps.Cloud.Sync;
 
 namespace RemoteOps.Cloud.Teams;
@@ -24,9 +25,60 @@ public static class TeamEndpoints
 
     public static IEndpointRouteBuilder MapTeamEndpoints(this IEndpointRouteBuilder app)
     {
+        MapWorkspaceCreation(app);
         MapWorkspaceScoped(app);
         MapInviteeScoped(app);
         return app;
+    }
+
+    /// <summary>
+    /// <c>POST /workspaces</c> — nasce um time. FORA do grupo <c>/workspaces/{id}</c> de propósito: o
+    /// grupo exige um id na rota, e aqui ainda não existe workspace nenhum. Pela mesma razão não há
+    /// <see cref="RemoteOps.Cloud.Rbac.PermissionEvaluator"/>: não há membership a avaliar, e a
+    /// autorização é ser uma conta autenticada.
+    /// </summary>
+    private static void MapWorkspaceCreation(IEndpointRouteBuilder app)
+    {
+        app.MapPost("/workspaces", async (
+            [FromBody] CreateWorkspaceRequest req,
+            TeamService svc,
+            HttpContext ctx,
+            CancellationToken ct) =>
+        {
+            if (!ctx.TryGetDeviceId(out var deviceId))
+                return Results.Problem("X-Device-Id header ausente ou inválido.",
+                    statusCode: 400, extensions: ctx.ProblemExtensions());
+
+            if (!ctx.TryGetUserId(out var userId))
+                return Results.Problem("Token sem subject válido.",
+                    statusCode: 401, extensions: ctx.ProblemExtensions());
+
+            // O workspaceId do contexto é o que está NASCENDO — serve para auditoria e log; o RBAC
+            // não é consultado (não há membership ainda), e o tenant sai de quem chama.
+            Guid.TryParse(req?.Id, out var novoId);
+            var permCtx = new PermissionContext(userId, novoId, deviceId, null);
+
+            try
+            {
+                var (outcome, response) = await svc.CreateWorkspaceAsync(req!, permCtx, ct);
+                return outcome switch
+                {
+                    CreateWorkspaceOutcome.Created => Results.Ok(response),
+
+                    // 409 sem dizer de quem é o id: o cliente sorteia outro GUID e repete. Revelar o
+                    // dono transformaria este endpoint num oráculo de enumeração.
+                    _ => Results.Problem(
+                        detail: "Já existe um workspace com este identificador. Tente criar o time de "
+                                + "novo — o aplicativo sorteia outro identificador.",
+                        statusCode: 409, extensions: ctx.ProblemExtensions()),
+                };
+            }
+            catch (RbacDeniedException ex)
+            {
+                return Results.Problem(detail: ex.Message, statusCode: 403,
+                    extensions: ctx.ProblemExtensions());
+            }
+        }).WithTags("Teams").RequireAuthorization();
     }
 
     private static void MapWorkspaceScoped(IEndpointRouteBuilder app)

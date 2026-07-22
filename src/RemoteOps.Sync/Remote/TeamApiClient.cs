@@ -24,6 +24,27 @@ public sealed class TeamApiClient : ITeamApi
     /// <summary>Reusa um canal já existente — divide o mesmo cache de tokens do sync.</summary>
     internal TeamApiClient(CloudAuthChannel channel) => _channel = channel;
 
+    public async Task<CreateTeamWorkspaceResponse> CreateWorkspaceAsync(
+        CreateTeamWorkspaceRequest request, CancellationToken ct = default)
+    {
+        using HttpResponseMessage resp = await _channel.SendAsync(
+            () => new HttpRequestMessage(HttpMethod.Post, "/workspaces")
+            {
+                Content = JsonContent.Create(request, options: CloudAuthChannel.Json),
+            },
+            ct);
+
+        // NENHUM status vira sucesso silencioso aqui, nem o 409. "O time foi criado" quando ele não
+        // foi é a mentira que faria o operador cadastrar cliente num workspace inexistente — e a WK
+        // já teria nascido em disco, órfã. Quem trata o 409 é o chamador, sorteando outro GUID.
+        if (!resp.IsSuccessStatusCode)
+        {
+            throw new CloudSyncException(resp.StatusCode);
+        }
+
+        return await CloudAuthChannel.ReadResultAsync<CreateTeamWorkspaceResponse>(resp, ct);
+    }
+
     public async Task<CreateTeamInviteResponse> CreateInviteAsync(
         string workspaceId, CreateTeamInviteRequest request, CancellationToken ct = default)
     {

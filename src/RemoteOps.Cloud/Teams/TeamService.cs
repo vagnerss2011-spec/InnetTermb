@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using RemoteOps.Cloud.Audit;
 using RemoteOps.Cloud.Data;
+using RemoteOps.Cloud.Data.Entities;
 using RemoteOps.Cloud.Rbac;
 using RemoteOps.Cloud.Sync;
 
@@ -20,6 +21,19 @@ public enum PublishWorkspaceKeyOutcome
     /// nonce novo ou outra chave; sabe que uma segunda gravação divergente é sinal de bifurcação.
     /// </summary>
     Divergent,
+}
+
+/// <summary>Desfecho da criação de um workspace de time — cada um vira um status diferente.</summary>
+public enum CreateWorkspaceOutcome
+{
+    /// <summary>Workspace + membership Owner + embrulho da WK gravados numa transação.</summary>
+    Created,
+
+    /// <summary>
+    /// Já existe workspace com este id. Recusa SEM dizer de quem ele é: o id vem do cliente, e
+    /// responder "é do fulano" transformaria este endpoint num oráculo de enumeração.
+    /// </summary>
+    IdAlreadyExists,
 }
 
 /// <summary>Desfecho da remoção de membro — cada um vira um status diferente no endpoint.</summary>
@@ -51,6 +65,114 @@ public sealed class TeamService(
     AuditService audit,
     ILogger<TeamService> logger)
 {
+    // ── POST /workspaces ──────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Cria um workspace de TIME no tenant de quem pede, <b>vazio</b>, com a membership Owner do
+    /// criador já carregando o embrulho da WK.
+    ///
+    /// <para><b>Por que existe:</b> antes disto o único caminho que criava workspace era o
+    /// <c>/auth/register</c>, então o "time" era forçosamente o workspace PESSOAL do dono. E o
+    /// <c>/sync</c> é escopado por workspace + membership: convidar alguém baixaria o acervo inteiro
+    /// do operador (nomes de cliente, IPs, grupos, vendors) no computador do convidado. Não é
+    /// vazamento de senha, é de METADADO — e nenhum indicador de cofre fala sobre isso.</para>
+    ///
+    /// <para><b>Por que atômico:</b> workspace, membership e embrulho entram na MESMA gravação. Um
+    /// workspace de time sem chave guardada é um estado que o cliente não consegue classificar (nem
+    /// pessoal, nem time), e a lição do 1e′ é exatamente que a custódia do embrulho não pode depender
+    /// de um segundo passo que pode falhar.</para>
+    ///
+    /// <para><b>Sem <see cref="PermissionEvaluator"/>:</b> não há workspace ainda, logo não há
+    /// membership para avaliar. A autorização aqui é ser uma conta autenticada — e o tenant vem
+    /// SEMPRE de quem chama, nunca do corpo, senão qualquer conta plantaria workspace no tenant
+    /// alheio.</para>
+    /// </summary>
+    public async Task<(CreateWorkspaceOutcome Outcome, CreateWorkspaceResponse? Response)> CreateWorkspaceAsync(
+        CreateWorkspaceRequest req, PermissionContext permCtx, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(req);
+
+        if (!Guid.TryParse(req.Id, out var workspaceId) || workspaceId == Guid.Empty)
+            throw new ArgumentException("id deve ser um GUID válido.");
+        if (string.IsNullOrWhiteSpace(req.Name))
+            throw new ArgumentException("name é obrigatório.");
+
+        var wrapped = WrappedKeyBlob.Decode(req.WrappedWk, nameof(req.WrappedWk));
+
+        // Versão desde o dia 1, mesma regra do convite e da publicação: zero significa "membership
+        // sem chave", e gravar um embrulho carimbado assim tornaria uma rotação futura indetectável.
+        if (req.WkVersion < 1)
+            throw new ArgumentException("wkVersion deve ser >= 1.");
+
+        // O tenant é o de QUEM PEDE. Determinístico de propósito: o workspace mais ANTIGO em que a
+        // conta é Owner é o que nasceu no /auth/register — o tenant próprio dela. Quem já aceitou
+        // convite de outro time pertence a dois tenants, e sem esta âncora o time novo poderia cair
+        // no tenant do colega, que é de quem ele nunca deveria ter sido.
+        var tenantId = await db.Memberships.AsNoTracking()
+            .Where(m => m.UserId == permCtx.UserId && m.Role == Roles.Owner)
+            .OrderBy(m => m.Workspace.CreatedAt)
+            .Select(m => m.Workspace.TenantId)
+            .FirstOrDefaultAsync(ct);
+
+        if (tenantId == Guid.Empty)
+        {
+            // Conta sem workspace próprio é modelo inconsistente (o registro sempre cria um). Melhor
+            // recusar do que inventar um tenant.
+            logger.LogWarning(
+                "Workspace creation denied for user {UserId}: no owned workspace to anchor the tenant",
+                permCtx.UserId);
+            throw new RbacDeniedException("tenant.missing");
+        }
+
+        if (await db.Workspaces.AsNoTracking().AnyAsync(w => w.Id == workspaceId, ct))
+        {
+            // Sem dizer de quem é: o id vem do cliente, e responder "esse é do fulano" faria deste
+            // endpoint um oráculo de enumeração de workspaces alheios.
+            logger.LogWarning(
+                "Workspace creation refused for user {UserId}: id {WorkspaceId} already exists",
+                permCtx.UserId, workspaceId);
+            return (CreateWorkspaceOutcome.IdAlreadyExists, null);
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        db.Workspaces.Add(new WorkspaceEntity
+        {
+            Id = workspaceId,
+            TenantId = tenantId,
+            Name = req.Name.Trim(),
+            Status = "active",
+            CreatedAt = now,
+        });
+        db.Memberships.Add(new MembershipEntity
+        {
+            WorkspaceId = workspaceId,
+            UserId = permCtx.UserId,
+            // Quem cria o time é dono dele — é o único papel que consegue convidar E remover.
+            Role = Roles.Owner,
+            WrappedWk = wrapped,
+            WkVersion = req.WkVersion,
+        });
+        await db.SaveChangesAsync(ct);
+
+        await audit.RecordAsync(new AuditRecord(
+            WorkspaceId: workspaceId,
+            ActorUserId: permCtx.UserId,
+            Action: "workspace.created",
+            TargetType: "Workspace",
+            TargetId: workspaceId,
+            DeviceId: permCtx.DeviceId,
+            // Só metadado: o embrulho NUNCA entra em log nem em auditoria (ADR-013).
+            Metadata: new Dictionary<string, object?> { ["wkVersion"] = req.WkVersion }), ct);
+
+        logger.LogInformation(
+            "Team workspace {WorkspaceId} created by user {UserId} in tenant {TenantId} (wkVersion {Version})",
+            workspaceId, permCtx.UserId, tenantId, req.WkVersion);
+
+        return (
+            CreateWorkspaceOutcome.Created,
+            new CreateWorkspaceResponse(workspaceId.ToString(), req.Name.Trim(), Roles.Owner));
+    }
+
     // ── GET /workspaces/{id}/members ──────────────────────────────────────────
 
     /// <summary>

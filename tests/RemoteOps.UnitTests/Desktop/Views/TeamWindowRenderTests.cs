@@ -47,6 +47,13 @@ public sealed class TeamWindowRenderTests
             string workspaceId, string userId, CancellationToken ct = default)
             => Task.FromResult(TeamMemberRemoval.Removed);
 
+        // Criar TIME é fora do escopo destes testes (o alvo aqui é a tela, não o ciclo do
+        // workspace). NotSupportedException e não um retorno de mentira: um fake que "cria" faria o
+        // teste passar por caminhos que ele não exercita.
+        public Task<CreateTeamWorkspaceResponse> CreateWorkspaceAsync(
+            CreateTeamWorkspaceRequest request, CancellationToken ct = default)
+            => throw new NotSupportedException();
+
         public Task<CreateTeamInviteResponse> CreateInviteAsync(
             string workspaceId, CreateTeamInviteRequest request, CancellationToken ct = default)
             => throw new NotSupportedException();

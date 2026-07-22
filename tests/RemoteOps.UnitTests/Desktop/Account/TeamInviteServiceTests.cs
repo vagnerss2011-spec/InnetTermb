@@ -65,6 +65,38 @@ public sealed class TeamInviteServiceTests
 
         public bool SessionRefreshRequired { get; set; }
 
+        /// <summary>Ids já usados — é o que faz o 409 do servidor real ser reproduzível aqui.</summary>
+        public HashSet<string> ExistingWorkspaceIds { get; } = [];
+
+        /// <summary>O time criado nesta sessão, para o teste conferir sem adivinhar formato.</summary>
+        public CreateTeamWorkspaceRequest? CreatedWorkspace { get; private set; }
+
+        /// <summary>Rede caída na criação do time — a WK já nasceu em disco quando isso acontece.</summary>
+        public bool WorkspaceCreationOffline { get; set; }
+
+        public Task<CreateTeamWorkspaceResponse> CreateWorkspaceAsync(
+            CreateTeamWorkspaceRequest request, CancellationToken ct = default)
+        {
+            Calls.Add("create-workspace");
+            BodyStrings.AddRange([request.Id, request.Name, request.WrappedWk]);
+            if (WorkspaceCreationOffline)
+            {
+                throw new HttpRequestException("rede indisponível (teste)");
+            }
+
+            if (!ExistingWorkspaceIds.Add(request.Id))
+            {
+                throw new CloudSyncException(HttpStatusCode.Conflict);
+            }
+
+            CreatedWorkspace = request;
+
+            // Como no backend real: a membership Owner nasce COM o embrulho, então o GET da chave
+            // responde no instante seguinte.
+            WorkspaceKey = new TeamWorkspaceKeyResponse(request.Id, request.WrappedWk, request.WkVersion);
+            return Task.FromResult(new CreateTeamWorkspaceResponse(request.Id, request.Name, "Owner"));
+        }
+
         public Task<CreateTeamInviteResponse> CreateInviteAsync(
             string workspaceId, CreateTeamInviteRequest request, CancellationToken ct = default)
         {

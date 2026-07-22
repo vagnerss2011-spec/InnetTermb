@@ -116,3 +116,30 @@ public sealed record PublishWorkspaceKeyRequest(string WrappedWk, int WkVersion)
 /// todo dia. O conflito (embrulho DIFERENTE já guardado) não chega aqui: vira 409.
 /// </param>
 public sealed record PublishWorkspaceKeyResponse(string WorkspaceId, bool Stored, int WkVersion);
+
+/// <summary>
+/// <c>POST /workspaces</c>: cria um workspace de TIME, vazio, no tenant de quem pede.
+///
+/// <para><b>Por que ele precisa existir:</b> antes disto, o único caminho que criava workspace era o
+/// <c>/auth/register</c> — ou seja, o "time" era obrigatoriamente o workspace PESSOAL do dono. Como o
+/// <c>/sync</c> é escopado por workspace + membership, convidar alguém baixaria o acervo inteiro do
+/// operador (nomes de cliente, IPs, grupos, vendors) no computador do convidado. Não é vazamento de
+/// senha — é de METADADO, e nenhum indicador de cofre fala sobre isso. Com workspace próprio, os
+/// equipamentos do cofre pessoal ficam inalcançáveis pelo time, que é a decisão do operador
+/// ("o time começa vazio, eu movo cliente a cliente").</para>
+/// </summary>
+/// <param name="Id">
+/// GUID gerado pelo <b>CLIENTE</b>, e não é capricho: o AAD do embrulho da WK é <c>"wk|time:{id}"</c>,
+/// então a chave não pode nascer antes de o id existir. Deixar o servidor gerar exigiria duas idas — e
+/// entre elas existiria um workspace de time SEM chave, que é justamente o estado em que o app não
+/// sabe dizer se está no cofre pessoal ou no do time. Id duplicado é recusado com 409.
+/// </param>
+/// <param name="WrappedWk">
+/// A WK do time já embrulhada sob a AMK do criador. Vem no MESMO pedido de propósito: a lição do 1e′
+/// é que a custódia do embrulho não pode depender de um segundo passo que pode falhar — um workspace
+/// de time sem chave guardada é um estado que o cliente não consegue classificar.
+/// </param>
+public sealed record CreateWorkspaceRequest(string Id, string Name, string WrappedWk, int WkVersion);
+
+/// <summary>Workspace de time criado, com o papel que o criador ganhou (sempre <c>Owner</c>).</summary>
+public sealed record CreateWorkspaceResponse(string Id, string Name, string Role);

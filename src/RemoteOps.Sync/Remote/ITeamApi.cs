@@ -10,6 +10,18 @@ namespace RemoteOps.Sync.Remote;
 /// </summary>
 public interface ITeamApi
 {
+    /// <summary>
+    /// Cria um TIME: workspace novo e VAZIO, com a membership Owner de quem chama já carregando o
+    /// embrulho da WK. É o que mantém os equipamentos do cofre pessoal fora do alcance do time — sem
+    /// ele, o "time" seria o próprio workspace pessoal e o convidado baixaria o acervo inteiro.
+    /// </summary>
+    /// <exception cref="CloudSyncException">
+    /// 409 = o id sorteado já existe (o chamador sorteia outro GUID e repete). Qualquer outro status
+    /// também estoura: erro engolido aqui deixaria o app achando que o time existe quando ele não.
+    /// </exception>
+    Task<CreateTeamWorkspaceResponse> CreateWorkspaceAsync(
+        CreateTeamWorkspaceRequest request, CancellationToken ct = default);
+
     /// <summary>Cria o convite. O blob e o hash já vêm prontos do cliente.</summary>
     Task<CreateTeamInviteResponse> CreateInviteAsync(
         string workspaceId, CreateTeamInviteRequest request, CancellationToken ct = default);

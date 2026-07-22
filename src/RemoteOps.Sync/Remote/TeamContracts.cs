@@ -10,6 +10,24 @@ namespace RemoteOps.Sync.Remote;
 // na máquina do dono e do convidado; para o servidor só vai o SHA-256 dele.
 
 /// <summary>
+/// <c>POST /workspaces</c>: o TIME nasce como workspace PRÓPRIO, vazio.
+///
+/// <para><b>Por que não reusar o workspace pessoal:</b> o <c>/sync</c> é escopado por workspace +
+/// membership. Convidar alguém para o workspace pessoal do operador baixaria os ~700 clientes dele
+/// (nomes, IPs, grupos, vendors) inteiros no computador do convidado — vazamento de METADADO, sobre
+/// o qual nenhum indicador de cofre fala. O time começa vazio porque é OUTRO workspace.</para>
+/// </summary>
+/// <param name="Id">
+/// GUID sorteado <b>aqui</b>, no cliente. O AAD do embrulho da WK é <c>"wk|time:{id}"</c>: a chave
+/// não existe antes do id. Pedir o id ao servidor exigiria duas idas, e entre elas existiria um time
+/// sem chave — o estado exato em que o app não sabe dizer se está no cofre pessoal ou no do time.
+/// </param>
+public sealed record CreateTeamWorkspaceRequest(string Id, string Name, string WrappedWk, int WkVersion);
+
+/// <summary>Time criado, com o papel de quem criou (sempre <c>Owner</c>).</summary>
+public sealed record CreateTeamWorkspaceResponse(string Id, string Name, string Role);
+
+/// <summary>
 /// <c>POST /workspaces/{id}/invites</c>. O cliente do dono já fez toda a cripto: sorteou o código,
 /// derivou <c>K_invite</c>, embrulhou a WK do time sob ela e calculou o hash do código.
 /// </summary>

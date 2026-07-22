@@ -50,6 +50,49 @@ public sealed class TeamContractsWireTests
 
     private sealed record ServerTeamMembersResponse(IReadOnlyList<ServerTeamMember> Members);
 
+    private sealed record ServerCreateWorkspaceRequest(string Id, string Name, string WrappedWk, int WkVersion);
+
+    private sealed record ServerCreateWorkspaceResponse(string Id, string Name, string Role);
+
+    // ── POST /workspaces (1g) ────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// A criação do TIME cai inteira na forma do servidor. O campo que mais importa é o <c>id</c>:
+    /// ele é sorteado no CLIENTE porque o AAD do embrulho da WK é <c>"wk|time:{id}"</c> — a chave não
+    /// existe antes dele. Se este campo se perdesse na travessia, o servidor geraria outro id, e o
+    /// embrulho que subiu no mesmo pedido não abriria mais.
+    /// </summary>
+    [Fact]
+    public void CriarTime_CaiInteiroNaFormaDoServidor()
+    {
+        var client = new CreateTeamWorkspaceRequest(
+            "8f3b6f4a-0000-4000-8000-000000000001", "Clientes do ISP", "YmxvYmJsb2JibG9i", 1);
+
+        var server = JsonSerializer.Deserialize<ServerCreateWorkspaceRequest>(
+            JsonSerializer.Serialize(client, s_web), s_web);
+
+        Assert.NotNull(server);
+        Assert.Equal(client.Id, server.Id);
+        Assert.Equal(client.Name, server.Name);
+        Assert.Equal(client.WrappedWk, server.WrappedWk);
+        Assert.Equal(client.WkVersion, server.WkVersion);
+    }
+
+    [Fact]
+    public void RespostaDaCriacaoDoTime_EhLidaPeloCliente()
+    {
+        var server = new ServerCreateWorkspaceResponse(
+            "8f3b6f4a-0000-4000-8000-000000000001", "Clientes do ISP", "Owner");
+
+        var client = JsonSerializer.Deserialize<CreateTeamWorkspaceResponse>(
+            JsonSerializer.Serialize(server, s_web), s_web);
+
+        Assert.NotNull(client);
+        Assert.Equal(server.Id, client.Id);
+        Assert.Equal(server.Name, client.Name);
+        Assert.Equal(server.Role, client.Role);
+    }
+
     // ── POST /workspaces/{id}/invites ────────────────────────────────────────────────────
 
     [Fact]
