@@ -390,7 +390,7 @@ public sealed class TeamInviteServiceTests
         Assert.NotNull(wkDoDono);
 
         byte[] doConvite = TeamInviteCrypto.UnwrapWorkspaceKey(
-            Convert.FromBase64String(dono.Api.Created!.WrappedWkByInvite), invite.Code);
+            Convert.FromBase64String(dono.Api.Created!.WrappedWkByInvite), invite.Code, Workspace);
         Assert.Equal(wkDoDono.Key.ToArray(), doConvite);
     }
 
@@ -478,7 +478,7 @@ public sealed class TeamInviteServiceTests
             Workspace, "b@innet.tec.br", "Manager");
 
         byte[] doConvite = TeamInviteCrypto.UnwrapWorkspaceKey(
-            Convert.FromBase64String(api.Created!.WrappedWkByInvite), invite.Code);
+            Convert.FromBase64String(api.Created!.WrappedWkByInvite), invite.Code, Workspace);
         Assert.Equal(wkOriginal.Key.ToArray(), doConvite);
         CryptographicOperations.ZeroMemory(doConvite);
     }
@@ -768,7 +768,8 @@ public sealed class TeamInviteServiceTests
         byte[] subiu = Convert.FromBase64String(api.Accepted!.WrappedWk);
 
         // Não é o blob do convite (aquele abre com o código; este NÃO pode).
-        Assert.ThrowsAny<CryptographicException>(() => TeamInviteCrypto.UnwrapWorkspaceKey(subiu, invite.Code));
+        Assert.ThrowsAny<CryptographicException>(
+            () => TeamInviteCrypto.UnwrapWorkspaceKey(subiu, invite.Code, Workspace));
 
         // E abre no SEGUNDO device do convidado: mesma AMK, disco limpo.
         using var segundoDevice = TeamKeyRingFactory.New(convidado.Amk);

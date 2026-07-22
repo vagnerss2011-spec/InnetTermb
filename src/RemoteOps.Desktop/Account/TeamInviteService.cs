@@ -286,7 +286,9 @@ public sealed class TeamInviteService
             email.Trim(),
             role.Trim(),
             TeamInviteCrypto.HashCode(code),
-            Convert.ToBase64String(TeamInviteCrypto.WrapWorkspaceKey(chaveDoTime.Key.Span, code)),
+            // O embrulho é PRESO ao workspace do convite (o id entra no AAD): um servidor que troque
+            // o workspace no /context do convidado quebra o tag GCM em vez de redirecionar a chave.
+            Convert.ToBase64String(TeamInviteCrypto.WrapWorkspaceKey(chaveDoTime.Key.Span, code, workspaceId)),
             WkVersionV1);
 
         CreateTeamInviteResponse response = await _api
@@ -344,13 +346,14 @@ public sealed class TeamInviteService
 
         string vaultWorkspaceId = AppRuntime.TeamVaultWorkspace(context.WorkspaceId);
 
-        // 3) Abre a WK com o código. Blob adulterado ou código que passou no formato mas não é o
-        //    certo estouram aqui — o AES-GCM autentica, então nunca sai chave torta daqui.
+        // 3) Abre a WK com o código, CONFERINDO o workspace que o servidor declarou: o id entra no
+        //    AAD do embrulho, então blob adulterado, código errado OU workspace trocado na resposta
+        //    estouram aqui — o AES-GCM autentica, e nunca sai chave torta (nem para o time errado).
         byte[] wk;
         try
         {
             wk = TeamInviteCrypto.UnwrapWorkspaceKey(
-                Convert.FromBase64String(context.WrappedWkByInvite), code!);
+                Convert.FromBase64String(context.WrappedWkByInvite), code!, context.WorkspaceId);
         }
         catch (Exception ex) when (ex is CryptographicException or FormatException)
         {

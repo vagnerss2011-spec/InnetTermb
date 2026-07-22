@@ -15,6 +15,9 @@ namespace RemoteOps.UnitTests.Security;
 /// </summary>
 public sealed class TeamInviteCryptoTests
 {
+    private const string Workspace = "8f3b6f4a-0000-4000-8000-00000000aaaa";
+    private const string OutroWorkspace = "8f3b6f4a-0000-4000-8000-00000000bbbb";
+
     private static byte[] Wk() => RandomNumberGenerator.GetBytes(32);
 
     /// <summary>
@@ -39,9 +42,41 @@ public sealed class TeamInviteCryptoTests
         byte[] wk = Wk();
         string code = TeamInviteCrypto.GenerateCode();
 
-        byte[] blob = TeamInviteCrypto.WrapWorkspaceKey(wk, code);
+        byte[] blob = TeamInviteCrypto.WrapWorkspaceKey(wk, code, Workspace);
 
-        Assert.Equal(wk, TeamInviteCrypto.UnwrapWorkspaceKey(blob, code));
+        Assert.Equal(wk, TeamInviteCrypto.UnwrapWorkspaceKey(blob, code, Workspace));
+    }
+
+    /// <summary>
+    /// O blob do convite é PRESO ao workspace para o qual foi criado — o AAD leva o id. Sem isso, um
+    /// servidor malicioso responderia o <c>/context</c> com o workspace TROCADO: o convidado abriria
+    /// a WK (código certo, blob certo) e a importaria para OUTRO workspace, selando os segredos de um
+    /// time sob a chave que o convidador de OUTRO time conhece — com a lista de membros mentindo
+    /// sobre quem consegue ler. Com o id no AAD, a mentira quebra o tag GCM e o aceite falha alto.
+    /// </summary>
+    [Fact]
+    public void BlobDeUmWorkspace_NaoAbre_ComOWorkspaceTrocado()
+    {
+        string code = TeamInviteCrypto.GenerateCode();
+        byte[] blob = TeamInviteCrypto.WrapWorkspaceKey(Wk(), code, Workspace);
+
+        Assert.ThrowsAny<CryptographicException>(
+            () => TeamInviteCrypto.UnwrapWorkspaceKey(blob, code, OutroWorkspace));
+    }
+
+    /// <summary>
+    /// O id entra no AAD CANONIZADO (GUID "D" minúsculo): maiúscula/minúscula não podem decidir se um
+    /// convite abre — os dois lados recebem o id do servidor, e o formato dele não é um contrato.
+    /// </summary>
+    [Fact]
+    public void WorkspaceEmCaixaAlta_AindaAbre()
+    {
+        byte[] wk = Wk();
+        string code = TeamInviteCrypto.GenerateCode();
+
+        byte[] blob = TeamInviteCrypto.WrapWorkspaceKey(wk, code, Workspace.ToUpperInvariant());
+
+        Assert.Equal(wk, TeamInviteCrypto.UnwrapWorkspaceKey(blob, code, Workspace));
     }
 
     /// <summary>
@@ -52,10 +87,10 @@ public sealed class TeamInviteCryptoTests
     [Fact]
     public void CodigoErrado_NaoAbre_ELancaEmVezDeDevolverLixo()
     {
-        byte[] blob = TeamInviteCrypto.WrapWorkspaceKey(Wk(), TeamInviteCrypto.GenerateCode());
+        byte[] blob = TeamInviteCrypto.WrapWorkspaceKey(Wk(), TeamInviteCrypto.GenerateCode(), Workspace);
 
         Assert.ThrowsAny<CryptographicException>(
-            () => TeamInviteCrypto.UnwrapWorkspaceKey(blob, TeamInviteCrypto.GenerateCode()));
+            () => TeamInviteCrypto.UnwrapWorkspaceKey(blob, TeamInviteCrypto.GenerateCode(), Workspace));
     }
 
     /// <summary>Blob adulterado (servidor malicioso trocando um byte) também não abre.</summary>
@@ -63,10 +98,11 @@ public sealed class TeamInviteCryptoTests
     public void BlobAdulterado_NaoAbre()
     {
         string code = TeamInviteCrypto.GenerateCode();
-        byte[] blob = TeamInviteCrypto.WrapWorkspaceKey(Wk(), code);
+        byte[] blob = TeamInviteCrypto.WrapWorkspaceKey(Wk(), code, Workspace);
         blob[^1] ^= 0xFF;
 
-        Assert.ThrowsAny<CryptographicException>(() => TeamInviteCrypto.UnwrapWorkspaceKey(blob, code));
+        Assert.ThrowsAny<CryptographicException>(
+            () => TeamInviteCrypto.UnwrapWorkspaceKey(blob, code, Workspace));
     }
 
     /// <summary>
@@ -81,9 +117,9 @@ public sealed class TeamInviteCryptoTests
         string code = TeamInviteCrypto.GenerateCode();
         string torto = "  " + code.Replace("-", " ").ToLowerInvariant() + "  ";
 
-        byte[] blob = TeamInviteCrypto.WrapWorkspaceKey(wk, code);
+        byte[] blob = TeamInviteCrypto.WrapWorkspaceKey(wk, code, Workspace);
 
-        Assert.Equal(wk, TeamInviteCrypto.UnwrapWorkspaceKey(blob, torto));
+        Assert.Equal(wk, TeamInviteCrypto.UnwrapWorkspaceKey(blob, torto, Workspace));
         Assert.Equal(TeamInviteCrypto.HashCode(code), TeamInviteCrypto.HashCode(torto));
     }
 
@@ -123,7 +159,7 @@ public sealed class TeamInviteCryptoTests
         byte[] wk = Wk();
         string code = TeamInviteCrypto.GenerateCode();
 
-        byte[] blob = TeamInviteCrypto.WrapWorkspaceKey(wk, code);
+        byte[] blob = TeamInviteCrypto.WrapWorkspaceKey(wk, code, Workspace);
 
         Assert.False(Contains(blob, wk), "a WK aparece em claro dentro do blob do convite");
         Assert.False(

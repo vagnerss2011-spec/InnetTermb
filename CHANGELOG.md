@@ -36,6 +36,14 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ### Segurança
 
+- **O convite de time agora é amarrado ao próprio time — o servidor não consegue redirecioná-lo.**
+  O pacote cifrado que carrega a chave do time dentro do convite passou a ser preso, na criptografia,
+  ao workspace para o qual o convite foi criado. Antes, um servidor comprometido poderia responder ao
+  aceite apontando **outro** workspace, e o convidado importaria a chave do time errado sem perceber —
+  selando senhas num cofre que uma pessoa de fora da lista de membros conseguiria abrir. Agora essa
+  troca quebra a verificação criptográfica e o aceite **falha na hora, em voz alta**, antes de a chave
+  entrar neste computador. (Achado da revisão adversarial de cripto/E2EE; nenhum convite de produção
+  existia no formato antigo.)
 - **O aplicativo RECUSA abrir quando não sabe dizer de quem é o cofre.** Se este computador nunca viu
   o workspace escolhido e não há internet para perguntar, o RemoteOps **não abre** aquele workspace e
   explica por quê, em vez de assumir "é o pessoal". Assumir errado faria os equipamentos pessoais do

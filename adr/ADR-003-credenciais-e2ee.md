@@ -76,6 +76,8 @@ O acréscimo de `credentialId` e `algorithm` responde a um achado da revisão de
 
 O wrap da CEK segue `wdk|{workspaceId}` nas três raízes: ele já prende o embrulho ao workspace, e o esquema é autenticado no AAD do payload.
 
+**O blob do CONVITE também é preso ao workspace.** A WK viaja ao convidado embrulhada sob `K_invite = HKDF(código)`, com AAD `wk|invite|{workspaceId}|v1` (GUID canonizado — "D" minúsculo — porque os dois lados recebem o id do servidor e a caixa da string não é contrato). Sem o id no AAD, quem informa o workspace do convite é o **servidor** (`/invites/{id}/context`): um servidor malicioso trocaria o workspace na resposta e o blob abriria do mesmo jeito — o convidado importaria a WK do time A como chave do time B e selaria segredos de B sob uma chave que o convidador de A conhece, com a lista de membros de B mentindo sobre quem consegue ler. Com o id no AAD, a mentira quebra o tag GCM e o aceite falha **alto, antes de a chave aterrissar**.
+
 #### Custódia do embrulho da WK no servidor (`PUT /workspaces/{id}/key`)
 
 A AMK é **portável entre devices**; o embrulho da WK gravado em disco **não é**. Sem uma cópia do embrulho no servidor, o segundo computador da mesma conta não tem o que restaurar — e o `WkWorkspaceKeyRing` com criação permitida **sortearia outra WK**, bifurcando o cofre do time em silêncio. Por isso cada membership guarda o `WrappedWk` **daquele membro** (blob sob a AMK **dele**, AAD `wk|{workspaceId}`), e cada conta só lê e só escreve o **próprio**.

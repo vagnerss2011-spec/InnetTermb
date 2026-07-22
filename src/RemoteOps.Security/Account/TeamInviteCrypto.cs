@@ -27,8 +27,35 @@ public static class TeamInviteCrypto
     /// </summary>
     private const string InviteKeyInfo = "remoteops:team:invite:v1";
 
-    /// <summary>AAD do embrulho da WK sob a chave do convite. Prende o blob a este uso e a nenhum outro.</summary>
-    private const string InviteWrapAad = "wk|invite|v1";
+    /// <summary>
+    /// AAD do embrulho da WK sob a chave do convite: <c>wk|invite|{workspaceId}|v1</c>. Prende o
+    /// blob a este uso E ao workspace do convite — a mesma disciplina do embrulho sob a AMK
+    /// (<c>wk|{workspaceId}</c>).
+    ///
+    /// <para><b>Por que o workspace entra:</b> quem informa ao convidado a qual workspace o convite
+    /// pertence é o SERVIDOR (<c>/context</c>). Sem o id no AAD, um servidor malicioso trocaria o
+    /// workspace na resposta e o blob abriria do mesmo jeito: o convidado importaria a WK do time A
+    /// como chave do time B e selaria segredos de B sob uma chave que o convidador de A conhece —
+    /// com a lista de membros de B mentindo sobre quem consegue ler. Com o id no AAD, a mentira
+    /// quebra o tag GCM e o aceite falha alto, antes de a chave aterrissar.</para>
+    /// </summary>
+    private static string InviteWrapAad(string workspaceId) =>
+        "wk|invite|" + CanonicalWorkspaceId(workspaceId) + "|v1";
+
+    /// <summary>
+    /// O id entra no AAD CANONIZADO (GUID "D" minúsculo): os dois lados o recebem do servidor, e a
+    /// caixa/formato da string não é contrato — um convite não pode deixar de abrir porque um lado
+    /// ecoou o GUID em maiúsculas.
+    /// </summary>
+    private static string CanonicalWorkspaceId(string workspaceId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
+        return Guid.TryParse(workspaceId, out Guid parsed)
+            ? parsed.ToString("D")
+            : throw new ArgumentException(
+                "O workspace do convite precisa ser um GUID — é ele que entra no AAD do embrulho.",
+                nameof(workspaceId));
+    }
 
     /// <summary>Sorteia um código novo. Alta entropia (160 bits): não há o que adivinhar.</summary>
     public static string GenerateCode() => RecoveryKeyCodec.Generate();
@@ -60,36 +87,44 @@ public static class TeamInviteCrypto
     }
 
     /// <summary>
-    /// Embrulha a WK do time sob <c>K_invite = HKDF(código)</c>. É este blob que sobe no convite —
-    /// opaco para o servidor, que não tem o código.
+    /// Embrulha a WK do time sob <c>K_invite = HKDF(código)</c>, presa ao
+    /// <paramref name="workspaceId"/> do convite (ver <see cref="InviteWrapAad"/>). É este blob que
+    /// sobe no convite — opaco para o servidor, que não tem o código.
     /// </summary>
-    public static byte[] WrapWorkspaceKey(ReadOnlySpan<byte> workspaceKey, string code)
+    public static byte[] WrapWorkspaceKey(ReadOnlySpan<byte> workspaceKey, string code, string workspaceId)
     {
         byte[] inviteKey = DeriveInviteKey(code);
+
+        // Cópia própria da WK, zerada no finally: o WrapKey recebe byte[] e não zera a entrada (o
+        // chamador é o dono). Sem isto, esta cópia ficaria viva na heap esperando o GC — a única
+        // cópia de material de chave deste fluxo sem dono para zerá-la.
+        byte[] wk = workspaceKey.ToArray();
         try
         {
-            return AccountKeyService.WrapKey(workspaceKey.ToArray(), inviteKey, InviteWrapAad);
+            return AccountKeyService.WrapKey(wk, inviteKey, InviteWrapAad(workspaceId));
         }
         finally
         {
+            CryptographicOperations.ZeroMemory(wk);
             CryptographicOperations.ZeroMemory(inviteKey);
         }
     }
 
     /// <summary>
-    /// Abre o blob do convite com o código. Código errado (ou blob adulterado por um servidor
-    /// malicioso) LANÇA <see cref="CryptographicException"/> — o AES-GCM autentica. É o que impede o
-    /// desfecho pior: devolver 32 bytes tortos que o convidado importaria como se fossem a chave do
-    /// time, bifurcando o cofre em silêncio.
+    /// Abre o blob do convite com o código, conferindo que ele pertence ao
+    /// <paramref name="workspaceId"/> informado. Código errado, blob adulterado OU workspace trocado
+    /// por um servidor malicioso LANÇAM <see cref="CryptographicException"/> — o AES-GCM autentica.
+    /// É o que impede o desfecho pior: devolver 32 bytes que o convidado importaria como se fossem a
+    /// chave DESTE time, bifurcando o cofre em silêncio.
     /// </summary>
-    public static byte[] UnwrapWorkspaceKey(byte[] wrapped, string code)
+    public static byte[] UnwrapWorkspaceKey(byte[] wrapped, string code, string workspaceId)
     {
         ArgumentNullException.ThrowIfNull(wrapped);
 
         byte[] inviteKey = DeriveInviteKey(code);
         try
         {
-            return AccountKeyService.UnwrapKey(wrapped, inviteKey, InviteWrapAad);
+            return AccountKeyService.UnwrapKey(wrapped, inviteKey, InviteWrapAad(workspaceId));
         }
         finally
         {
