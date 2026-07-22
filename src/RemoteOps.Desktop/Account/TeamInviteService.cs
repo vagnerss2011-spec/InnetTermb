@@ -73,6 +73,14 @@ public enum TeamKeyUpload
     AlreadyOnServer,
 }
 
+/// <summary>Time recém-criado: o workspace no servidor e a identidade LOCAL do cofre dele.</summary>
+/// <param name="VaultWorkspaceId">
+/// <c>time:{workspaceId}</c>. Separado do id do servidor porque as três raízes convivem no MESMO
+/// arquivo de cofre: sem o prefixo, um id de time poderia colidir com o de outra raiz — e colisão de
+/// id de chave é PERDA de chave, não erro de leitura.
+/// </param>
+public sealed record CreatedTeam(string WorkspaceId, string Name, string VaultWorkspaceId);
+
 /// <summary>Convite aceito: o time que a conta acabou de ganhar e o cofre local dele.</summary>
 /// <param name="SessionRefreshRequired">
 /// O servidor avisou que o token na mão ficou obsoleto (a conta passou a pertencer a dois tenants).
@@ -123,6 +131,73 @@ public sealed class TeamInviteService
     }
 
     /// <summary>
+    /// Cria um TIME: um workspace novo, <b>VAZIO</b>, cuja chave nasce aleatória e compartilhada.
+    ///
+    /// <para><b>Por que o time não pode ser o workspace pessoal:</b> o <c>/sync</c> é escopado por
+    /// workspace + membership. Convidar alguém para o workspace pessoal do operador baixaria os ~700
+    /// clientes dele — nomes, IPs, grupos, vendors — inteiros no computador do convidado. Não é
+    /// vazamento de senha, é de METADADO, e nenhum indicador de cofre fala sobre isso. O time nasce
+    /// vazio por decisão do operador (spec): os equipamentos do cofre pessoal ficam onde estão, e ele
+    /// move cliente a cliente.</para>
+    ///
+    /// <para><b>Por que o GUID é sorteado AQUI:</b> o AAD do embrulho é <c>"wk|time:{id}"</c> — a
+    /// chave não existe antes do id. Pedir o id ao servidor exigiria duas idas, e entre elas
+    /// existiria um time sem chave: o estado exato em que o app não sabe dizer se está no cofre
+    /// pessoal ou no do time.</para>
+    /// </summary>
+    /// <exception cref="TeamInviteException">
+    /// O servidor recusou. A WK local fica órfã e INERTE (nenhum workspace a referencia) e a próxima
+    /// tentativa sorteia outro GUID. Apagá-la seria pior: apagar chave é irreversível, e ela não faz
+    /// mal ali — nada aponta para o workspace que não nasceu.
+    /// </exception>
+    public async Task<CreatedTeam> CreateTeamAsync(string name, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        string workspaceId = Guid.NewGuid().ToString();
+        string vaultWorkspaceId = AppRuntime.TeamVaultWorkspace(workspaceId);
+
+        // A chave NASCE antes do workspace, porque o embrulho dela vai no mesmo pedido que o cria —
+        // é isso que faz o time nunca existir sem chave guardada (a lição do 1e′).
+        using (WorkspaceKey _ = await _keyRing
+            .MintWorkspaceKeyAsync(vaultWorkspaceId, ct)
+            .ConfigureAwait(false))
+        {
+        }
+
+        byte[]? wrapped = await _keyRing
+            .TryGetWrappedWorkspaceKeyAsync(vaultWorkspaceId, ct)
+            .ConfigureAwait(false);
+
+        if (wrapped is null)
+        {
+            // A chave acabou de nascer nesta linha acima; não achá-la aqui é inconsistência de
+            // estado, não caminho de operação. Recusar alto é a única resposta honesta.
+            throw new TeamInviteException(
+                "A chave do time não pôde ser lida logo depois de criada neste computador. Nada foi "
+                + "enviado ao servidor. Tente criar o time de novo.");
+        }
+
+        CreateTeamWorkspaceResponse created;
+        try
+        {
+            created = await _api.CreateWorkspaceAsync(
+                new CreateTeamWorkspaceRequest(
+                    workspaceId, name.Trim(), Convert.ToBase64String(wrapped), WkVersionV1),
+                ct).ConfigureAwait(false);
+        }
+        catch (CloudSyncException ex)
+        {
+            throw new TeamInviteException(
+                "Não foi possível criar o time no servidor. Nada foi compartilhado e o seu cofre "
+                + "pessoal não mudou. Verifique a conexão e tente de novo.",
+                ex);
+        }
+
+        return new CreatedTeam(created.Id, created.Name, vaultWorkspaceId);
+    }
+
+    /// <summary>
     /// Gera o convite. O código sorteado volta para a TELA (nunca para o servidor, nunca para o
     /// e-mail): quem o entrega é o operador, pelo canal que ele escolher.
     /// </summary>
@@ -136,28 +211,27 @@ public sealed class TeamInviteService
         string code = TeamInviteCrypto.GenerateCode();
         string vaultWorkspaceId = AppRuntime.TeamVaultWorkspace(workspaceId);
 
-        // ANTES de qualquer sorteio: sem WK neste device, pergunte ao SERVIDOR se o time já tem uma
-        // (é o membro — ou o dono — convidando do segundo PC, ou depois de reinstalar). Sortear aqui
-        // com a chave do time já existindo lá é a bifurcação silenciosa que esta fatia inteira
-        // combate: o convite levaria uma WK nova e o convidado entraria num "time" que não abre nada
-        // dos outros. Só o 404 (null) autoriza o sorteio; falha de rede SOBE — "não sei" não pode
-        // virar "pode sortear" (e o POST do convite exigiria a mesma rede logo em seguida).
-        using (WorkspaceKey? local = await _keyRing
+        // A ORDEM aqui é a guarda, e ela é explícita de propósito: disco → servidor → sortear.
+        // Antes, quem garantia "não sorteia a segunda chave" era a SEMÂNTICA de um método chamado
+        // GetOrCreate — uma garantia que some no dia em que alguém troca o método. Agora está
+        // escrito: só depois de o disco E o servidor dizerem que não há chave é que uma nasce.
+        // Falha de rede SOBE — "não sei" não pode virar "pode sortear" (e o POST do convite exigiria
+        // a mesma rede logo em seguida). Sortear com a chave já existindo lá é a bifurcação
+        // silenciosa que esta fatia inteira combate: o convite levaria uma WK nova e o convidado
+        // entraria num "time" que não abre nada dos outros.
+        WorkspaceKey? wk = await _keyRing
             .TryGetWorkspaceKeyAsync(vaultWorkspaceId, ct)
-            .ConfigureAwait(false))
+            .ConfigureAwait(false);
+
+        if (wk is null && await TryRestoreTeamKeyAsync(workspaceId, ct).ConfigureAwait(false))
         {
-            if (local is null)
-            {
-                await TryRestoreTeamKeyAsync(workspaceId, ct).ConfigureAwait(false);
-            }
+            wk = await _keyRing.TryGetWorkspaceKeyAsync(vaultWorkspaceId, ct).ConfigureAwait(false);
         }
 
-        // GetOrCreate, e não Create: convidar a segunda pessoa NÃO pode sortear outra chave — isso
-        // deixaria a primeira com um cofre que ninguém mais abre. Este é o único caminho do app em
-        // que a WK de um time pode nascer (é o ato de compartilhar que cria o time).
-        using WorkspaceKey wk = await _keyRing
-            .GetOrCreateWorkspaceKeyAsync(vaultWorkspaceId, ct)
-            .ConfigureAwait(false);
+        // Este e o CreateTeamAsync são os ÚNICOS caminhos do app em que a WK de um time pode nascer:
+        // o cofre não alcança o Mint (ele não está no IWorkspaceKeyRing).
+        wk ??= await _keyRing.MintWorkspaceKeyAsync(vaultWorkspaceId, ct).ConfigureAwait(false);
+        using WorkspaceKey chaveDoTime = wk;
 
         // ⚠️ O EMBRULHO DO DONO SOBE AQUI, ANTES DO CONVITE. A WK do time NASCE nesta linha acima, e
         // até esta correção nada gravava o embrulho de quem CRIA o time — só o aceite do convidado
@@ -174,7 +248,7 @@ public sealed class TeamInviteService
             email.Trim(),
             role.Trim(),
             TeamInviteCrypto.HashCode(code),
-            Convert.ToBase64String(TeamInviteCrypto.WrapWorkspaceKey(wk.Key.Span, code)),
+            Convert.ToBase64String(TeamInviteCrypto.WrapWorkspaceKey(chaveDoTime.Key.Span, code)),
             WkVersionV1);
 
         CreateTeamInviteResponse response = await _api

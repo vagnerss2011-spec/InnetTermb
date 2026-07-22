@@ -108,8 +108,7 @@ public sealed class SettingsViewModelTeamTests
     private static (SettingsViewModel Vm, TeamInviteService Service, WkWorkspaceKeyRing Ring, FakeTeamApi Api) New()
     {
         var api = new FakeTeamApi();
-        var ring = new WkWorkspaceKeyRing(
-            new InMemoryWorkspaceKeyStore(), RandomNumberGenerator.GetBytes(32));
+        var ring = TeamKeyRingFactory.New(RandomNumberGenerator.GetBytes(32));
         var service = new TeamInviteService(api, ring);
         var vm = new SettingsViewModel(
             new FakeStore(), team: new TeamContext(service, api, Workspace));

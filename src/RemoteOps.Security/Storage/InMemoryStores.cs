@@ -29,10 +29,18 @@ public sealed class InMemoryCredentialStore : ICredentialStore
     }
 }
 
-/// <summary>Store de WDKs protegidas em memória (testes e cenários voláteis).</summary>
-public sealed class InMemoryWorkspaceKeyStore : IWorkspaceKeyStore
+/// <summary>
+/// Store de WDKs protegidas em memória (testes e cenários voláteis).
+///
+/// <para>Atende também o <see cref="IVaultRootingStore"/> — as duas portas no MESMO objeto, como o
+/// <see cref="FileVaultStore"/> faz em produção. É de propósito: chave e marcador de raiz precisam
+/// aterrissar no mesmo lugar, e um duplo em memória que os separasse permitiria exercitar uma
+/// montagem que o app não tem.</para>
+/// </summary>
+public sealed class InMemoryWorkspaceKeyStore : IWorkspaceKeyStore, IVaultRootingStore
 {
     private readonly ConcurrentDictionary<string, byte[]> _keys = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, VaultKeyRooting> _rooting = new(StringComparer.Ordinal);
 
     public Task<byte[]?> LoadAsync(string workspaceId, CancellationToken ct = default)
     {
@@ -44,6 +52,20 @@ public sealed class InMemoryWorkspaceKeyStore : IWorkspaceKeyStore
     {
         ArgumentNullException.ThrowIfNull(protectedKey);
         _keys[workspaceId] = protectedKey;
+        return Task.CompletedTask;
+    }
+
+    public Task<VaultKeyRooting?> LoadKeyRootingAsync(string workspaceId, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
+        return Task.FromResult(
+            _rooting.TryGetValue(workspaceId, out VaultKeyRooting rooting) ? rooting : (VaultKeyRooting?)null);
+    }
+
+    public Task SaveKeyRootingAsync(string workspaceId, VaultKeyRooting rooting, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
+        _rooting[workspaceId] = rooting;
         return Task.CompletedTask;
     }
 }

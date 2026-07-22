@@ -52,7 +52,9 @@ public sealed class CredentialVault : IVault, ICredentialVault
         ArgumentException.ThrowIfNullOrWhiteSpace(request.CredentialId);
 
         using WorkspaceKey workspaceKey = await _keyRing.GetOrCreateWorkspaceKeyAsync(request.WorkspaceId, ct).ConfigureAwait(false);
-        SecretEnvelope envelope = CreateEnvelope(request.WorkspaceId, request.CredentialId, request.Type, version: 1, workspaceKey.Key.Span, secret);
+        SecretEnvelope envelope = CreateEnvelope(
+            request.WorkspaceId, request.CredentialId, request.Type, version: 1,
+            workspaceKey.Key.Span, workspaceKey.AlgorithmId, secret);
         await _store.SaveAsync(envelope, ct).ConfigureAwait(false);
         await EmitAsync(VaultAction.CredentialCreate, envelope, request.ActorUserId, request.DeviceId, ct).ConfigureAwait(false);
         return envelope;
@@ -91,7 +93,9 @@ public sealed class CredentialVault : IVault, ICredentialVault
         SecretEnvelope current = await RequireActiveAsync(envelopeId, ct).ConfigureAwait(false);
 
         using WorkspaceKey workspaceKey = await _keyRing.GetOrCreateWorkspaceKeyAsync(current.WorkspaceId, ct).ConfigureAwait(false);
-        SecretEnvelope rotated = CreateEnvelope(current.WorkspaceId, current.CredentialId, current.Type, current.Version + 1, workspaceKey.Key.Span, newSecret);
+        SecretEnvelope rotated = CreateEnvelope(
+            current.WorkspaceId, current.CredentialId, current.Type, current.Version + 1,
+            workspaceKey.Key.Span, workspaceKey.AlgorithmId, newSecret);
         await _store.SaveAsync(rotated, ct).ConfigureAwait(false);
         SecretEnvelope tombstone = await TombstoneAsync(current, ct).ConfigureAwait(false);
         // A rotação revoga o envelope anterior: emite o revoke explícito para que uma
@@ -132,13 +136,22 @@ public sealed class CredentialVault : IVault, ICredentialVault
 
     // ---- Internos ----
 
-    private SecretEnvelope CreateEnvelope(string workspaceId, string credentialId, string type, int version, ReadOnlySpan<byte> workspaceKey, ReadOnlyMemory<char> secret)
+    private SecretEnvelope CreateEnvelope(
+        string workspaceId,
+        string credentialId,
+        string type,
+        int version,
+        ReadOnlySpan<byte> workspaceKey,
+        string algorithm,
+        ReadOnlyMemory<char> secret)
     {
         string envelopeId = Guid.NewGuid().ToString("n");
-        // O AAD depende do ESQUEMA, e quem decide o esquema é a raiz — por isso o AlgorithmId entra
-        // aqui e não é lido do envelope (que ainda não existe). No WkRootedV1 o AAD prende também o
-        // credentialId; nas raízes antigas o formato fica idêntico ao que já está em disco.
-        string algorithm = _keyRing.AlgorithmId;
+        // O AAD depende do ESQUEMA, e o esquema chega JUNTO da chave (WorkspaceKey.AlgorithmId) — e
+        // não numa segunda pergunta ao chaveiro. Com o cofre atendendo duas raízes ao mesmo tempo
+        // (pessoal AMK + time WK), perguntar em separado permitiria selar com a chave de uma raiz e
+        // declarar a outra: um envelope que mente sobre si mesmo, cujo estrago só aparece meses
+        // depois. No WkRootedV1 o AAD prende também o credentialId; nas raízes antigas o formato
+        // fica idêntico ao que já está em disco.
         byte[] aad = EnvelopeCipher.BuildAad(envelopeId, workspaceId, version, type, credentialId, algorithm);
         byte[] wrapAad = EnvelopeCipher.BuildWrapAad(workspaceId);
 
@@ -156,8 +169,9 @@ public sealed class CredentialVault : IVault, ICredentialVault
                 CredentialId = credentialId,
                 Type = type,
                 Version = version,
-                // Quem carimba o esquema é a RAIZ: assim o Algorithm de cada envelope diz a verdade
-                // sobre como ele foi selado, inclusive depois do cofre migrar de DPAPI para AMK.
+                // Quem carimba o esquema é a CHAVE que selou: assim o Algorithm de cada envelope diz
+                // a verdade sobre como ele foi selado, inclusive num cofre que atende duas raízes ao
+                // mesmo tempo e depois de o cofre pessoal migrar de DPAPI para AMK.
                 Algorithm = algorithm,
                 WrappedCek = payload.WrappedCek,
                 CekNonce = payload.CekNonce,

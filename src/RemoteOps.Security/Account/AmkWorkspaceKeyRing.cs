@@ -40,7 +40,8 @@ public sealed class AmkWorkspaceKeyRing : IWorkspaceKeyRing, IDisposable
 
         // Determinística: não há estado pra criar nem corrida pra proteger — "GetOrCreate" e
         // "TryGet" colapsam no mesmo derive, e nunca devolvem null.
-        return Task.FromResult(new WorkspaceKey(AmkKeyDerivation.DeriveWorkspaceKey(_amk, workspaceId)));
+        return Task.FromResult(new WorkspaceKey(
+            AmkKeyDerivation.DeriveWorkspaceKey(_amk, workspaceId), VaultAlgorithms.AmkRootedV1));
     }
 
     public async Task<WorkspaceKey?> TryGetWorkspaceKeyAsync(string workspaceId, CancellationToken ct = default) =>

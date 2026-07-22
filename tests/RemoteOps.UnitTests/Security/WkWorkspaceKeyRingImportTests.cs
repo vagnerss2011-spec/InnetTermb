@@ -35,7 +35,7 @@ public sealed class WkWorkspaceKeyRingImportTests
     public async Task WkImportada_EhAChaveDoWorkspace()
     {
         byte[] wk = Wk();
-        using var ring = new WkWorkspaceKeyRing(new InMemoryWorkspaceKeyStore(), Amk());
+        using var ring = TeamKeyRingFactory.New(Amk());
 
         await ring.ImportWorkspaceKeyAsync(TeamWorkspace, wk);
 
@@ -55,7 +55,7 @@ public sealed class WkWorkspaceKeyRingImportTests
     {
         byte[] amk = Amk();
         byte[] wk = Wk();
-        using var ring = new WkWorkspaceKeyRing(new InMemoryWorkspaceKeyStore(), amk);
+        using var ring = TeamKeyRingFactory.New(amk);
 
         byte[] wrapped = await ring.ImportWorkspaceKeyAsync(TeamWorkspace, wk);
 
@@ -63,7 +63,7 @@ public sealed class WkWorkspaceKeyRingImportTests
         Assert.NotEqual(wk, wrapped);
 
         // O SEGUNDO device: mesma conta (mesma AMK), disco vazio, só o blob que veio do servidor.
-        using var outroDevice = new WkWorkspaceKeyRing(new InMemoryWorkspaceKeyStore(), amk);
+        using var outroDevice = TeamKeyRingFactory.New(amk);
         await outroDevice.RestoreWrappedWorkspaceKeyAsync(TeamWorkspace, wrapped);
 
         using WorkspaceKey? restaurada = await outroDevice.TryGetWorkspaceKeyAsync(TeamWorkspace);
@@ -80,7 +80,7 @@ public sealed class WkWorkspaceKeyRingImportTests
     public async Task Reimportar_AMesmaEhNoOp_OutraEstoura()
     {
         byte[] wk = Wk();
-        using var ring = new WkWorkspaceKeyRing(new InMemoryWorkspaceKeyStore(), Amk());
+        using var ring = TeamKeyRingFactory.New(Amk());
 
         byte[] primeiro = await ring.ImportWorkspaceKeyAsync(TeamWorkspace, wk);
         byte[] segundo = await ring.ImportWorkspaceKeyAsync(TeamWorkspace, wk);
@@ -104,7 +104,7 @@ public sealed class WkWorkspaceKeyRingImportTests
     public async Task CofreDoTime_SemWkImportada_RecusaAlto_EmVezDeSortear()
     {
         var store = new InMemoryWorkspaceKeyStore();
-        using var ring = new WkWorkspaceKeyRing(store, Amk(), allowKeyCreation: false);
+        using var ring = TeamKeyRingFactory.New(store, Amk());
 
         var erro = await Assert.ThrowsAsync<VaultException>(
             () => ring.GetOrCreateWorkspaceKeyAsync(TeamWorkspace));
@@ -117,19 +117,20 @@ public sealed class WkWorkspaceKeyRingImportTests
     }
 
     /// <summary>
-    /// <b>A guarda não é vácua.</b> O MESMO cenário com criação permitida — que é o comportamento
-    /// que existiria sem o fail-closed — sorteia uma WK, grava e devolve como se nada houvesse: sem
-    /// exceção, sem log, sem nada na tela. Este teste fixa a diferença entre os dois modos para que
-    /// "simplificar" o parâmetro um dia fique vermelho aqui, e não em campo, semanas depois, na
-    /// forma de senhas que ninguém do time consegue abrir.
+    /// <b>A guarda não é vácua — e o teste acima não diz "este ring nunca cria".</b> O MESMO cenário,
+    /// pelo caminho de FUNDAR o time, sorteia a WK, grava e devolve sem cerimônia nenhuma. É esta a
+    /// diferença que a fatia fixa: sortear é um ato legítimo, mas só por um caminho que o cofre não
+    /// alcança. Antes o que separava os dois era um <c>bool</c> no construtor — bandeira que alguém
+    /// desliga por engano numa fiação de DI; agora é a INTERFACE, e o <c>CredentialVault</c> não
+    /// enxerga este método.
     /// </summary>
     [Fact]
-    public async Task ComCriacaoPermitida_OMesmoCaminho_SORTEIA_EmSilencio()
+    public async Task PeloCaminhoDeFundarOTime_A_CHAVE_NASCE()
     {
         var store = new InMemoryWorkspaceKeyStore();
-        using var ring = new WkWorkspaceKeyRing(store, Amk(), allowKeyCreation: true);
+        using var ring = TeamKeyRingFactory.New(store, Amk());
 
-        using WorkspaceKey sorteada = await ring.GetOrCreateWorkspaceKeyAsync(TeamWorkspace);
+        using WorkspaceKey sorteada = await ring.MintWorkspaceKeyAsync(TeamWorkspace);
 
         Assert.Equal(32, sorteada.Key.Length);
         Assert.NotEqual(new byte[32], sorteada.Key.ToArray());
@@ -147,7 +148,7 @@ public sealed class WkWorkspaceKeyRingImportTests
         byte[] wkDoTime = Wk();
         var store = new InMemoryCredentialStore();
         var keyStore = new InMemoryWorkspaceKeyStore();
-        using var ring = new WkWorkspaceKeyRing(keyStore, Amk(), allowKeyCreation: false);
+        using var ring = TeamKeyRingFactory.New(keyStore, Amk());
         var vault = new CredentialVault(store, ring, NullVaultAuditSink.Instance);
 
         var request = new VaultStoreRequest
@@ -173,7 +174,7 @@ public sealed class WkWorkspaceKeyRingImportTests
         // com a MESMA WK importada, abre o envelope.
         var outroStore = new InMemoryCredentialStore();
         await outroStore.SaveAsync(envelope);
-        using var outroRing = new WkWorkspaceKeyRing(new InMemoryWorkspaceKeyStore(), Amk(), allowKeyCreation: false);
+        using var outroRing = TeamKeyRingFactory.New(Amk());
         await outroRing.ImportWorkspaceKeyAsync(TeamWorkspace, wkDoTime);
         var outroVault = new CredentialVault(outroStore, outroRing, NullVaultAuditSink.Instance);
 
@@ -191,7 +192,7 @@ public sealed class WkWorkspaceKeyRingImportTests
     {
         byte[] wk = Wk();
         var store = new InMemoryWorkspaceKeyStore();
-        using var ring = new WkWorkspaceKeyRing(store, Amk());
+        using var ring = TeamKeyRingFactory.New(store, Amk());
 
         await ring.ImportWorkspaceKeyAsync(TeamWorkspace, wk);
 
@@ -210,7 +211,7 @@ public sealed class WkWorkspaceKeyRingImportTests
     public async Task EmbrulhoGuardado_SaiComoEsta_OuNuloQuandoNaoHa()
     {
         var store = new InMemoryWorkspaceKeyStore();
-        using var ring = new WkWorkspaceKeyRing(store, Amk());
+        using var ring = TeamKeyRingFactory.New(store, Amk());
 
         Assert.Null(await ring.TryGetWrappedWorkspaceKeyAsync(TeamWorkspace));
 
@@ -232,10 +233,10 @@ public sealed class WkWorkspaceKeyRingImportTests
     {
         byte[] amk = Amk();
         byte[] wk = Wk();
-        using var origem = new WkWorkspaceKeyRing(new InMemoryWorkspaceKeyStore(), amk);
+        using var origem = TeamKeyRingFactory.New(amk);
         byte[] doServidor = await origem.ImportWorkspaceKeyAsync(TeamWorkspace, wk);
 
-        using var outroDevice = new WkWorkspaceKeyRing(new InMemoryWorkspaceKeyStore(), amk, allowKeyCreation: false);
+        using var outroDevice = TeamKeyRingFactory.New(amk);
         await outroDevice.RestoreWrappedWorkspaceKeyAsync(TeamWorkspace, doServidor);
 
         Assert.Equal(doServidor, await outroDevice.TryGetWrappedWorkspaceKeyAsync(TeamWorkspace));
@@ -248,10 +249,10 @@ public sealed class WkWorkspaceKeyRingImportTests
     [Fact]
     public async Task RestaurarBlobDeOutraConta_Estoura()
     {
-        using var dona = new WkWorkspaceKeyRing(new InMemoryWorkspaceKeyStore(), Amk());
+        using var dona = TeamKeyRingFactory.New(Amk());
         byte[] wrapped = await dona.ImportWorkspaceKeyAsync(TeamWorkspace, Wk());
 
-        using var intrusa = new WkWorkspaceKeyRing(new InMemoryWorkspaceKeyStore(), Amk());
+        using var intrusa = TeamKeyRingFactory.New(Amk());
 
         await Assert.ThrowsAnyAsync<CryptographicException>(
             () => intrusa.RestoreWrappedWorkspaceKeyAsync(TeamWorkspace, wrapped));

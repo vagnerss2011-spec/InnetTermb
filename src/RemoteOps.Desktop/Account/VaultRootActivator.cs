@@ -56,10 +56,11 @@ public sealed class VaultRootActivator : IAccountVaultActivator, IDisposable
     /// ao aceitar. <c>null</c> antes do <see cref="ActivateAsync"/> — sem AMK não há como
     /// embrulhá-la em disco.
     ///
-    /// <para>Ela existe separada do <see cref="Vault"/> de propósito: o cofre do app segue
-    /// AMK-rooted (a chave do banco SQLCipher é um segredo DELE, e é por máquina, não por time).
-    /// Trocar a raiz do cofre inteiro para a WK deixaria a chave do banco ilegível — o app não
-    /// abriria mais.</para>
+    /// <para>É a MESMA instância que o <see cref="Vault"/> usa para os workspaces <c>time:</c> — e
+    /// não uma segunda visão do mesmo cofre. O que separa os dois papéis não é o objeto, é a
+    /// INTERFACE: o cofre enxerga só o <c>IWorkspaceKeyRing</c> (que não sabe criar chave), e o
+    /// fluxo de convite chama o tipo concreto (que sabe). Duas instâncias com bandeiras diferentes
+    /// sobre o mesmo store seriam duas fontes da verdade — o defeito estrutural desta base.</para>
     /// </summary>
     public WkWorkspaceKeyRing? TeamKeyRing => _teamKeyRing;
 
@@ -94,12 +95,22 @@ public sealed class VaultRootActivator : IAccountVaultActivator, IDisposable
         }
 
         _amkKeyRing = new AmkWorkspaceKeyRing(amk.Span);
-        Vault = new CredentialVault(_fileStore, _amkKeyRing, new InMemoryVaultAuditSink());
 
-        // Criação PERMITIDA aqui: este ring é o do fluxo de convite, e convidar é justamente o ato
-        // que faz a chave de um time nascer. O ring que serve o COFRE do time (1e) roda
-        // fail-closed — ver WkWorkspaceKeyRing.allowKeyCreation.
-        _teamKeyRing = new WkWorkspaceKeyRing(_fileStore, amk.Span);
+        // UMA instância, servindo o COFRE e o fluxo de CONVITE ao mesmo tempo. Antes eram duas (uma
+        // com criação permitida, outra negada) sobre o MESMO store — duas visões do mesmo cofre é a
+        // classe de defeito nº 1 desta base. Agora o fail-closed é do TIPO: MintWorkspaceKeyAsync
+        // (o ato de fundar o time) não está no IWorkspaceKeyRing, então o cofre não o alcança, e o
+        // fluxo de convite chama o tipo concreto.
+        _teamKeyRing = new WkWorkspaceKeyRing(_fileStore, _fileStore, amk.Span);
+
+        // O cofre atende as DUAS raízes. Consequência que é o núcleo do desenho: `ws-local` (as
+        // credenciais), `local` (a chave do banco SQLCipher) e o GUID dos tokens não começam com
+        // "time:", então continuam na raiz da AMK — nenhum segredo que é da MÁQUINA passa a ser
+        // procurado no cofre compartilhado. Era essa a objeção do 1d, e ela se dissolve aqui.
+        Vault = new CredentialVault(
+            _fileStore,
+            new RoutedWorkspaceKeyRing(_amkKeyRing, [(AppRuntime.TeamVaultPrefix, _teamKeyRing)]),
+            new InMemoryVaultAuditSink());
 
         return new VaultTokenStore(Vault, syncWorkspaceId, _tokenRefPath);
     }

@@ -19,8 +19,8 @@ namespace RemoteOps.Security.Account;
 /// de cripto só por conveniência de camada — e ele não depende de nada de UI/infra de lá.</para>
 ///
 /// <para><b>Idempotente e retomável.</b> O marcador por envelope é o <c>Algorithm</c> (carimbado
-/// pela raiz, ver <see cref="IWorkspaceKeyRing.AlgorithmId"/>); a conclusão do workspace é gravada
-/// via <see cref="IVaultMigrationStore.SaveKeyRootingAsync"/>. Rodar 2x é no-op. Morrer no meio
+/// pela chave que selou, ver <see cref="WorkspaceKey.AlgorithmId"/>); a conclusão do workspace é
+/// gravada via <see cref="IVaultRootingStore.SaveKeyRootingAsync"/>. Rodar 2x é no-op. Morrer no meio
 /// deixa cada envelope íntegro sob a raiz que ele próprio declara — nada é perdido — e a
 /// re-execução migra só o que faltou.</para>
 /// </summary>

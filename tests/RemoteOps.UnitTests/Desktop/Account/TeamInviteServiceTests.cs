@@ -71,17 +71,21 @@ public sealed class TeamInviteServiceTests
         /// <summary>O time criado nesta sessão, para o teste conferir sem adivinhar formato.</summary>
         public CreateTeamWorkspaceRequest? CreatedWorkspace { get; private set; }
 
-        /// <summary>Rede caída na criação do time — a WK já nasceu em disco quando isso acontece.</summary>
-        public bool WorkspaceCreationOffline { get; set; }
+        /// <summary>
+        /// O servidor recusa a criação do time. <c>null</c> = aceita. Existe para exercitar o
+        /// desfecho em que a WK já nasceu em disco e o workspace NÃO existe — o estado que o
+        /// <c>CreateTeamAsync</c> tem de denunciar em vez de fingir sucesso.
+        /// </summary>
+        public HttpStatusCode? WorkspaceCreationRefusal { get; set; }
 
         public Task<CreateTeamWorkspaceResponse> CreateWorkspaceAsync(
             CreateTeamWorkspaceRequest request, CancellationToken ct = default)
         {
             Calls.Add("create-workspace");
             BodyStrings.AddRange([request.Id, request.Name, request.WrappedWk]);
-            if (WorkspaceCreationOffline)
+            if (WorkspaceCreationRefusal is { } status)
             {
-                throw new HttpRequestException("rede indisponível (teste)");
+                throw new CloudSyncException(status);
             }
 
             if (!ExistingWorkspaceIds.Add(request.Id))
@@ -192,12 +196,95 @@ public sealed class TeamInviteServiceTests
 
     private sealed record Side(FakeTeamApi Api, WkWorkspaceKeyRing Ring, TeamInviteService Service, byte[] Amk);
 
-    private static Side NewSide(FakeTeamApi? api = null, bool allowKeyCreation = true)
+    /// <summary>
+    /// Um lado (dono ou convidado) com chaveiro próprio. Desde o 1h não há mais bandeira de
+    /// "pode criar chave": o fail-closed é do TIPO — o cofre enxerga só o <c>IWorkspaceKeyRing</c>,
+    /// que não tem como fazer chave nascer, e quem funda o time chama o tipo concreto.
+    /// </summary>
+    private static Side NewSide(FakeTeamApi? api = null)
     {
         api ??= new FakeTeamApi();
         byte[] amk = Amk();
-        var ring = new WkWorkspaceKeyRing(new InMemoryWorkspaceKeyStore(), amk, allowKeyCreation);
+        var ring = TeamKeyRingFactory.New(amk);
         return new Side(api, ring, new TeamInviteService(api, ring), amk);
+    }
+
+    // ── Criar o TIME (1g/1h) ─────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// <b>O time nasce como workspace PRÓPRIO, e já com a chave publicada.</b> É esta ordem que
+    /// mantém os ~700 equipamentos do operador fora do alcance do convidado: o convite passa a ser
+    /// emitido contra um workspace novo e vazio, e não contra o pessoal do dono (onde o
+    /// <c>/sync</c> entregaria nomes de cliente, IPs, grupos e vendors inteiros).
+    ///
+    /// <para>E a chave sobe no MESMO pedido que cria o workspace: o time nunca existe sem embrulho
+    /// guardado — o estado em que o segundo computador do dono sortearia outra WK.</para>
+    /// </summary>
+    [Fact]
+    public async Task CriarTime_NasceComOWorkspaceProprio_EComAChaveJaGuardadaNoServidor()
+    {
+        var api = new FakeTeamApi();
+        Side dono = NewSide(api);
+        using WkWorkspaceKeyRing _ = dono.Ring;
+
+        CreatedTeam time = await dono.Service.CreateTeamAsync("Clientes do ISP");
+
+        Assert.Equal("Clientes do ISP", time.Name);
+        Assert.True(Guid.TryParse(time.WorkspaceId, out Guid _1));
+        Assert.NotEqual(Guid.Empty, _1);
+        Assert.Equal("time:" + time.WorkspaceId, time.VaultWorkspaceId);
+
+        // O embrulho da chave subiu junto — o GET responde no instante seguinte.
+        Assert.NotNull(api.CreatedWorkspace);
+        Assert.Equal(time.WorkspaceId, api.CreatedWorkspace.Id);
+        Assert.Equal(api.CreatedWorkspace.WrappedWk, api.WorkspaceKey!.WrappedWk);
+
+        // E a chave existe LOCALMENTE, sob a identidade prefixada do cofre do time.
+        using WorkspaceKey? local = await dono.Ring.TryGetWorkspaceKeyAsync(time.VaultWorkspaceId);
+        Assert.NotNull(local);
+        Assert.Equal(32, local.Key.Length);
+    }
+
+    /// <summary>
+    /// A WK nunca vai em claro para o servidor — nem no pedido que cria o time. O que sobe é o
+    /// embrulho sob a AMK, e o servidor não tem AMK nenhuma para abri-lo.
+    /// </summary>
+    [Fact]
+    public async Task CriarTime_AChaveNuncaVaiEmClaroParaOServidor()
+    {
+        var api = new FakeTeamApi();
+        Side dono = NewSide(api);
+        using WkWorkspaceKeyRing _ = dono.Ring;
+
+        CreatedTeam time = await dono.Service.CreateTeamAsync("Clientes do ISP");
+        using WorkspaceKey? wk = await dono.Ring.TryGetWorkspaceKeyAsync(time.VaultWorkspaceId);
+
+        string wkBase64 = Convert.ToBase64String(wk!.Key.ToArray());
+        Assert.DoesNotContain(wkBase64, api.BodyStrings);
+    }
+
+    /// <summary>
+    /// Servidor recusou: o time <b>não existe</b>, e o recado diz isso em pt-BR. A WK local fica
+    /// órfã e INERTE (nenhum workspace a referencia) — apagá-la seria pior, porque apagar chave é
+    /// irreversível e ela não faz mal ali. A próxima tentativa sorteia outro GUID.
+    /// </summary>
+    [Fact]
+    public async Task CriarTime_ServidorRecusa_ESTOURA_EmVezDeFingirQueOTimeExiste()
+    {
+        var api = new FakeTeamApi();
+        Side dono = NewSide(api);
+        using WkWorkspaceKeyRing _ = dono.Ring;
+
+        api.WorkspaceCreationRefusal = HttpStatusCode.Conflict;
+
+        var erro = await Assert.ThrowsAsync<TeamInviteException>(
+            () => dono.Service.CreateTeamAsync("Clientes do ISP"));
+
+        Assert.Contains("cofre pessoal não mudou", erro.Message, StringComparison.Ordinal);
+        Assert.Null(api.CreatedWorkspace);
+
+        // E o servidor segue sem chave nenhuma: nada meio-criado ficou para trás lá.
+        Assert.Null(api.WorkspaceKey);
     }
 
     // ── Lado do DONO ─────────────────────────────────────────────────────────────────────
@@ -296,8 +383,7 @@ public sealed class TeamInviteServiceTests
         Assert.Equal("publish", api.Calls[api.Calls.IndexOf("create") - 1]);
 
         // É o embrulho sob a AMK DELE: o segundo computador da mesma conta o abre e chega na MESMA WK.
-        using var segundoDevice = new WkWorkspaceKeyRing(
-            new InMemoryWorkspaceKeyStore(), dono.Amk, allowKeyCreation: false);
+        using var segundoDevice = TeamKeyRingFactory.New(dono.Amk);
         await segundoDevice.RestoreWrappedWorkspaceKeyAsync(
             vaultWorkspace, Convert.FromBase64String(api.WorkspaceKey.WrappedWk));
 
@@ -329,7 +415,7 @@ public sealed class TeamInviteServiceTests
         api.WorkspaceKey = new TeamWorkspaceKeyResponse(Workspace, Convert.ToBase64String(wrapped), 1);
 
         // Mesma conta (mesma AMK), device novo: ring vazio.
-        using var ringNovo = new WkWorkspaceKeyRing(new InMemoryWorkspaceKeyStore(), dono.Amk);
+        using var ringNovo = TeamKeyRingFactory.New(dono.Amk);
         var servicoNovo = new TeamInviteService(api, ringNovo);
         GeneratedTeamInvite invite = await servicoNovo.CreateInviteAsync(
             Workspace, "b@innet.tec.br", "Manager");
@@ -377,7 +463,7 @@ public sealed class TeamInviteServiceTests
         using WorkspaceKey wkOriginal = (await primeiro.TryGetWorkspaceKeyAsync(vaultWorkspace))!;
 
         // O SEGUNDO PC do dono: mesma conta (mesma AMK), disco limpo.
-        using var segundo = new WkWorkspaceKeyRing(new InMemoryWorkspaceKeyStore(), dono.Amk);
+        using var segundo = TeamKeyRingFactory.New(dono.Amk);
         var servico = new TeamInviteService(api, segundo);
 
         // O indicador não pode dizer "cofre pessoal" aqui — e a mesma pergunta traz a chave de volta.
@@ -412,8 +498,7 @@ public sealed class TeamInviteServiceTests
         Assert.Equal(TeamKeyUpload.Published, await conta.Service.PublishOwnWrappedKeyAsync(Workspace));
 
         Assert.NotNull(api.WorkspaceKey);
-        using var outroPc = new WkWorkspaceKeyRing(
-            new InMemoryWorkspaceKeyStore(), conta.Amk, allowKeyCreation: false);
+        using var outroPc = TeamKeyRingFactory.New(conta.Amk);
         await outroPc.RestoreWrappedWorkspaceKeyAsync(
             vaultWorkspace, Convert.FromBase64String(api.WorkspaceKey.WrappedWk));
         using WorkspaceKey? la = await outroPc.TryGetWorkspaceKeyAsync(vaultWorkspace);
@@ -454,13 +539,13 @@ public sealed class TeamInviteServiceTests
         string vaultWorkspace = AppRuntimeTeamMirror.TeamVaultWorkspace(Workspace);
 
         // PC nº 1 publica a chave DE VERDADE do time.
-        using var pc1 = new WkWorkspaceKeyRing(new InMemoryWorkspaceKeyStore(), amk);
+        using var pc1 = TeamKeyRingFactory.New(amk);
         await pc1.ImportWorkspaceKeyAsync(vaultWorkspace, RandomNumberGenerator.GetBytes(32));
         await new TeamInviteService(api, pc1).PublishOwnWrappedKeyAsync(Workspace);
         string guardadoAntes = api.WorkspaceKey!.WrappedWk;
 
         // PC nº 2, mesma conta, com OUTRA chave no disco (a bifurcação já aconteceu neste device).
-        using var pc2 = new WkWorkspaceKeyRing(new InMemoryWorkspaceKeyStore(), amk);
+        using var pc2 = TeamKeyRingFactory.New(amk);
         await pc2.ImportWorkspaceKeyAsync(vaultWorkspace, RandomNumberGenerator.GetBytes(32));
 
         var erro = await Assert.ThrowsAsync<TeamInviteException>(
@@ -498,7 +583,7 @@ public sealed class TeamInviteServiceTests
         GeneratedTeamInvite invite = await dono.Service.CreateInviteAsync(
             Workspace, "colega@innet.tec.br", "Manager");
 
-        Side convidado = NewSide(api, allowKeyCreation: false);
+        Side convidado = NewSide(api);
         using WkWorkspaceKeyRing ringConvidado = convidado.Ring;
 
         AcceptedTeamInvite aceito = await convidado.Service.AcceptInviteAsync(invite.InviteId, invite.Code);
@@ -528,7 +613,7 @@ public sealed class TeamInviteServiceTests
         GeneratedTeamInvite invite = await dono.Service.CreateInviteAsync(
             Workspace, "colega@innet.tec.br", "Manager");
 
-        Side convidado = NewSide(api, allowKeyCreation: false);
+        Side convidado = NewSide(api);
         using WkWorkspaceKeyRing ring = convidado.Ring;
         string vaultWorkspace = AppRuntimeTeamMirror.TeamVaultWorkspace(Workspace);
 
@@ -556,7 +641,7 @@ public sealed class TeamInviteServiceTests
         using WkWorkspaceKeyRing ringDono = dono.Ring;
         await dono.Service.CreateInviteAsync(Workspace, "colega@innet.tec.br", "Manager");
 
-        Side convidado = NewSide(api, allowKeyCreation: false);
+        Side convidado = NewSide(api);
         using WkWorkspaceKeyRing ring = convidado.Ring;
 
         var erro = await Assert.ThrowsAsync<TeamInviteException>(
@@ -576,7 +661,7 @@ public sealed class TeamInviteServiceTests
         GeneratedTeamInvite invite = await dono.Service.CreateInviteAsync(
             Workspace, "colega@innet.tec.br", "Manager");
 
-        Side convidado = NewSide(api, allowKeyCreation: false);
+        Side convidado = NewSide(api);
         using WkWorkspaceKeyRing ring = convidado.Ring;
 
         var erro = await Assert.ThrowsAsync<TeamInviteException>(
@@ -595,7 +680,7 @@ public sealed class TeamInviteServiceTests
     public async Task Convidado_ComCodigoMalformado_Avisa_ENemBateNoServidor()
     {
         var api = new FakeTeamApi();
-        Side convidado = NewSide(api, allowKeyCreation: false);
+        Side convidado = NewSide(api);
         using WkWorkspaceKeyRing ring = convidado.Ring;
 
         var erro = await Assert.ThrowsAsync<TeamInviteException>(
@@ -619,7 +704,7 @@ public sealed class TeamInviteServiceTests
         GeneratedTeamInvite invite = await dono.Service.CreateInviteAsync(
             Workspace, "colega@innet.tec.br", "Manager");
 
-        Side convidado = NewSide(api, allowKeyCreation: false);
+        Side convidado = NewSide(api);
         using WkWorkspaceKeyRing ring = convidado.Ring;
         await convidado.Service.AcceptInviteAsync(invite.InviteId, invite.Code);
 
@@ -629,8 +714,7 @@ public sealed class TeamInviteServiceTests
         Assert.ThrowsAny<CryptographicException>(() => TeamInviteCrypto.UnwrapWorkspaceKey(subiu, invite.Code));
 
         // E abre no SEGUNDO device do convidado: mesma AMK, disco limpo.
-        using var segundoDevice = new WkWorkspaceKeyRing(
-            new InMemoryWorkspaceKeyStore(), convidado.Amk, allowKeyCreation: false);
+        using var segundoDevice = TeamKeyRingFactory.New(convidado.Amk);
         string vaultWorkspace = AppRuntimeTeamMirror.TeamVaultWorkspace(Workspace);
         await segundoDevice.RestoreWrappedWorkspaceKeyAsync(vaultWorkspace, subiu);
 
@@ -649,7 +733,7 @@ public sealed class TeamInviteServiceTests
         GeneratedTeamInvite invite = await dono.Service.CreateInviteAsync(
             Workspace, "colega@innet.tec.br", "Manager");
 
-        Side convidado = NewSide(api, allowKeyCreation: false);
+        Side convidado = NewSide(api);
         using WkWorkspaceKeyRing ring = convidado.Ring;
 
         AcceptedTeamInvite aceito = await convidado.Service.AcceptInviteAsync(invite.InviteId, invite.Code);
@@ -696,7 +780,7 @@ public sealed class TeamInviteServiceTests
 
         // Mesma conta (mesma AMK), device NOVO: ring vazio.
         byte[] amk = dono.Amk;
-        using var ringNovo = new WkWorkspaceKeyRing(new InMemoryWorkspaceKeyStore(), amk);
+        using var ringNovo = TeamKeyRingFactory.New(amk);
         var servico = new TeamInviteService(api, ringNovo);
 
         // O servidor guarda o embrulho da membership — que é o que o ring do dono produziu.

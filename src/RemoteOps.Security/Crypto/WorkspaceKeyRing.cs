@@ -61,7 +61,7 @@ public sealed class WorkspaceKeyRing : IWorkspaceKeyRing
             {
                 byte[] protectedBlob = _protector.Protect(fresh, Entropy(workspaceId));
                 await _store.SaveAsync(workspaceId, protectedBlob, ct).ConfigureAwait(false);
-                return new WorkspaceKey(fresh);
+                return new WorkspaceKey(fresh, VaultAlgorithms.DpapiRootedV1);
             }
             catch
             {
@@ -81,7 +81,7 @@ public sealed class WorkspaceKeyRing : IWorkspaceKeyRing
     private WorkspaceKey Unprotect(string workspaceId, byte[] protectedBlob)
     {
         byte[] key = _protector.Unprotect(protectedBlob, Entropy(workspaceId));
-        return new WorkspaceKey(key);
+        return new WorkspaceKey(key, VaultAlgorithms.DpapiRootedV1);
     }
 
     private static byte[] Entropy(string workspaceId) =>

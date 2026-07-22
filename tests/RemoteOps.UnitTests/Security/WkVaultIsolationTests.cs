@@ -27,6 +27,19 @@ public sealed class WkVaultIsolationTests
         new(store, ring, NullVaultAuditSink.Instance);
 
     /// <summary>
+    /// Cofre do TIME com a chave já fundada. Desde o 1h o cofre não faz mais a WK nascer — o
+    /// <c>MintWorkspaceKeyAsync</c> saiu do <see cref="IWorkspaceKeyRing"/> de propósito, para que
+    /// nenhum caminho do <c>CredentialVault</c> alcance a criação. Quem exercita o cofre do time,
+    /// portanto, funda o time antes: é exatamente o que o fluxo de convite faz no app.
+    /// </summary>
+    private static async Task<CredentialVault> TeamVaultOverAsync(
+        ICredentialStore store, WkWorkspaceKeyRing ring, string workspaceId)
+    {
+        (await ring.MintWorkspaceKeyAsync(workspaceId)).Dispose();
+        return VaultOver(store, ring);
+    }
+
+    /// <summary>
     /// <b>Prova do isolamento.</b> O mesmo cofre, a mesma AMK, o mesmo workspace: quem tem a WK
     /// abre; quem só sabe derivar a WDK da AMK não abre. É esta assimetria que permite entregar o
     /// cofre do time a um colega sem entregar a conta.
@@ -36,10 +49,10 @@ public sealed class WkVaultIsolationTests
     {
         byte[] amk = Amk();
         var store = new InMemoryCredentialStore();
-        using var wkRing = new WkWorkspaceKeyRing(new InMemoryWorkspaceKeyStore(), amk);
+        using var wkRing = TeamKeyRingFactory.New(amk);
         using var amkRing = new AmkWorkspaceKeyRing(amk);
 
-        CredentialVault doTime = VaultOver(store, wkRing);
+        CredentialVault doTime = await TeamVaultOverAsync(store, wkRing, Workspace);
         SecretEnvelope envelope = await doTime.StoreAsync(
             new VaultStoreRequest { WorkspaceId = Workspace, CredentialId = "cred-01", ActorUserId = "dono" },
             "senha-do-cliente".AsMemory());
@@ -67,14 +80,14 @@ public sealed class WkVaultIsolationTests
         byte[] amk = Amk();
         var store = new InMemoryCredentialStore();
         using var amkRing = new AmkWorkspaceKeyRing(amk);
-        using var wkRing = new WkWorkspaceKeyRing(new InMemoryWorkspaceKeyStore(), amk);
+        using var wkRing = TeamKeyRingFactory.New(amk);
 
         CredentialVault pessoal = VaultOver(store, amkRing);
         SecretEnvelope envelope = await pessoal.StoreAsync(
             new VaultStoreRequest { WorkspaceId = Workspace, CredentialId = "cred-01", ActorUserId = "dono" },
             "senha-pessoal".AsMemory());
 
-        CredentialVault doTime = VaultOver(store, wkRing);
+        CredentialVault doTime = await TeamVaultOverAsync(store, wkRing, Workspace);
         await Assert.ThrowsAnyAsync<CryptographicException>(
             () => doTime.RetrieveAsync(envelope.EnvelopeId, new VaultAccessContext { ActorUserId = "dono" }));
     }
@@ -88,8 +101,8 @@ public sealed class WkVaultIsolationTests
     public async Task Wk_CredentialIdTrocado_NaoAbre()
     {
         var store = new InMemoryCredentialStore();
-        using var ring = new WkWorkspaceKeyRing(new InMemoryWorkspaceKeyStore(), Amk());
-        CredentialVault vault = VaultOver(store, ring);
+        using var ring = TeamKeyRingFactory.New(Amk());
+        CredentialVault vault = await TeamVaultOverAsync(store, ring, Workspace);
 
         SecretEnvelope envelope = await vault.StoreAsync(
             new VaultStoreRequest { WorkspaceId = Workspace, CredentialId = "equipamento-X", ActorUserId = "dono" },
@@ -110,8 +123,8 @@ public sealed class WkVaultIsolationTests
     public async Task Wk_AlgorithmRebaixado_NaoAbre()
     {
         var store = new InMemoryCredentialStore();
-        using var ring = new WkWorkspaceKeyRing(new InMemoryWorkspaceKeyStore(), Amk());
-        CredentialVault vault = VaultOver(store, ring);
+        using var ring = TeamKeyRingFactory.New(Amk());
+        CredentialVault vault = await TeamVaultOverAsync(store, ring, Workspace);
 
         SecretEnvelope envelope = await vault.StoreAsync(
             new VaultStoreRequest { WorkspaceId = Workspace, CredentialId = "cred-01", ActorUserId = "dono" },
@@ -157,8 +170,8 @@ public sealed class WkVaultIsolationTests
     public async Task Wk_CamposDoAadAntigo_ContinuamProtegidos(string campo)
     {
         var store = new InMemoryCredentialStore();
-        using var ring = new WkWorkspaceKeyRing(new InMemoryWorkspaceKeyStore(), Amk());
-        CredentialVault vault = VaultOver(store, ring);
+        using var ring = TeamKeyRingFactory.New(Amk());
+        CredentialVault vault = await TeamVaultOverAsync(store, ring, Workspace);
 
         SecretEnvelope envelope = await vault.StoreAsync(
             new VaultStoreRequest { WorkspaceId = Workspace, CredentialId = "cred-01", Type = "password", ActorUserId = "dono" },

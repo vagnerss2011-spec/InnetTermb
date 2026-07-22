@@ -11,9 +11,9 @@ namespace RemoteOps.Security.Crypto;
 /// O Associated Data (AAD) liga cada ciphertext à identidade do envelope,
 /// impedindo troca/replay entre envelopes ou workspaces.
 ///
-/// O identificador do esquema (<c>SecretEnvelope.Algorithm</c>) NÃO mora aqui: quem carimba é a
-/// raiz de chave (<see cref="IWorkspaceKeyRing.AlgorithmId"/>), porque o cifrador é o mesmo para
-/// as duas raízes (DPAPI e AMK) — ver <see cref="Vault.VaultAlgorithms"/>.
+/// O identificador do esquema (<c>SecretEnvelope.Algorithm</c>) NÃO mora aqui: ele viaja com a
+/// CHAVE que selou (<see cref="WorkspaceKey.AlgorithmId"/>), porque o cifrador é o mesmo para as
+/// três raízes (DPAPI, AMK e WK do time) — ver <see cref="Vault.VaultAlgorithms"/>.
 /// </summary>
 internal static class EnvelopeCipher
 {

@@ -78,8 +78,7 @@ public sealed class TeamInviteWindowRenderTests
     private static TeamInviteViewModel NewViewModel(
         TeamInviteMode mode, out WkWorkspaceKeyRing ring)
     {
-        ring = new WkWorkspaceKeyRing(
-            new InMemoryWorkspaceKeyStore(), new byte[32], allowKeyCreation: true);
+        ring = TeamKeyRingFactory.New(new byte[32]);
         var service = new TeamInviteService(new StubTeamApi(), ring);
         return new TeamInviteViewModel(service, Workspace, mode, copyToClipboard: _ => { });
     }

@@ -40,8 +40,8 @@ public sealed class WkWorkspaceKeyRing : IWorkspaceKeyRing, IDisposable
     private const string WrapContextPrefix = "wk|";
 
     private readonly IWorkspaceKeyStore _store;
+    private readonly IVaultRootingStore _rooting;
     private readonly byte[] _amk;
-    private readonly bool _allowKeyCreation;
 
     // WKs já desembrulhadas nesta sessão. Sem o cache, cada operação do cofre faria um GCM
     // desnecessário; com ele, o ring é ESTÁVEL — a mesma chave do começo ao fim da sessão.
@@ -51,28 +51,33 @@ public sealed class WkWorkspaceKeyRing : IWorkspaceKeyRing, IDisposable
     private bool _disposed;
 
     /// <summary>Guarda uma CÓPIA da AMK (zerada no <see cref="Dispose"/>) — o chamador segue dono da dele.</summary>
-    /// <param name="allowKeyCreation">
-    /// <c>false</c> = <b>fail-closed</b>: sem WK guardada, o ring RECUSA em vez de sortear. É como o
-    /// cofre do time roda no app, e o motivo é o defeito número um desta fatia: o
-    /// <c>CredentialVault</c> chama <see cref="GetOrCreateWorkspaceKeyAsync"/> em TODA operação, então
-    /// qualquer coisa que toque o cofre antes de o convite ser aceito ganharia uma WK ALEATÓRIA — e o
-    /// convidado passaria semanas cadastrando senhas que ninguém do time consegue abrir, sem um único
-    /// erro na tela. <c>true</c> (o padrão) é o caminho de quem CRIA o time: ali o sorteio é o ato
-    /// legítimo que faz a chave nascer.
+    /// <param name="rooting">
+    /// Onde o marcador de raiz do cofre é gravado. Vem para o construtor — e não como parâmetro de
+    /// cada método — porque chave e marcador precisam aterrissar SEMPRE no mesmo lugar: é essa
+    /// coincidência que impede os dois de divergirem. No app é o <b>mesmo objeto</b> do
+    /// <paramref name="store"/> (o <c>FileVaultStore</c> atende as duas portas).
     /// </param>
-    public WkWorkspaceKeyRing(IWorkspaceKeyStore store, ReadOnlySpan<byte> amk, bool allowKeyCreation = true)
+    public WkWorkspaceKeyRing(IWorkspaceKeyStore store, IVaultRootingStore rooting, ReadOnlySpan<byte> amk)
     {
-        _allowKeyCreation = allowKeyCreation;
         ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(rooting);
         if (amk.Length != AmkSize)
         {
             throw new ArgumentException($"A AMK precisa ter {AmkSize} bytes (recebidos {amk.Length}).", nameof(amk));
         }
 
         _store = store;
+        _rooting = rooting;
         _amk = amk.ToArray();
     }
 
+    /// <summary>
+    /// O carimbo desta raiz. Continua público no tipo CONCRETO (o <c>LocalVaultMigrator</c> e os
+    /// testes o afirmam sobre instâncias concretas), mas saiu do <see cref="IWorkspaceKeyRing"/>:
+    /// quem responde "sob qual esquema este envelope foi selado" é a CHAVE que selou
+    /// (<see cref="WorkspaceKey.AlgorithmId"/>), e não o chaveiro — que, num cofre multi-raiz, não
+    /// tem UM algoritmo para declarar.
+    /// </summary>
     public string AlgorithmId => VaultAlgorithms.WkRootedV1;
 
     /// <summary>
@@ -97,11 +102,61 @@ public sealed class WkWorkspaceKeyRing : IWorkspaceKeyRing, IDisposable
     }
 
     /// <summary>
-    /// Recupera a WK do workspace; sorteia e guarda (embrulhada) na primeira vez. Lança se a WK
-    /// existe mas não abre com esta AMK (blob de outra conta) — falhar alto é obrigatório: devolver
-    /// null ali faria este ring sortear uma chave nova e "perder" o cofre do time em silêncio.
+    /// Recupera a WK do workspace. <b>Nunca cria</b> — e é isto que torna o cofre do time
+    /// fail-closed por ESTRUTURA, e não por bandeira: o <c>CredentialVault</c> chama este método em
+    /// TODA operação, então um caminho de criação aqui faria qualquer toque no cofre antes do
+    /// convite sortear uma WK aleatória. O convidado passaria semanas cadastrando senhas que ninguém
+    /// do time abre, sem um único erro na tela. Quem faz a chave nascer é o
+    /// <see cref="MintWorkspaceKeyAsync"/>, que de propósito não está no
+    /// <see cref="IWorkspaceKeyRing"/>.
+    ///
+    /// <para>Lança também se a WK existe mas não abre com esta AMK (blob de outra conta) — falhar
+    /// alto é obrigatório: devolver null ali faria o chamador tratar cofre alheio como cofre vazio.</para>
     /// </summary>
+    /// <exception cref="VaultException">
+    /// Não há WK guardada aqui. A mensagem é acionável de propósito: o operador precisa saber que
+    /// falta ACEITAR o convite, e não que "ocorreu um erro".
+    /// </exception>
     public async Task<WorkspaceKey> GetOrCreateWorkspaceKeyAsync(string workspaceId, CancellationToken ct = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
+
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            byte[]? existing = await LoadAsync(workspaceId, ct).ConfigureAwait(false);
+            if (existing is not null)
+            {
+                return Copy(existing);
+            }
+
+            // FAIL-CLOSED, e com UM caminho só. Uma guarda que pode ser desligada por parâmetro é
+            // uma guarda que alguém desliga por engano numa fiação de DI — aqui não existe o que
+            // desligar.
+            throw new VaultException(
+                $"O cofre do time '{workspaceId}' ainda não tem a chave neste computador. "
+                + "Aceite o convite (identificador + código recebido por outro canal) antes de "
+                + "cadastrar ou abrir senhas do time.");
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Sorteia a WK e <b>FUNDA</b> o time. NÃO está em <see cref="IWorkspaceKeyRing"/> de propósito:
+    /// criar chave é o ato de fundar, e só o fluxo de criação/convite pode praticá-lo. O
+    /// <c>CredentialVault</c> enxerga apenas a interface, então nenhum caminho do cofre alcança este
+    /// método — o fail-closed deixa de depender de uma bandeira que alguém pode construir errado e
+    /// passa a ser uma propriedade do TIPO.
+    ///
+    /// <para>Idempotente: se já existe WK para o workspace, devolve a existente. Sortear "só mais
+    /// esta vez" é exatamente a bifurcação silenciosa que a fatia inteira combate — a segunda pessoa
+    /// convidada não pode receber uma chave diferente da primeira.</para>
+    /// </summary>
+    public async Task<WorkspaceKey> MintWorkspaceKeyAsync(string workspaceId, CancellationToken ct = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
@@ -117,22 +172,18 @@ public sealed class WkWorkspaceKeyRing : IWorkspaceKeyRing, IDisposable
                 return Copy(existing);
             }
 
-            // FAIL-CLOSED. Aqui é o ponto exato em que o cofre do time bifurcaria: sortear "só desta
-            // vez" produz senhas que ninguém do time abre, e nada na tela denuncia. Recusar ALTO é a
-            // única saída que o operador enxerga — e a mensagem diz o que fazer.
-            if (!_allowKeyCreation)
-            {
-                throw new VaultException(
-                    $"O cofre do time '{workspaceId}' ainda não tem a chave neste computador. "
-                    + "Aceite o convite (identificador + código recebido por outro canal) antes de "
-                    + "cadastrar ou abrir senhas do time.");
-            }
-
             byte[] fresh = RandomNumberGenerator.GetBytes(WorkspaceKeySize);
             try
             {
                 byte[] wrapped = AccountKeyService.WrapKey(fresh, _amk, WrapContext(workspaceId));
                 await _store.SaveAsync(StoreKey(workspaceId), wrapped, ct).ConfigureAwait(false);
+
+                // Marcador na MESMA operação em que a chave aterrissa. É o que permite ao boot
+                // responder "este workspace é de time" mesmo quando a chave sumiu — e recusar alto
+                // em vez de silenciosamente cair no cofre pessoal, que seria escrever no lugar errado.
+                await _rooting.SaveKeyRootingAsync(workspaceId, VaultKeyRooting.WkRandom, ct)
+                    .ConfigureAwait(false);
+
                 _unwrapped[workspaceId] = fresh;
                 return Copy(fresh);
             }
@@ -271,6 +322,13 @@ public sealed class WkWorkspaceKeyRing : IWorkspaceKeyRing, IDisposable
             byte[] wrapped = preWrapped ?? AccountKeyService.WrapKey(adopted, _amk, WrapContext(workspaceId));
             await _store.SaveAsync(StoreKey(workspaceId), wrapped, ct).ConfigureAwait(false);
 
+            // Chave e marcador, no mesmo lugar e na mesma operação — os três caminhos em que a WK
+            // aterrissa (nascer, chegar pelo convite, voltar do servidor) gravam os dois. Um marcador
+            // escrito em outro ponto divergiria da chave, e um cofre de time sem chave voltaria a ser
+            // lido como PESSOAL: o app passaria a escrever no banco errado sem nada na tela.
+            await _rooting.SaveKeyRootingAsync(workspaceId, VaultKeyRooting.WkRandom, ct)
+                .ConfigureAwait(false);
+
             // O cache passa a ser dono do buffer adotado (o Dispose o zera). A entrada antiga, quando
             // existe, é a MESMA chave — zere-a para não deixar duplicata de material na heap.
             if (_unwrapped.TryGetValue(workspaceId, out byte[]? previous) && !ReferenceEquals(previous, adopted))
@@ -332,7 +390,7 @@ public sealed class WkWorkspaceKeyRing : IWorkspaceKeyRing, IDisposable
     /// operação, e o <see cref="WorkspaceKey.Dispose"/> ZERA o buffer: entregar o array do cache
     /// faria a segunda senha do dia ser selada com 32 zeros.
     /// </summary>
-    private static WorkspaceKey Copy(byte[] wk) => new((byte[])wk.Clone());
+    private static WorkspaceKey Copy(byte[] wk) => new((byte[])wk.Clone(), VaultAlgorithms.WkRootedV1);
 
     private static string StoreKey(string workspaceId) => StoreKeyPrefix + workspaceId;
 

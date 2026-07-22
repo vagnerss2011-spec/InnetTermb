@@ -390,8 +390,7 @@ public sealed class TeamWindowRenderTests
     [Fact]
     public void SeletorDePapel_AbreOPopup_ComOsItensDesenhados()
     {
-        using var ring = new RemoteOps.Security.Account.WkWorkspaceKeyRing(
-            new RemoteOps.Security.Storage.InMemoryWorkspaceKeyStore(), new byte[32]);
+        using var ring = TeamKeyRingFactory.New(new byte[32]);
         var vm = new TeamInviteViewModel(
             new RemoteOps.Desktop.Account.TeamInviteService(new StubTeamApi(), ring),
             Workspace,
