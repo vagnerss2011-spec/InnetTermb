@@ -59,6 +59,40 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   equipamento do cliente no cofre pessoal por engano é o incidente que isso evita. **Com um cofre só,
   nada muda:** entra direto, sem nenhuma tela a mais. Fechar a tela de escolha volta ao login, em vez
   de abrir um cofre no chute.
+- **Tela de Equipe** (*Configurações → Conta → Equipe → Ver a equipe…*): quem está no time, com nome,
+  e-mail e **papel em português** ("Dono", "Gerente", "Técnico" — e não os códigos internos). Dá para
+  **convidar** e **remover** dali mesmo.
+  - Quem **ainda não tem a chave do time** aparece marcado na própria linha: essa pessoa enxerga a
+    lista e **não abre nenhuma senha**. Sem esse aviso o sintoma chegaria como "a senha não abre" no
+    meio de um atendimento, sem ninguém ligar uma coisa à outra.
+  - **Ao remover, a tela diz a verdade inteira, em destaque:** *"Isso corta o acesso daqui pra
+    frente. Não apaga o que a pessoa já viu — as senhas que ela conhecia devem ser trocadas nos
+    equipamentos."* Prometer menos do que a criptografia entrega seria enganar quem está tomando uma
+    decisão de segurança. O aviso volta no recado de sucesso, que é o último momento em que o
+    operador ainda está pensando no assunto.
+  - **Nada de tela em branco mentindo.** Lista que não carrega mostra o erro **com o motivo** (sem
+    rede, sem permissão, servidor fora) e **esconde a lista** — uma lista vazia ali diria "você
+    perdeu o time". Remoção que falha diz que **a pessoa continua com acesso**. "Último dono" explica
+    como resolver (promover outra pessoa) em vez de "não foi possível".
+- **O RemoteOps agora diz o tempo todo em qual cofre você está** — na barra de status, no título da
+  janela (aparece até com uma sessão SSH ocupando a tela, e no Alt+Tab) e na tela de Equipe. O erro
+  caro desta fase não é criptográfico: é cadastrar o equipamento de um cliente achando que já está
+  compartilhando e só descobrir semanas depois, quando o colega diz que não vê nada.
+  - Quando o workspace escolhido é de **time**, o indicador **acende em vermelho** e explica: nesta
+    versão o cofre compartilhado ainda não abre, então os equipamentos chegam aos colegas mas as
+    **senhas não abrem do outro lado** — até lá, use o time só para convidar e aceitar convites.
+  - Se não der para confirmar com o servidor (sem rede), o indicador diz **"não confirmado"** em vez
+    de afirmar "cofre pessoal" com uma confiança que o aplicativo não tem.
+  - O indicador se corrige **assim que você gera o primeiro convite** (o ato que cria a chave do
+    time), sem precisar reiniciar.
+- **Papel do convite virou lista, não campo digitado.** Antes era texto livre e vinha preenchido com
+  um papel que **não existe** no servidor: o convite era recusado depois de o código já ter sido
+  ditado por telefone, e tudo tinha de ser refeito. Agora são opções com a explicação do que cada uma
+  permite.
+- **A chave do time é buscada sozinha num computador novo.** Ao abrir o app, se a conta é de um time
+  e a chave ainda não está nesta máquina, ela é trazida do servidor (sempre cifrada, sempre aberta só
+  aqui). Sem isso, o colega logaria no PC de casa, sincronizaria e não abriria nada — sem erro nenhum
+  na tela.
 
 ### Segurança (cliente)
 

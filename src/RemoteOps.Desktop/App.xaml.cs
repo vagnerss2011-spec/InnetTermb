@@ -202,9 +202,10 @@ public partial class App : Application
             // sync só sobe no fim deste método, ou depois, quando a conta é ativada.
             _workspaceViewModel.CloudResyncFactory = () => TryCreateCloudResync(store);
 
-            // Equipe (Fatia 1): convidar alguém e aceitar convite. Lazy pelo mesmo motivo dos dois
-            // acima — quando este VM é resolvido, a conta (e o chaveiro do time) ainda não existem.
-            _workspaceViewModel.TeamInviteFactory = TryCreateTeamInviteService;
+            // Equipe (Fatia 1): convidar, aceitar convite e ver/remover membros. Lazy pelo mesmo
+            // motivo dos dois acima — quando este VM é resolvido, a conta (e o chaveiro do time)
+            // ainda não existem.
+            _workspaceViewModel.TeamFactory = TryCreateTeamContext;
 
             // Recarga da lista de hosts quando o sync baixa dados novos (Fase 2). Sem isto, o device B
             // abre com a lista VAZIA: o LoadAsync roda uma vez no Loaded, e nada recarrega quando o
@@ -226,6 +227,11 @@ public partial class App : Application
             // Só agora leva o resultado da integridade (item C) ao operador: a janela já está no ar, o
             // Logs existe. Emitir ANTES bloquearia a abertura; aqui o app já abriu (boot nunca trava).
             SurfaceIntegrityReport();
+
+            // ⚠️ EM QUAL COFRE ESTOU (Fatia 1e). Depois de a janela estar no ar, pelo mesmo motivo:
+            // a sondagem pode ir à rede, e o boot não espera rede. O indicador nasce em "cofre
+            // pessoal" — que é a verdade — e se corrige por binding quando a resposta chega.
+            RefreshVaultBadge();
 
             // A partir daqui, uma 2ª instância que tentar abrir vai só trazer esta janela pra frente.
             _singleInstance.ListenForActivation(() => Dispatcher.Invoke(BringMainWindowToFront));
@@ -770,13 +776,13 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// O serviço de convite do time, ou <c>null</c> em modo local (sem conta ativa). Reusa o token
-    /// store do coordenador — mesmo cache do sync, logo um refresh coerente — e o chaveiro de time
-    /// do ativador, que é quem guarda a WK embrulhada sob a AMK.
+    /// O contexto de time (convite + membros + workspace ativo), ou <c>null</c> em modo local (sem
+    /// conta ativa). Reusa o token store do coordenador — mesmo cache do sync, logo um refresh
+    /// coerente — e o chaveiro de time do ativador, que é quem guarda a WK embrulhada sob a AMK.
     ///
     /// <para>Lazy pelo mesmo motivo do 2FA: quando este factory é montado, a conta ainda não existe.</para>
     /// </summary>
-    private TeamInviteContext? TryCreateTeamInviteService()
+    private TeamContext? TryCreateTeamContext()
     {
         if (_coordinator?.ActiveTokenStore is not { } tokens
             || _coordinator.ActiveWorkspaceId is not { } workspaceId
@@ -787,9 +793,34 @@ public partial class App : Application
         }
 
         var http = new HttpClient { BaseAddress = config.CloudUrl };
-        return new TeamInviteContext(
-            new TeamInviteService(new TeamApiClient(http, config.DeviceId, tokens), teamKeyRing),
-            workspaceId);
+        var api = new TeamApiClient(http, config.DeviceId, tokens);
+        return new TeamContext(new TeamInviteService(api, teamKeyRing), api, workspaceId);
+    }
+
+    /// <summary>
+    /// Descobre e mostra EM QUAL COFRE o operador está (Fatia 1e). Roda depois de a conta estar
+    /// ativa: a sondagem consulta o disco primeiro (offline vale) e só vai à rede quando não há
+    /// chave de time neste PC — e essa mesma ida <b>restaura</b> a chave, que é o que faz o SEGUNDO
+    /// device do membro abrir o cofre do time (a lacuna que o 1d deixou explicitamente para cá).
+    ///
+    /// <para>Sem conta a sondagem é <c>null</c> e o indicador fica em "cofre pessoal (só neste PC)",
+    /// que é a verdade. Falha de rede vira "não confirmado" NA TELA — nunca um "cofre pessoal"
+    /// afirmado com uma confiança que o app não tem. Não é aguardado: a janela não pode esperar um
+    /// round-trip para abrir (ADR-002, offline-first), e o indicador se corrige sozinho por binding
+    /// quando a resposta chega.</para>
+    /// </summary>
+    private void RefreshVaultBadge()
+    {
+        if (_workspaceViewModel is not { } workspace)
+        {
+            return;
+        }
+
+        TeamContext? team = TryCreateTeamContext();
+        _ = workspace.Browser.Vault.RefreshAsync(
+            team is null
+                ? null
+                : ct => team.Service.IsTeamWorkspaceAsync(team.WorkspaceId, ct));
     }
 
     /// <summary>

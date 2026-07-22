@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text.Json;
 
 using RemoteOps.Sync.Remote;
@@ -39,6 +40,11 @@ public sealed class TeamContractsWireTests
         string WorkspaceId, string WorkspaceName, string Role, int WkVersion, bool SessionRefreshRequired);
 
     private sealed record ServerWorkspaceKeyResponse(string WorkspaceId, string WrappedWk, int WkVersion);
+
+    private sealed record ServerTeamMember(
+        string UserId, string Email, string DisplayName, string Role, bool HasWk, int WkVersion);
+
+    private sealed record ServerTeamMembersResponse(IReadOnlyList<ServerTeamMember> Members);
 
     // ── POST /workspaces/{id}/invites ────────────────────────────────────────────────────
 
@@ -150,5 +156,56 @@ public sealed class TeamContractsWireTests
         Assert.Equal(server.WorkspaceId, client.WorkspaceId);
         Assert.Equal(server.WrappedWk, client.WrappedWk);
         Assert.Equal(server.WkVersion, client.WkVersion);
+    }
+
+    // ── GET /workspaces/{id}/members (1e) ────────────────────────────────────────────────
+
+    /// <summary>
+    /// A lista de membros cai inteira na forma do cliente. <c>hasWk</c> é o campo que a tela usa
+    /// para marcar quem ainda não tem a chave do time: se ele se perder na travessia, o
+    /// <c>bool</c> vira <c>false</c> em silêncio e o time inteiro apareceria como "sem chave".
+    /// </summary>
+    [Fact]
+    public void ListaDeMembros_EhLidaPeloCliente()
+    {
+        var server = new ServerTeamMembersResponse(
+        [
+            new("11111111-0000-4000-8000-000000000001", "dono@innet.tec.br", "Vagner", "Owner", true, 1),
+            new("11111111-0000-4000-8000-000000000002", "novo@innet.tec.br", "Ana", "Operator", false, 1),
+        ]);
+
+        var client = JsonSerializer.Deserialize<TeamMembersResponse>(
+            JsonSerializer.Serialize(server, s_web), s_web);
+
+        Assert.NotNull(client);
+        Assert.Equal(2, client.Members.Count);
+        Assert.Equal(server.Members[0].UserId, client.Members[0].UserId);
+        Assert.Equal(server.Members[0].Email, client.Members[0].Email);
+        Assert.Equal(server.Members[0].DisplayName, client.Members[0].DisplayName);
+        Assert.Equal(server.Members[0].Role, client.Members[0].Role);
+        Assert.True(client.Members[0].HasWk);
+
+        // O membro sem chave TEM de chegar marcado — é ele que enxerga a lista e não abre senha.
+        Assert.False(client.Members[1].HasWk);
+        Assert.Equal(1, client.Members[1].WkVersion);
+    }
+
+    /// <summary>
+    /// A lista NÃO carrega o embrulho da chave de ninguém. É guarda com peso de segurança: o
+    /// <c>WrappedWk</c> de um membro só abre com a AMK dele, e distribuí-lo aos outros só aumentaria
+    /// a superfície sem servir a ninguém.
+    /// </summary>
+    [Fact]
+    public void ListaDeMembros_NaoCarregaEmbrulhoDeChave()
+    {
+        string json = JsonSerializer.Serialize(
+            new TeamMembersResponse([new("u1", "a@b.c", "A", "Owner", true, 1)]), s_web);
+
+        using JsonDocument doc = JsonDocument.Parse(json);
+        JsonElement member = doc.RootElement.GetProperty("members")[0];
+
+        Assert.False(member.TryGetProperty("wrappedWk", out _));
+        Assert.False(member.TryGetProperty("wrappedWkByInvite", out _));
+        Assert.True(member.TryGetProperty("hasWk", out _));
     }
 }

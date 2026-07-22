@@ -27,8 +27,21 @@
                      IsEnabled="{Binding IsIdle}" Margin="0,0,0,10"/>
 
             <TextBlock Text="Papel no time" Style="{DynamicResource Text.Caption}" Margin="0,0,0,2"/>
-            <TextBox x:Name="RoleField" Text="{Binding Role, UpdateSourceTrigger=PropertyChanged}"
-                     IsEnabled="{Binding IsIdle}" Margin="0,0,0,12"/>
+            <!-- Lista fechada, e não campo livre: "Tecnico" (sem acento) ou "operator" (minúsculo)
+                 viravam um 400 do servidor DEPOIS de o operador já ter ditado o código por telefone.
+                 O ComboBoxItem TEM estilo implícito no tema — sem ele o popup cai no Aero2 CLARO e
+                 fica texto branco em fundo branco (a mesma classe de defeito da v1.2.24). -->
+            <ComboBox x:Name="RoleField" ItemsSource="{Binding RoleOptions}"
+                      SelectedValue="{Binding Role}" SelectedValuePath="Id"
+                      IsEnabled="{Binding IsIdle}" Margin="0,0,0,4">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Label}"/>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+            <TextBlock Text="{Binding RoleDescription}" Style="{DynamicResource Text.Caption}"
+                       TextWrapping="Wrap" Margin="0,0,0,12"/>
 
             <Button x:Name="GenerateButton" Content="Gerar convite"
                     Style="{DynamicResource Button.Primary}" IsDefault="True"

@@ -118,7 +118,14 @@
                                    TextWrapping="Wrap" Margin="0,0,0,10"/>
 
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                            <Button x:Name="InviteToTeamButton" Content="Convidar alguém para o time…"
+                            <!-- Primeiro botão e único em destaque: ver COM QUEM o cofre é
+                                 compartilhado é o que o operador procura ao abrir esta seção; o
+                                 convite é uma ação de dentro dessa tela. -->
+                            <Button x:Name="ManageTeamButton" Content="Ver a equipe…"
+                                    Command="{Binding ManageTeamCommand}"
+                                    Style="{DynamicResource Button.Primary}"
+                                    Padding="10,4" Margin="0,0,8,0"/>
+                            <Button x:Name="InviteToTeamButton" Content="Convidar alguém…"
                                     Command="{Binding InviteToTeamCommand}" Padding="10,4" Margin="0,0,8,0"/>
                             <Button x:Name="JoinTeamButton" Content="Tenho um convite…"
                                     Command="{Binding JoinTeamCommand}" Padding="10,4"/>

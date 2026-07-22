@@ -29,4 +29,16 @@ public interface ITeamApi
     /// </summary>
     Task<TeamWorkspaceKeyResponse?> GetWorkspaceKeyAsync(
         string workspaceId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Quem está no time. Falha de rede/permissão ESTOURA: uma lista vazia devolvida em silêncio
+    /// diria ao operador "você está sozinho no time" — a mentira mais cara que esta tela pode contar.
+    /// </summary>
+    Task<TeamMembersResponse> GetMembersAsync(string workspaceId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Tira alguém do time. Devolve o desfecho em vez de só "ok": ver <see cref="TeamMemberRemoval"/>.
+    /// </summary>
+    Task<TeamMemberRemoval> RemoveMemberAsync(
+        string workspaceId, string userId, CancellationToken ct = default);
 }

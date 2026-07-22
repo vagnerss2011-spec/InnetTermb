@@ -87,6 +87,60 @@
             </Border.Resources>
 
             <DockPanel LastChildFill="False">
+                <!-- ⚠️ EM QUAL COFRE ESTOU (Fatia 1e). Primeiro item da barra, SEMPRE visível.
+                     O erro caro desta fatia não é criptográfico: é cadastrar o equipamento de um
+                     cliente achando que já está compartilhando com o time, e só descobrir semanas
+                     depois — quando o colega diz que não vê nada. Um aviso que só aparecesse na tela
+                     de Equipe chegaria tarde, porque o cadastro acontece na tela de Hosts.
+
+                     ATENÇÃO ao DataContext: este Border está com DataContext="{Binding Sync}", então
+                     "Vault.X" resolveria como Sync.Vault.X — propriedade inexistente, que falharia
+                     EM SILÊNCIO (o WPF não lança em binding quebrado) e deixaria o indicador vazio
+                     para sempre. Daí o RelativeSource subir até o UserControl. Mesma armadilha
+                     documentada no indicador de atualização, mais abaixo. -->
+                <StackPanel x:Name="VaultBadge"
+                            Orientation="Horizontal"
+                            DockPanel.Dock="Left"
+                            VerticalAlignment="Center"
+                            Margin="0,0,10,0"
+                            ToolTip="{Binding DataContext.Vault.Detail, RelativeSource={RelativeSource AncestorType=UserControl}}">
+                    <TextBlock x:Name="VaultBadgeWarningIcon"
+                               Text="{DynamicResource Icon.Warning}"
+                               FontFamily="{DynamicResource Font.Family.Icons}"
+                               FontSize="12"
+                               Foreground="{DynamicResource Brush.Status.Error}"
+                               VerticalAlignment="Center"
+                               Margin="0,0,5,0"
+                               Visibility="{Binding DataContext.Vault.IsWarning, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVis}}"/>
+                    <TextBlock x:Name="VaultBadgeText"
+                               Text="{Binding DataContext.Vault.Label, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                               VerticalAlignment="Center">
+                        <TextBlock.Style>
+                            <!-- Cor do estado: discreto no normal, de alerta quando o workspace é de
+                                 time e o cofre aberto ainda é o pessoal. Sem o trigger, o aviso
+                                 teria a mesma cara apagada do resto — e a lição da v1.4.2 desta base
+                                 é que aviso que não é notado falhou na única função que tem. -->
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource Text.Caption}">
+                                <Setter Property="Foreground" Value="{DynamicResource Brush.Text.Secondary}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding DataContext.Vault.IsWarning, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="True">
+                                        <Setter Property="Foreground" Value="{DynamicResource Brush.Status.Error}"/>
+                                        <Setter Property="FontWeight" Value="SemiBold"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding DataContext.Vault.IsUnconfirmed, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="True">
+                                        <Setter Property="Foreground" Value="{DynamicResource Brush.Status.Pending}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                    <TextBlock Text="·"
+                               Style="{DynamicResource Text.Caption}"
+                               Foreground="{DynamicResource Brush.Text.Tertiary}"
+                               Margin="10,0,0,0"
+                               VerticalAlignment="Center"/>
+                </StackPanel>
+
                 <!-- Indicador à esquerda: ponto colorido + texto; tooltip acionável em pt-BR. -->
                 <StackPanel Orientation="Horizontal"
                             DockPanel.Dock="Left"

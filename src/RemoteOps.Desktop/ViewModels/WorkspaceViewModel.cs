@@ -53,11 +53,11 @@ public sealed class WorkspaceViewModel : BaseViewModel
     public Func<CloudResyncService?>? CloudResyncFactory { get; set; }
 
     /// <summary>
-    /// Fábrica LAZY do convite de time (Fatia 1). Lazy pelo MESMO motivo das duas acima: precisa dos
+    /// Fábrica LAZY do contexto de time (Fatia 1). Lazy pelo MESMO motivo das duas acima: precisa dos
     /// tokens da conta E do chaveiro de time, que só existem depois da ativação. Null (ou fábrica que
     /// devolve null) = modo local, e a seção de Equipe some das Configurações.
     /// </summary>
-    public Func<TeamInviteContext?>? TeamInviteFactory { get; set; }
+    public Func<TeamContext?>? TeamFactory { get; set; }
 
     public BrowserViewModel Browser { get; }
     public TabsViewModel Tabs { get; }
@@ -83,8 +83,12 @@ public sealed class WorkspaceViewModel : BaseViewModel
         BugReportViewModel? bugReport = _bugReportComposer is null ? null : new BugReportViewModel(_bugReportComposer);
         IMfaApi? mfaApi = MfaApiFactory?.Invoke();
         CloudResyncService? resync = CloudResyncFactory?.Invoke();
-        TeamInviteContext? team = TeamInviteFactory?.Invoke();
-        return new SettingsViewModel(store, _updateService, changelog, bugReport, mfaApi, resync, team);
+        TeamContext? team = TeamFactory?.Invoke();
+
+        // O indicador de cofre é o DO SHELL, não uma cópia: a tela de Equipe precisa dizer
+        // exatamente o que a barra de status diz.
+        return new SettingsViewModel(
+            store, _updateService, changelog, bugReport, mfaApi, resync, team, Browser.Vault);
     }
 
     public string AppVersionText =>

@@ -52,6 +52,15 @@ public sealed class TeamInviteWindowRenderTests
         public Task<TeamWorkspaceKeyResponse?> GetWorkspaceKeyAsync(
             string workspaceId, CancellationToken ct = default)
             => Task.FromResult<TeamWorkspaceKeyResponse?>(null);
+
+        // A janela de convite não lista nem remove ninguém: quem faz isso é a TeamWindow (1e).
+        public Task<TeamMembersResponse> GetMembersAsync(
+            string workspaceId, CancellationToken ct = default)
+            => throw new NotSupportedException();
+
+        public Task<TeamMemberRemoval> RemoveMemberAsync(
+            string workspaceId, string userId, CancellationToken ct = default)
+            => throw new NotSupportedException();
     }
 
     private static TeamInviteViewModel NewViewModel(

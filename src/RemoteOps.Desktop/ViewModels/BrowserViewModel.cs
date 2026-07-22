@@ -49,6 +49,17 @@ public sealed class BrowserViewModel : BaseViewModel
     /// (build fora do pacote instalado), é uma VM inerte que nunca acende.</summary>
     public UpdateNotificationViewModel Update { get; }
 
+    /// <summary>
+    /// Em qual cofre o operador está (Fatia 1e). Nunca null: sem conta na nuvem é o
+    /// <see cref="VaultScope.LocalOnly"/>, que continua sendo a verdade — o cofre é pessoal e nunca
+    /// sai deste PC.
+    ///
+    /// <para>Mora no <see cref="BrowserViewModel"/> porque o shell é o único lugar visível o TEMPO
+    /// TODO: o erro caro desta fatia é cadastrar o equipamento de um cliente achando que está no
+    /// cofre do time, e um aviso que só aparece na tela de Equipe chega tarde demais.</para>
+    /// </summary>
+    public VaultBadgeViewModel Vault { get; } = new();
+
     public BrowserSection ActiveSection
     {
         get => _activeSection;

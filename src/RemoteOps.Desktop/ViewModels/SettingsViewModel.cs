@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using RemoteOps.Desktop.Account;
 using RemoteOps.Desktop.Infrastructure;
@@ -14,7 +15,7 @@ public sealed class SettingsViewModel : BaseViewModel
     private readonly IUpdateService? _updateService;
     private readonly IMfaApi? _mfaApi;
     private readonly CloudResyncService? _resync;
-    private readonly TeamInviteContext? _team;
+    private readonly TeamContext? _team;
     private AppSettings _settings;
     private bool _rdpEnabled;
     private bool _ndeskEnabled;
@@ -43,9 +44,11 @@ public sealed class SettingsViewModel : BaseViewModel
         BugReportViewModel? bugReport = null,
         IMfaApi? mfaApi = null,
         CloudResyncService? resync = null,
-        TeamInviteContext? team = null)
+        TeamContext? team = null,
+        VaultBadgeViewModel? vaultBadge = null)
     {
         _store = store;
+        VaultBadge = vaultBadge ?? new VaultBadgeViewModel();
         _updateService = updateService;
         _mfaApi = mfaApi;
         _resync = resync;
@@ -80,6 +83,12 @@ public sealed class SettingsViewModel : BaseViewModel
             () => _team != null);
         JoinTeamCommand = new RelayCommand(
             () => TeamInviteRequested?.Invoke(this, TeamInviteMode.Accept),
+            () => _team != null);
+
+        // A tela cheia da equipe (membros, papéis, remover) — 1e. É a partir daqui que o operador
+        // enxerga COM QUEM o cofre é compartilhado; até a 1d ele só sabia quem tinha convidado.
+        ManageTeamCommand = new RelayCommand(
+            () => TeamManagementRequested?.Invoke(this, EventArgs.Empty),
             () => _team != null);
 
         // O botão NÃO reenvia: abre a confirmação. Reenviar o acervo inteiro por um clique acidental
@@ -272,15 +281,49 @@ public sealed class SettingsViewModel : BaseViewModel
     /// <summary>True quando há conta na nuvem ativa: habilita a seção de Equipe.</summary>
     public bool CanManageTeam => _team != null;
 
-    /// <summary>Serviço + workspace ativo — a janela de convite os usa pra montar seu VM. Null sem conta.</summary>
-    public TeamInviteContext? Team => _team;
+    /// <summary>
+    /// O indicador de cofre do shell, repassado à tela de Equipe. É a MESMA instância que a barra de
+    /// status usa — duas cópias do estado divergiriam, e a tela de Equipe é justamente onde a
+    /// divergência seria mais cara de acreditar. Nunca null (sem shell, nasce em "cofre pessoal",
+    /// que continua sendo a verdade).
+    /// </summary>
+    public VaultBadgeViewModel VaultBadge { get; }
+
+    /// <summary>
+    /// Reavalia em qual cofre o operador está. Mora aqui (e não no code-behind) para poder ser
+    /// exercitado por teste — a janela de falha que ele fecha é sutil demais para ficar sem cobertura.
+    ///
+    /// <para><b>Por que existe:</b> gerar o PRIMEIRO convite é o ato que faz a chave do time nascer
+    /// neste computador, ou seja, é exatamente aí que o workspace ativo passa a ser "de time". Sem
+    /// esta reavaliação, o indicador continuaria dizendo "cofre pessoal", sem o aviso, até o próximo
+    /// reinício — no pior momento possível: o operador acabou de convidar alguém e vai começar a
+    /// cadastrar achando que já está compartilhando.</para>
+    ///
+    /// <para>Sem conta na nuvem, a sondagem é <c>null</c> e o indicador volta ao estado local, que
+    /// continua sendo a verdade.</para>
+    /// </summary>
+    public Task RefreshVaultScopeAsync(CancellationToken ct = default) =>
+        VaultBadge.RefreshAsync(
+            _team is { } team
+                ? probeCt => team.Service.IsTeamWorkspaceAsync(team.WorkspaceId, probeCt)
+                : null,
+            ct);
+
+    /// <summary>Serviço + transporte + workspace ativo — as janelas de time os usam pra montar seus
+    /// VMs. Null sem conta.</summary>
+    public TeamContext? Team => _team;
 
     /// <summary>Pedido pra abrir a janela de convite, no modo escolhido (o code-behind a abre).</summary>
     public event EventHandler<TeamInviteMode>? TeamInviteRequested;
 
+    /// <summary>Pedido pra abrir a tela de Equipe (membros/remover) — o code-behind a abre.</summary>
+    public event EventHandler? TeamManagementRequested;
+
     public RelayCommand InviteToTeamCommand { get; }
 
     public RelayCommand JoinTeamCommand { get; }
+
+    public RelayCommand ManageTeamCommand { get; }
 
     /// <summary>Disparado após persistir; a janela fecha e avisa "requer reinício" se necessário.</summary>
     public event EventHandler? Saved;

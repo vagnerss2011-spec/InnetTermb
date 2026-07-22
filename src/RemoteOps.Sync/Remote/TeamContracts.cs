@@ -75,3 +75,45 @@ public sealed record AcceptTeamInviteResponse(
 /// distingue cofre de TIME de cofre PESSOAL (raiz AMK, que deriva a chave).
 /// </summary>
 public sealed record TeamWorkspaceKeyResponse(string WorkspaceId, string WrappedWk, int WkVersion);
+
+/// <summary>
+/// <c>GET /workspaces/{id}/members</c> — uma pessoa do time.
+///
+/// <para>Repare no que NÃO vem: o embrulho da WK. O de cada membro só abre com a AMK DELE, então
+/// mandá-lo aos outros não serviria a ninguém e só aumentaria a superfície.</para>
+/// </summary>
+/// <param name="HasWk">
+/// <c>false</c> = a pessoa ainda não tem a chave do time. Ela enxerga a lista do cofre e <b>não abre
+/// senha nenhuma</b> — precisa aparecer ESCRITO na tela de Equipe, senão vira "a senha não abre" no
+/// meio de um atendimento, sem ninguém ligar uma coisa à outra.
+/// </param>
+public sealed record TeamMemberDto(
+    string UserId,
+    string Email,
+    string DisplayName,
+    string Role,
+    bool HasWk,
+    int WkVersion);
+
+/// <summary>Espelho de <c>TeamMembersResponse</c> do servidor.</summary>
+public sealed record TeamMembersResponse(IReadOnlyList<TeamMemberDto> Members);
+
+/// <summary>
+/// Desfecho de <c>DELETE /workspaces/{id}/members/{userId}</c>.
+///
+/// <para><b>Por que enum e não exceção:</b> o servidor tem TRÊS respostas legítimas (removi / essa
+/// pessoa não era membro / é o último dono) e as três precisam virar frases DIFERENTES na tela.
+/// Espremer as duas últimas num <c>throw</c> genérico faria a tela dizer "não foi possível remover"
+/// e engolir exatamente o motivo que o operador precisa saber para agir.</para>
+/// </summary>
+public enum TeamMemberRemoval
+{
+    /// <summary>Membership apagada — o acesso está cortado do próximo pedido em diante.</summary>
+    Removed,
+
+    /// <summary>Não havia membership (204 aqui seria mentira na tela).</summary>
+    NotAMember,
+
+    /// <summary>Último dono: remover deixaria o time sem ninguém que possa administrá-lo.</summary>
+    LastOwner,
+}

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
@@ -45,7 +46,10 @@ public sealed class TeamInviteViewModel : BaseViewModel
 
     private TeamInviteMode _mode;
     private string _email = string.Empty;
-    private string _role = "Technician";
+
+    // Era "Technician" — um papel que NÃO EXISTE no RBAC do servidor (lá é "Operator"). O convite
+    // saía com 400 e o operador não tinha como adivinhar o que digitar. Ver TeamRoles.
+    private string _role = TeamRoles.Default;
     private string _inviteId = string.Empty;
     private string _code = string.Empty;
     private string _generatedCode = string.Empty;
@@ -96,7 +100,39 @@ public sealed class TeamInviteViewModel : BaseViewModel
     public string Email { get => _email; set => Set(ref _email, value); }
 
     /// <summary>Papel RBAC do convidado. O backend recusa papel mais poderoso que o de quem convida.</summary>
-    public string Role { get => _role; set => Set(ref _role, value); }
+    public string Role
+    {
+        get => _role;
+        set { Set(ref _role, value); RaisePropertyChanged(nameof(RoleDescription)); }
+    }
+
+    /// <summary>
+    /// Os papéis oferecidos. Lista fechada de propósito: com campo livre, "Tecnico" (sem acento) ou
+    /// "operator" (minúsculo) viravam um 400 do servidor DEPOIS de o dono já ter ditado o código por
+    /// telefone — e o convite tinha de ser refeito do zero, com código novo.
+    /// </summary>
+    public IReadOnlyList<TeamRoles.Option> RoleOptions => TeamRoles.Options;
+
+    /// <summary>
+    /// O que o papel escolhido permite, em uma frase. O id do RBAC ("MikroTikOperator") não diz nada
+    /// a quem está na rua, e escolher errado aqui só aparece semanas depois como "não consigo
+    /// cadastrar o cliente".
+    /// </summary>
+    public string RoleDescription
+    {
+        get
+        {
+            foreach (TeamRoles.Option option in TeamRoles.Options)
+            {
+                if (string.Equals(option.Id, _role, StringComparison.Ordinal))
+                {
+                    return option.Description;
+                }
+            }
+
+            return string.Empty;
+        }
+    }
 
     public string InviteId { get => _inviteId; set => Set(ref _inviteId, value); }
 

@@ -23,11 +23,17 @@ public sealed class TeamInviteException : Exception
 }
 
 /// <summary>
-/// O que a tela de Equipe precisa para funcionar: o serviço + o workspace ATIVO. Andam juntos
-/// porque um convite é sempre PARA um workspace — deixar a tela adivinhar qual seria repetir, por
-/// outro caminho, o erro que a escolha do cofre ao abrir veio impedir.
+/// O que a tela de Equipe precisa para funcionar: o serviço de convite, o transporte do time e o
+/// workspace ATIVO. Andam juntos porque convite, lista de membros e remoção são sempre PARA um
+/// workspace — deixar a tela adivinhar qual seria repetir, por outro caminho, o erro que a escolha
+/// do cofre ao abrir veio impedir.
 /// </summary>
-public sealed record TeamInviteContext(TeamInviteService Service, string WorkspaceId);
+/// <param name="Api">
+/// O transporte cru, para listar e remover membros (1e). Separado do <paramref name="Service"/> de
+/// propósito: aquele existe porque o convite tem CRIPTO no meio; membros são só HTTP, e passar por
+/// um "serviço" que não faz nada seria uma camada a manter sem nada a ganhar.
+/// </param>
+public sealed record TeamContext(TeamInviteService Service, ITeamApi Api, string WorkspaceId);
 
 /// <summary>Convite recém-gerado — o que a tela do dono precisa mostrar.</summary>
 /// <param name="Code">
@@ -255,6 +261,38 @@ public sealed class TeamInviteService
             Convert.FromBase64String(key.WrappedWk),
             ct).ConfigureAwait(false);
         return true;
+    }
+
+    /// <summary>
+    /// Este workspace é de TIME (chave aleatória, compartilhada) ou PESSOAL (chave derivada da AMK)?
+    /// É a pergunta que alimenta o indicador de cofre do shell.
+    ///
+    /// <para><b>Disco primeiro, servidor depois.</b> Ter a WK deste workspace guardada aqui já é
+    /// prova de que ele é de time, e essa resposta vale offline — que é a condição normal de campo.
+    /// Só quando não há chave local a pergunta vai à rede; e aí a MESMA chamada
+    /// (<see cref="TryRestoreTeamKeyAsync"/>) já <b>restaura</b> a chave neste device, que é o que
+    /// faz o segundo PC do membro abrir o cofre.</para>
+    ///
+    /// <para><b>Não engole falha de rede.</b> Um <c>catch</c> devolvendo <c>false</c> aqui faria o
+    /// indicador afirmar "cofre pessoal" com toda a confiança quando o app simplesmente não
+    /// perguntou — e o operador cadastraria o cliente sem ver o aviso. A exceção sobe; quem chama
+    /// transforma isso em "não confirmado", visível na tela.</para>
+    /// </summary>
+    public async Task<bool> IsTeamWorkspaceAsync(string workspaceId, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
+
+        using (WorkspaceKey? local = await _keyRing
+            .TryGetWorkspaceKeyAsync(AppRuntime.TeamVaultWorkspace(workspaceId), ct)
+            .ConfigureAwait(false))
+        {
+            if (local is not null)
+            {
+                return true;
+            }
+        }
+
+        return await TryRestoreTeamKeyAsync(workspaceId, ct).ConfigureAwait(false);
     }
 
     /// <summary>

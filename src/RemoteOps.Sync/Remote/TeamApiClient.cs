@@ -100,4 +100,40 @@ public sealed class TeamApiClient : ITeamApi
 
         return await CloudAuthChannel.ReadResultAsync<TeamWorkspaceKeyResponse>(resp, ct);
     }
+
+    public async Task<TeamMembersResponse> GetMembersAsync(
+        string workspaceId, CancellationToken ct = default)
+    {
+        using HttpResponseMessage resp = await _channel.SendAsync(
+            () => new HttpRequestMessage(HttpMethod.Get, $"/workspaces/{workspaceId}/members"), ct);
+
+        // NENHUM status vira lista vazia aqui — nem o 403. "Este time não tem ninguém" é a mentira
+        // mais cara que a tela de Equipe pode contar, e ela nasceria exatamente de um catch cordial
+        // neste ponto. Quem decide o que dizer ao operador é a VM, com o erro na mão.
+        if (!resp.IsSuccessStatusCode)
+        {
+            throw new CloudSyncException(resp.StatusCode);
+        }
+
+        return await CloudAuthChannel.ReadResultAsync<TeamMembersResponse>(resp, ct);
+    }
+
+    public async Task<TeamMemberRemoval> RemoveMemberAsync(
+        string workspaceId, string userId, CancellationToken ct = default)
+    {
+        using HttpResponseMessage resp = await _channel.SendAsync(
+            () => new HttpRequestMessage(HttpMethod.Delete, $"/workspaces/{workspaceId}/members/{userId}"), ct);
+
+        // 404 e 409 são RESPOSTA do domínio, não falha de transporte — o servidor os usa para dizer
+        // "essa pessoa não é membro" e "esse é o último dono". Traduzi-los em exceção genérica faria
+        // a tela dizer "não foi possível remover" e engolir a única informação que resolve o caso.
+        // Qualquer OUTRO status continua estourando: um 403 silencioso viraria "removi" na tela.
+        return resp.StatusCode switch
+        {
+            HttpStatusCode.NotFound => TeamMemberRemoval.NotAMember,
+            HttpStatusCode.Conflict => TeamMemberRemoval.LastOwner,
+            _ when resp.IsSuccessStatusCode => TeamMemberRemoval.Removed,
+            _ => throw new CloudSyncException(resp.StatusCode),
+        };
+    }
 }

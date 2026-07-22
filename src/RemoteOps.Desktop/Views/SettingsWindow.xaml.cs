@@ -16,6 +16,7 @@ public partial class SettingsWindow : Window
         viewModel.Saved += (_, _) => Close();
         viewModel.MfaSetupRequested += OnMfaSetupRequested;
         viewModel.TeamInviteRequested += OnTeamInviteRequested;
+        viewModel.TeamManagementRequested += OnTeamManagementRequested;
         // O restart vive no App (ele segura o mutex de instância única). Fechar a janela primeiro
         // não faz mal: o RestartApplication encerra o processo inteiro logo em seguida.
         viewModel.RestartRequested += (_, _) => (Application.Current as App)?.RestartApplication();
@@ -49,12 +50,57 @@ public partial class SettingsWindow : Window
             return;
         }
 
+        ShowInviteWindow(team, mode, this);
+    }
+
+    /// <summary>
+    /// Abre a tela de Equipe (modal). O indicador de cofre vem do VM do shell (a MESMA instância que
+    /// a barra de status usa): duas cópias do estado divergiriam, e a tela de Equipe é justamente
+    /// onde a divergência seria mais cara de acreditar.
+    /// </summary>
+    private void OnTeamManagementRequested(object? sender, EventArgs e)
+    {
+        if (Vm.Team is not { } team)
+        {
+            return;
+        }
+
+        var teamViewModel = new TeamViewModel(team.Api, team.WorkspaceId, Vm.VaultBadge);
+        var window = new TeamWindow(teamViewModel) { Owner = this };
+
+        // Convidar a partir da tela de Equipe: a janela de convite abre por CIMA dela e, ao fechar,
+        // a lista é RELIDA — sem isso, quem acabou de ser convidado só apareceria se o operador
+        // descobrisse sozinho que precisa clicar em Atualizar.
+        window.InviteRequested += (_, _) =>
+        {
+            ShowInviteWindow(team, TeamInviteMode.Generate, window);
+            _ = teamViewModel.LoadAsync();
+        };
+
+        window.ShowDialog();
+    }
+
+    /// <summary>
+    /// Abre a janela de convite (modal) e, ao fechar, REAVALIA em qual cofre o operador está.
+    ///
+    /// <para>Sem essa reavaliação existe uma janela de falha muda concreta: gerar o primeiro convite
+    /// é o ato que faz a chave do time NASCER neste PC, ou seja, é exatamente aí que o workspace
+    /// ativo passa a ser "de time" — e o indicador continuaria dizendo "cofre pessoal", sem o aviso,
+    /// até o próximo reinício. É o pior momento possível para o aviso sumir: o operador acabou de
+    /// convidar alguém e vai começar a cadastrar achando que já está compartilhando.</para>
+    /// </summary>
+    private void ShowInviteWindow(Account.TeamContext team, TeamInviteMode mode, Window owner)
+    {
         var window = new TeamInviteWindow(
             new TeamInviteViewModel(team.Service, team.WorkspaceId, mode))
         {
-            Owner = this,
+            Owner = owner,
         };
         window.ShowDialog();
+
+        // Barato: com a chave já no disco, a sondagem nem toca a rede. A regra em si mora no VM
+        // (SettingsViewModel.RefreshVaultScopeAsync), onde é exercitada por teste.
+        _ = Vm.RefreshVaultScopeAsync();
     }
 
     // Seleciona a aba pelo texto do Header (ex.: abrir direto em "Atualização" via o menu do avatar).

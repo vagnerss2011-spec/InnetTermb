@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Net;
+using System.Net.Http;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
@@ -101,12 +102,32 @@ public sealed class TeamInviteServiceTests
                 Workspace, WorkspaceName, _invite!.Role, _invite.WkVersion, SessionRefreshRequired));
         }
 
+        /// <summary>O que <c>GET /workspaces/{id}/key</c> devolve. <c>null</c> = 404 = cofre pessoal.</summary>
+        public TeamWorkspaceKeyResponse? WorkspaceKey { get; set; }
+
+        /// <summary>Servidor fora do ar na hora de perguntar a chave (a rede cai em campo).</summary>
+        public bool KeyEndpointOffline { get; set; }
+
         public Task<TeamWorkspaceKeyResponse?> GetWorkspaceKeyAsync(
             string workspaceId, CancellationToken ct = default)
         {
             Calls.Add("key");
-            return Task.FromResult<TeamWorkspaceKeyResponse?>(null);
+            if (KeyEndpointOffline)
+            {
+                throw new HttpRequestException("rede indisponível (teste)");
+            }
+
+            return Task.FromResult(WorkspaceKey);
         }
+
+        // Membros: fora do escopo destes testes (o alvo aqui é a cripto do convite).
+        public Task<TeamMembersResponse> GetMembersAsync(
+            string workspaceId, CancellationToken ct = default)
+            => throw new NotSupportedException();
+
+        public Task<TeamMemberRemoval> RemoveMemberAsync(
+            string workspaceId, string userId, CancellationToken ct = default)
+            => throw new NotSupportedException();
     }
 
     private sealed record Side(FakeTeamApi Api, WkWorkspaceKeyRing Ring, TeamInviteService Service, byte[] Amk);
@@ -355,6 +376,92 @@ public sealed class TeamInviteServiceTests
         AcceptedTeamInvite aceito = await convidado.Service.AcceptInviteAsync(invite.InviteId, invite.Code);
 
         Assert.True(aceito.SessionRefreshRequired);
+    }
+
+    // ── "Em qual cofre eu estou?" (1e) ───────────────────────────────────────────────────
+    //
+    // É a pergunta que alimenta o indicador do shell. Errar a resposta é caro nos DOIS sentidos:
+    // dizer "time" num cofre pessoal faz o operador cadastrar o cliente achando que compartilhou;
+    // dizer "pessoal" num workspace de time esconde dele que o colega não vai abrir as senhas.
+
+    /// <summary>
+    /// Com a chave do time JÁ no disco a resposta sai sem rede nenhuma. É o caminho de todo boot
+    /// depois do primeiro — e o que faz o indicador continuar honesto no cliente sem sinal.
+    /// </summary>
+    [Fact]
+    public async Task ETime_RespondeDoDisco_SemPerguntarAoServidor()
+    {
+        var api = new FakeTeamApi();
+        Side dono = NewSide(api);
+        using WkWorkspaceKeyRing ring = dono.Ring;
+
+        // Convidar é o ato que faz a WK do time nascer neste PC.
+        await dono.Service.CreateInviteAsync(Workspace, "colega@innet.tec.br", "Manager");
+        api.Calls.Clear();
+
+        Assert.True(await dono.Service.IsTeamWorkspaceAsync(Workspace));
+        Assert.DoesNotContain("key", api.Calls);
+    }
+
+    /// <summary>
+    /// Sem chave local, só o servidor sabe — e a MESMA pergunta restaura a chave neste device. É o
+    /// segundo PC do membro: a AMK é portável, o embrulho gravado em disco não é.
+    /// </summary>
+    [Fact]
+    public async Task ETime_SemChaveLocal_PerguntaAoServidor_ERestauraAChave()
+    {
+        var api = new FakeTeamApi();
+        Side dono = NewSide(api);
+        using WkWorkspaceKeyRing ringDono = dono.Ring;
+        await dono.Service.CreateInviteAsync(Workspace, "colega@innet.tec.br", "Manager");
+
+        // Mesma conta (mesma AMK), device NOVO: ring vazio.
+        byte[] amk = dono.Amk;
+        using var ringNovo = new WkWorkspaceKeyRing(new InMemoryWorkspaceKeyStore(), amk);
+        var servico = new TeamInviteService(api, ringNovo);
+
+        // O servidor guarda o embrulho da membership — que é o que o ring do dono produziu.
+        byte[] wrapped = await dono.Ring.ImportWorkspaceKeyAsync(
+            RemoteOps.Desktop.Account.AppRuntime.TeamVaultWorkspace(Workspace),
+            (await dono.Ring.TryGetWorkspaceKeyAsync(
+                RemoteOps.Desktop.Account.AppRuntime.TeamVaultWorkspace(Workspace)))!.Key.ToArray());
+        api.WorkspaceKey = new TeamWorkspaceKeyResponse(Workspace, Convert.ToBase64String(wrapped), 1);
+
+        Assert.True(await servico.IsTeamWorkspaceAsync(Workspace));
+        Assert.Contains("key", api.Calls);
+
+        // Restaurou de verdade: a próxima pergunta já sai do disco.
+        WorkspaceKey? agoraLocal = await ringNovo.TryGetWorkspaceKeyAsync(
+            RemoteOps.Desktop.Account.AppRuntime.TeamVaultWorkspace(Workspace));
+        Assert.NotNull(agoraLocal);
+        agoraLocal.Dispose();
+    }
+
+    /// <summary>Workspace pessoal: o servidor responde 404 (null) e a resposta é "não é time".</summary>
+    [Fact]
+    public async Task ECofrePessoal_QuandoOServidorNaoTemChave()
+    {
+        var api = new FakeTeamApi { WorkspaceKey = null };
+        Side conta = NewSide(api);
+        using WkWorkspaceKeyRing ring = conta.Ring;
+
+        Assert.False(await conta.Service.IsTeamWorkspaceAsync(Workspace));
+    }
+
+    /// <summary>
+    /// <b>Sem rede, a resposta NÃO é "pessoal".</b> Engolir a falha aqui devolveria <c>false</c> e o
+    /// indicador diria "cofre pessoal" com toda a confiança — o operador cadastraria o cliente sem
+    /// nunca ver o aviso. A exceção sobe, e quem chama transforma isso em "não confirmado".
+    /// </summary>
+    [Fact]
+    public async Task SemRede_NaoFingeQueECofrePessoal()
+    {
+        var api = new FakeTeamApi { KeyEndpointOffline = true };
+        Side conta = NewSide(api);
+        using WkWorkspaceKeyRing ring = conta.Ring;
+
+        await Assert.ThrowsAsync<HttpRequestException>(
+            () => conta.Service.IsTeamWorkspaceAsync(Workspace));
     }
 
     /// <summary>

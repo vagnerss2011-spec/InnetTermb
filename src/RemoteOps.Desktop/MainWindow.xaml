@@ -7,12 +7,18 @@
         xmlns:terminal="clr-namespace:RemoteOps.Desktop.Terminal"
         xmlns:rdp="clr-namespace:RemoteOps.Desktop.Rdp"
         xmlns:ndesk="clr-namespace:RemoteOps.Desktop.NDesk"
-        Title="RemoteOps" Height="720" Width="1280"
+        Title="{Binding Browser.Vault.WindowTitle}" Height="720" Width="1280"
         MinHeight="480" MinWidth="800"
         Background="{DynamicResource Brush.Bg.App}"
         Foreground="{DynamicResource Brush.Text.Primary}"
         FontFamily="{DynamicResource Font.Family.Base}"
         FontSize="{DynamicResource Font.Size.Body}">
+
+    <!-- O Title acima carrega EM QUAL COFRE o operador está (Fatia 1e): é o único indicador que
+         continua visível com uma sessão SSH ocupando a janela inteira, e o que aparece no Alt+Tab e
+         na barra de tarefas. Binding, e não o literal "RemoteOps" de antes: um título fixo seria uma
+         informação a menos justamente quando o operador está digitando no equipamento de um cliente
+         e precisa saber se aquilo vai (ou não) para o time. -->
 
     <Window.InputBindings>
         <KeyBinding Modifiers="Ctrl" Key="W" Command="{Binding Tabs.CloseActiveTabCommand}"/>
