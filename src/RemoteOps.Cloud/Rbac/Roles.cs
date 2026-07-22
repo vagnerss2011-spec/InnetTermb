@@ -24,6 +24,35 @@ public static class Roles
     private static readonly HashSet<string> ReadOnlyAll = BuildReadOnly();
     private static readonly HashSet<string> ReleaseManagerAll = BuildReleaseManager();
 
+    /// <summary>
+    /// Papel reconhecido? Um papel desconhecido numa membership não concede NADA — o membro entra e
+    /// não enxerga nada, sem erro nenhum. Por isso o convite valida antes de gravar.
+    /// </summary>
+    public static bool IsKnown(string role) => PermissionsOf(role).Count > 0;
+
+    /// <summary>
+    /// Permissões do papel (vazio se desconhecido). Exposto para o convite comparar poder entre
+    /// papéis: quem convida não pode fabricar alguém MAIS poderoso que ele mesmo e ser removido
+    /// pela própria criatura em seguida.
+    /// </summary>
+    public static IReadOnlySet<string> PermissionsOf(string role) =>
+        role switch
+        {
+            Owner => OwnerAll,
+            Admin => AdminAll,
+            Manager => ManagerAll,
+            Operator => OperatorAll,
+            MikroTikOperator => MikroTikOperatorAll,
+            NDeskOperator => NDeskOperatorAll,
+            NDeskAdminOperator => NDeskAdminOperatorAll,
+            Auditor => AuditorAll,
+            ReadOnly => ReadOnlyAll,
+            ReleaseManager => ReleaseManagerAll,
+            _ => Empty,
+        };
+
+    private static readonly HashSet<string> Empty = [];
+
     public static bool RoleGrants(string role, string permission) =>
         role switch
         {

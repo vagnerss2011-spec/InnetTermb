@@ -19,6 +19,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<DeviceEntity> Devices => Set<DeviceEntity>();
     public DbSet<RefreshTokenEntity> RefreshTokens => Set<RefreshTokenEntity>();
     public DbSet<PasswordResetTokenEntity> PasswordResetTokens => Set<PasswordResetTokenEntity>();
+    public DbSet<InviteEntity> Invites => Set<InviteEntity>();
 
     protected override void OnModelCreating(ModelBuilder model)
     {
@@ -60,6 +61,37 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.HasIndex(x => x.WorkspaceId);
             e.HasOne(x => x.Workspace).WithMany(x => x.Memberships).HasForeignKey(x => x.WorkspaceId);
             e.HasOne(x => x.User).WithMany(x => x.Memberships).HasForeignKey(x => x.UserId);
+        });
+
+        model.Entity<InviteEntity>(e =>
+        {
+            e.ToTable("invites");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Email).HasMaxLength(320).IsRequired();
+            e.Property(x => x.Role).HasMaxLength(100).IsRequired();
+            // 64 hex de SHA-256. O tamanho fixo é guarda de formato: código cru (base32 do
+            // RecoveryKeyCodec) não cabe aqui, então um cliente que mandasse o CÓDIGO no lugar do
+            // hash quebraria alto em vez de gravar o segredo do time em claro no banco.
+            e.Property(x => x.CodeHash).HasMaxLength(64).IsRequired();
+            // Achar convite pendente do mesmo e-mail (supersessão na criação) sem varrer a tabela.
+            e.HasIndex(x => new { x.WorkspaceId, x.Email });
+            e.HasOne(x => x.Workspace).WithMany().HasForeignKey(x => x.WorkspaceId);
+
+            // ── Uso único sob corrida ──
+            // O aceite lê o convite pendente e só depois grava. Entre a leitura e a gravação, um
+            // SEGUNDO aceite passa pela mesma porta: as duas requisições ainda enxergam AcceptedAt
+            // nulo, e só o banco pode desempatar. Como token de concorrência, o EF condiciona a
+            // UPDATE ao estado lido (`WHERE "AcceptedAt" IS NULL`) e quem perde recebe
+            // DbUpdateConcurrencyException — que o InviteService traduz na MESMA recusa genérica.
+            //
+            // MEDIDO, e não presumido: hoje quem barra a segunda MEMBERSHIP é a chave primária
+            // (workspace+usuário) — desligar este token não faz o teste da corrida ficar vermelho,
+            // porque o convite é amarrado a UM e-mail e, portanto, a UMA conta. O token protege
+            // outra coisa: a linha do CONVITE, que sem ele poderia ser remarcada por quem perdeu a
+            // corrida (AcceptedAt/AcceptedByUserId apontando para o aceite que não valeu, num
+            // provider sem transação por SaveChanges). Guardado por teste dedicado
+            // (Convite_TemTokenDeConcorrencia_NoAcceptedAt) para não sumir num refactor.
+            e.Property(x => x.AcceptedAt).IsConcurrencyToken();
         });
 
         model.Entity<AssetGroupEntity>(e =>

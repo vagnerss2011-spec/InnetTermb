@@ -104,4 +104,17 @@ internal static class HttpContextExtensions
         return ctx.Request.Headers.TryGetValue("X-Device-Id", out var devHeader)
                && Guid.TryParse(devHeader, out deviceId);
     }
+
+    /// <summary>
+    /// Id da conta pelo JWT. Existe separado do <see cref="ToPermissionContext"/> porque o aceite de
+    /// convite precisa saber QUEM está aceitando sem ter workspace nenhum ainda — o convidado só
+    /// vira membro depois. E o id vem do token, nunca do corpo: aceitar um userId do corpo deixaria
+    /// qualquer conta autenticada entrar no time no lugar do convidado.
+    /// </summary>
+    internal static bool TryGetUserId(this HttpContext ctx, out Guid userId)
+    {
+        var raw = ctx.User.FindFirstValue(ClaimTypes.NameIdentifier)
+                  ?? ctx.User.FindFirstValue("sub");
+        return Guid.TryParse(raw, out userId);
+    }
 }

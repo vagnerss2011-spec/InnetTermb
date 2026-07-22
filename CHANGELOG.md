@@ -7,6 +7,44 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 **Fatia 1** do recurso de times compartilhados (ver
 `docs/superpowers/plans/2026-07-21-time-fatia1.md`).
 
+### Adicionado
+
+- **Convite de time por e-mail + código fora-de-banda (lado servidor).** Quem administra o time gera
+  um convite; o app dele sorteia um **código de 160 bits**, embrulha a chave do time sob esse código
+  e sobe para o servidor **só o blob cifrado e o SHA-256 do código**. O e-mail leva **o link**, e diz
+  com todas as letras que **o código vem por outro canal** (WhatsApp, telefone). É de propósito: se
+  as duas metades viajassem no mesmo e-mail, quem lesse a caixa de entrada do colega entraria no
+  cofre do time — e a criptografia ponta a ponta viraria teatro. O servidor **nunca** vê o código, a
+  chave do time nem qualquer texto claro.
+  - Convite com **prazo de 7 dias** e **uso único**. Recusa **idêntica** para convite inexistente,
+    expirado, já usado, de outro e-mail ou com código errado: qualquer diferença transformaria o
+    endpoint num oráculo de "esse e-mail tem convite pendente". O motivo real fica só no log do
+    servidor. Comparação do hash em **tempo constante**.
+  - **Gerar um convite novo cancela o pendente** do mesmo e-mail — um código já repassado por
+    telefone envelhece.
+  - **E-mail que não sai não derruba o convite, e não some em silêncio**: a resposta traz
+    `emailDelivered: false` (a tela avisa) e o log registra em ERROR. O convite continua válido para
+    quem convidou repassar link e código na mão.
+- **Chave do time por membro.** A membership passou a guardar a chave do workspace **embrulhada sob a
+  chave de conta daquele membro** (blob opaco, diferente para cada pessoa) e a **versão** dessa
+  chave. A versão entra **desde o primeiro dia**, antes de existir rotação: sem ela, quando a rotação
+  chegar, um estado misto (um membro na chave v1, outro na v2) seria **indetectável** e viraria erro
+  mudo no PC do colega.
+- **Endpoints de equipe:** criar convite (exige a permissão `user.invite`), abrir convite, aceitar,
+  listar membros, remover membro e baixar a **própria** chave do workspace. RBAC pelo avaliador de
+  permissões que já protege o `/sync` e o `/secrets`.
+  - **Remover membro corta o acesso do próximo pedido em diante** — provado em teste: pull e push do
+    ex-membro passam a ser negados. O que ele já baixou **continua na máquina dele**, e nenhum
+    servidor desfaz isso; a resposta completa é trocar as senhas nos equipamentos.
+  - **Não dá para remover o último dono** (o time ficaria sem ninguém que possa administrá-lo) nem
+    para convidar alguém **mais poderoso que quem convida**.
+  - Depois de aceitar, o servidor **avisa que a sessão precisa ser renovada**. Sem esse aviso o
+    convite "funcionava" e o cofre do time respondia *acesso negado* até o token expirar, sem
+    ninguém entender por quê — a conta passa a pertencer a dois tenants e o token que ela já tem na
+    mão fica desatualizado.
+- Migração de banco `AddTeamInvites` (tabela de convites + duas colunas na membership). **Aditiva**:
+  o cofre pessoal e os ~700 equipamentos não mudam em nada.
+
 ### Segurança
 
 - **Upsert de segredo ganhou token de concorrência** — era o pré-requisito registrado na v1.4.7 como

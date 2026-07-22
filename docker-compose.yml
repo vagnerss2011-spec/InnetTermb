@@ -67,6 +67,11 @@ services:
       Smtp__Password: ${SMTP_PASSWORD:-}
       Smtp__From: ${SMTP_FROM:-}
       Smtp__UseSsl: ${SMTP_USE_SSL:-true}
+      # ── Convite de time (Fatia 1) ──
+      # Base do link que vai no e-mail do convite. Vazio = o e-mail leva só o IDENTIFICADOR
+      # do convite (funciona igual; o convidado cola no app). O CÓDIGO do convite NUNCA vai
+      # neste e-mail nem depende desta variável — ele viaja por outro canal, por desenho.
+      Invites__LinkBase: ${INVITES_LINK_BASE:-}
     # Sem `ports:`: quem fala com a internet é o Caddy, sempre em HTTPS.
     # O healthcheck da API vem do HEALTHCHECK do Dockerfile (curl em /health) e
     # aparece no `docker compose ps` — não precisa ser redeclarado aqui.

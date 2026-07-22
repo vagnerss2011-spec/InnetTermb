@@ -13,6 +13,7 @@ using RemoteOps.Cloud.Hubs;
 using RemoteOps.Cloud.Rbac;
 using RemoteOps.Cloud.Secrets;
 using RemoteOps.Cloud.Sync;
+using RemoteOps.Cloud.Teams;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -95,6 +96,9 @@ builder.Services.AddScoped<PermissionEvaluator>();
 builder.Services.AddScoped<SyncService>();
 builder.Services.AddScoped<SecretsService>();
 builder.Services.AddScoped<AuditService>();
+// Times compartilhados (Fatia 1): convite por código fora-de-banda + membros.
+builder.Services.AddScoped<InviteService>();
+builder.Services.AddScoped<TeamService>();
 
 // ── Tratamento de erros ──────────────────────────────────────────────────────
 builder.Services.AddExceptionHandler<CloudExceptionHandler>();
@@ -143,6 +147,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "healthy" })).AllowAnonymo
 app.MapAuthEndpoints();
 app.MapSyncEndpoints();
 app.MapSecretsEndpoints();
+app.MapTeamEndpoints();
 
 // ── SignalR Hub ───────────────────────────────────────────────────────────────
 app.MapHub<SyncHub>("/hubs/sync");

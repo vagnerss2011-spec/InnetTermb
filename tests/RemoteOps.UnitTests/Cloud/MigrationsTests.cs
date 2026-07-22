@@ -130,4 +130,43 @@ public sealed class MigrationsTests
         Assert.Matches("CREATE TABLE \"?password_reset_tokens\"? \\(", sql);
         Assert.Matches("CREATE UNIQUE INDEX .*password_reset_tokens.*TokenHash", sql);
     }
+
+    /// <summary>
+    /// Fatia 1: a migração dos times TEM DDL de verdade (tabela nova + duas colunas), diferente da
+    /// do token de concorrência. Se o snapshot não fechar, o container sobe com o schema velho e o
+    /// primeiro convite morre num 500.
+    /// </summary>
+    [Fact]
+    public void MigrationDeTimes_CriaConvitesEAsColunasDaChavePorMembro()
+    {
+        using var db = OfflineNpgsqlContext();
+        var sql = db.GetService<IMigrator>().GenerateScript();
+
+        Assert.Matches("CREATE TABLE \"?invites\"? \\(", sql);
+        Assert.Contains("\"CodeHash\"", sql, StringComparison.Ordinal);
+        Assert.Contains("\"WrappedWkByInvite\"", sql, StringComparison.Ordinal);
+
+        // Aditivas na membership: o cofre PESSOAL continua com WrappedWk nulo e WkVersion 0 — nada
+        // que já existe muda de comportamento.
+        Assert.Matches("ALTER TABLE memberships\\s+ADD \"WrappedWk\" bytea", sql);
+        Assert.Matches("ALTER TABLE memberships\\s+ADD \"WkVersion\" integer", sql);
+    }
+
+    /// <summary>
+    /// Espelha o guarda do <c>SecretEnvelope</c>: token de concorrência é comportamento de MODELO, e
+    /// a suíte roda no InMemory. Esta asserção garante que o provider de PRODUÇÃO monta o mesmo
+    /// modelo — senão alguém removeria a marcação e veria a suíte verde por acidente.
+    /// </summary>
+    [Fact]
+    public void Invite_TemTokenDeConcorrencia_NoProviderDeProducao()
+    {
+        using var db = OfflineNpgsqlContext();
+        var invite = db.Model.FindEntityType(typeof(InviteEntity));
+        Assert.NotNull(invite);
+
+        Assert.True(
+            invite.FindProperty(nameof(InviteEntity.AcceptedAt))!.IsConcurrencyToken,
+            "AcceptedAt deixou de ser token de concorrência — a linha do convite volta a poder ser "
+            + "remarcada por um aceite que perdeu a corrida.");
+    }
 }

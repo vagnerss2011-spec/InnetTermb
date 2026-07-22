@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using RemoteOps.Cloud.Audit;
 using RemoteOps.Cloud.Auth;
@@ -11,8 +12,44 @@ using RemoteOps.Cloud.Hubs;
 using RemoteOps.Cloud.Rbac;
 using RemoteOps.Cloud.Secrets;
 using RemoteOps.Cloud.Sync;
+using RemoteOps.Cloud.Teams;
 
 namespace RemoteOps.UnitTests.Cloud;
+
+/// <summary>
+/// Logger que guarda as mensagens formatadas. Existe para provar AUSÊNCIA: nenhum código de
+/// convite, hash ou blob pode aparecer no que o servidor loga (ADR-013).
+/// </summary>
+internal sealed class CapturingLogger<T> : ILogger<T>
+{
+    private readonly object _gate = new();
+    private readonly List<string> _messages = [];
+
+    public IReadOnlyList<string> Messages
+    {
+        get { lock (_gate) { return _messages.ToList(); } }
+    }
+
+    /// <summary>Tudo o que foi logado, concatenado — conveniente para um único Assert.DoesNotContain.</summary>
+    public string AllText => string.Join("\n", Messages);
+
+    public IDisposable BeginScope<TState>(TState state) where TState : notnull => NullScope.Instance;
+
+    public bool IsEnabled(LogLevel logLevel) => true;
+
+    public void Log<TState>(
+        LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+        Func<TState, Exception?, string> formatter)
+    {
+        lock (_gate) { _messages.Add(formatter(state, exception)); }
+    }
+
+    private sealed class NullScope : IDisposable
+    {
+        public static readonly NullScope Instance = new();
+        public void Dispose() { }
+    }
+}
 
 /// <summary>
 /// Contexto de teste compartilhado: AppDbContext InMemory + serviços reais.
@@ -35,6 +72,15 @@ internal sealed class CloudTestContext : IDisposable
 
     /// <summary>PasswordResetService com relógio real (testes de expiração/cooldown criam o seu).</summary>
     public PasswordResetService PasswordReset { get; }
+
+    /// <summary>Convites do time (relógio real; o teste de expiração cria o seu com relógio fixo).</summary>
+    public InviteService Invites { get; }
+
+    /// <summary>Membros do time (listar, remover, chave do próprio membro).</summary>
+    public TeamService Team { get; }
+
+    /// <summary>Captura o que o InviteService logou — a prova de que código/hash não vazam (ADR-013).</summary>
+    public CapturingLogger<InviteService> InviteLogger { get; } = new();
 
     /// <summary>Relógio fixo compartilhado por MfaService e pelas sessões TOTP dos testes.</summary>
     public static readonly DateTimeOffset FixedNow = DateTimeOffset.FromUnixTimeSeconds(1_700_000_000);
@@ -81,7 +127,28 @@ internal sealed class CloudTestContext : IDisposable
         Mfa = new MfaService(Db, MfaProtector, NullLogger<MfaService>.Instance) { UtcNow = () => FixedNow };
         Email = new FakeEmailSender();
         PasswordReset = new PasswordResetService(Db, Email, NullLogger<PasswordResetService>.Instance);
+        Invites = new InviteService(Db, Rbac, Audit, Email, _config, InviteLogger);
+        Team = new TeamService(Db, Rbac, Audit, NullLogger<TeamService>.Instance);
     }
+
+    /// <summary>
+    /// <see cref="InviteService"/> com relógio controlável, sobre o MESMO banco. Usado pelos testes
+    /// de expiração (TTL de 7 dias não pode virar Task.Delay).
+    /// </summary>
+    public InviteService InvitesAt(Func<DateTimeOffset> clock) =>
+        new(Db, Rbac, Audit, Email, _config, InviteLogger) { UtcNow = clock };
+
+    /// <summary>
+    /// <see cref="InviteService"/> amarrado a um contexto específico — o "outro request" da corrida
+    /// de aceite concorrente (cada requisição HTTP real tem o próprio DbContext).
+    /// </summary>
+    public InviteService InvitesOn(AppDbContext other) =>
+        new(other,
+            new PermissionEvaluator(other),
+            new AuditService(other, NullLogger<AuditService>.Instance),
+            Email,
+            _config,
+            InviteLogger);
 
     /// <summary>TokenService com o relógio fixo — para validar TOTP determinístico no login dos testes.</summary>
     public TokenService TokensAtFixedNow()
@@ -145,6 +212,27 @@ internal sealed class CloudTestContext : IDisposable
         await Db.SaveChangesAsync();
 
         return (tenant, workspace, user, membership);
+    }
+
+    /// <summary>
+    /// Conta ativa SEM membership — é o convidado antes de aceitar. Separado do
+    /// <see cref="SeedActiveUserAsync"/> de propósito: o convite existe justamente para a conta que
+    /// ainda não pertence ao workspace.
+    /// </summary>
+    public async Task<UserEntity> SeedAccountAsync(string email)
+    {
+        var user = new UserEntity
+        {
+            Id = Guid.NewGuid(),
+            Email = email,
+            DisplayName = email.Split('@')[0],
+            Status = "active",
+            MfaRequired = false,
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+        Db.Users.Add(user);
+        await Db.SaveChangesAsync();
+        return user;
     }
 
     public void Dispose() => Db.Dispose();
