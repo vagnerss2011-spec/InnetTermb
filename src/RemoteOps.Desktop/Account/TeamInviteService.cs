@@ -156,12 +156,18 @@ public sealed class TeamInviteService
     /// teste de VM e de render: um refactor que a apague, ou que a troque por um erro genérico, tem
     /// de ficar vermelho. E porque o texto é a metade útil da guarda — "não foi possível concluir a
     /// operação" faria o operador tentar de novo achando que foi a rede.</para>
+    ///
+    /// <para><b>O "como entrar no time" sai da fonte única (<see cref="VaultSwitchText"/>).</b> A
+    /// versão anterior mandava <i>"ao abrir o RemoteOps de novo, escolha o time"</i> — a MESMA
+    /// mentira das quatro telas do H2 com outras palavras: com o cache da AMK em disco, reabrir
+    /// entra direto no mesmo cofre e não pergunta nada. O operador fechava, abria, e concluía que o
+    /// recurso não funciona. Quem troca de cofre é o botão, e a frase agora o nomeia.</para>
     /// </summary>
     public const string PersonalSessionRefusal =
         "Você está no seu COFRE PESSOAL, não num time. Convidar alguém a partir daqui daria a essa "
         + "pessoa acesso a TODOS os seus clientes e equipamentos cadastrados. Crie um time em "
-        + "Configurações → Conta → Equipe (ele nasce vazio) e, ao abrir o RemoteOps de novo, escolha "
-        + "o time — o convite sai de dentro dele.";
+        + "Configurações → Conta → Equipe (ele nasce vazio; o convite sai de DENTRO dele) e, para "
+        + "entrar no time, " + VaultSwitchText.HowToSwitch;
 
     private readonly ITeamApi _api;
     private readonly WkWorkspaceKeyRing _keyRing;

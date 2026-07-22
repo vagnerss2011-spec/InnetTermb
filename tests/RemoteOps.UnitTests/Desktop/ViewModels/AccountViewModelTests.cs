@@ -185,6 +185,32 @@ public sealed class AccountViewModelTests
         Assert.Equal(0, auth.RegisterCalls);
     }
 
+    /// <summary>
+    /// ⚠️ <b>Fechar a tela de escolha do cofre é desistência, não defeito.</b> A
+    /// <c>WorkspaceChoiceCancelledException</c> caía no <c>catch</c> genérico e virava <i>"Não foi
+    /// possível concluir a operação. Tente de novo."</i> — um recado de erro para um ato que o
+    /// próprio operador praticou, e é assim que ele conclui que a escolha do cofre "dá erro". O
+    /// contrato escrito no <c>IWorkspaceChooser</c> é "volta pro login sem berrar": recado neutro,
+    /// nenhum erro, e o Authenticated NÃO dispara.
+    /// </summary>
+    [Fact]
+    public async Task CancelarAEscolhaDoCofre_NaoVira_ErroGenerico()
+    {
+        var auth = new FakeAuthenticator { Throw = new WorkspaceChoiceCancelledException() };
+        var vm = NewVm(auth);
+        vm.Email = "op@innet.tec.br";
+        bool authenticated = false;
+        vm.Authenticated += (_, _) => authenticated = true;
+
+        await vm.SubmitAsync("senha-forte-123".ToCharArray(), null);
+
+        Assert.False(authenticated);
+        Assert.False(vm.HasError);
+        Assert.Contains("cancelada", vm.StatusMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "Não foi possível", vm.StatusMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task Submit_Login_Success_RaisesAuthenticated_AndKeepsSession()
     {

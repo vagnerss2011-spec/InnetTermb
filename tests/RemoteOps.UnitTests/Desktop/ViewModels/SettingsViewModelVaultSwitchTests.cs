@@ -212,10 +212,38 @@ public sealed class SettingsViewModelVaultSwitchTests
     // não tem, e o operador concluindo que a feature sumiu. Entra aqui, na guarda que já existe,
     // porque uma segunda guarda para a mesma regra é a duplicata que envelhece torto.
     [InlineData(WorkspaceChoiceViewModel.ExplanationText)]
+    // A SEXTA, achada na revisão de alcançabilidade: a recusa de convite na sessão pessoal mandava
+    // "ao abrir o RemoteOps de novo, escolha o time" — a MESMA mentira com outras palavras, que
+    // escapou da varredura porque não continha a substring "feche e abra".
+    [InlineData(TeamInviteService.PersonalSessionRefusal)]
+    // A SÉTIMA E A OITAVA (computadas, daí o MemberData): o aviso da fila parada no outro cofre
+    // mandava "feche o RemoteOps e abra de novo escolhendo o cofre" — nascido no G3, antes de o
+    // botão do H2 existir, e nunca revisitado. É o aviso do caminho DIÁRIO do operador com time
+    // (editou no pessoal, abriu no time): seguir o conselho caía no mesmo cofre e a fila continuava
+    // parada, com o app afirmando que o conserto era exatamente o que ele acabou de fazer.
+    [MemberData(nameof(MensagensComputadasDaFilaParada))]
     public void AsQuatroMensagens_APONTAM_ParaOBotao_EmVezDeMentir(string texto)
     {
         Assert.Contains(VaultSwitchText.HowToSwitch, texto, StringComparison.Ordinal);
         Assert.DoesNotContain("feche e abra", texto, StringComparison.OrdinalIgnoreCase);
+        // As variações da mesma mentira: reabrir NÃO pergunta nada com o cache da AMK em disco.
+        Assert.DoesNotContain("abra de novo", texto, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("abrir o RemoteOps de novo", texto, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// As mensagens que não são constantes (saem de uma VM com estado): o aviso da fila parada, nos
+    /// dois estados que instruem o operador — fila medida e fila que não pôde ser lida.
+    /// </summary>
+    public static TheoryData<string> MensagensComputadasDaFilaParada()
+    {
+        var pendente = new OtherVaultOutboxViewModel();
+        pendente.Apply(pendingPersonal: 12, pendingTeam: 0, checkFailed: false);
+
+        var ilegivel = new OtherVaultOutboxViewModel();
+        ilegivel.Apply(pendingPersonal: 0, pendingTeam: 0, checkFailed: true);
+
+        return [pendente.Detail, ilegivel.Detail];
     }
 
     /// <summary>

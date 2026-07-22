@@ -1,5 +1,7 @@
 using System.Globalization;
 
+using RemoteOps.Desktop.Account;
+
 namespace RemoteOps.Desktop.ViewModels;
 
 /// <summary>
@@ -56,6 +58,13 @@ public sealed class OtherVaultOutboxViewModel : BaseViewModel
     /// A frase inteira (tooltip): o que aconteceu, o que fazer e — o que o operador mais precisa
     /// ouvir — que nada foi perdido. Sem essa última parte, o aviso parece anúncio de estrago e o
     /// primeiro reflexo é refazer o cadastro, criando duplicata.
+    ///
+    /// <para><b>O "como abrir o outro cofre" sai da fonte única (<see cref="VaultSwitchText"/>).</b>
+    /// A versão anterior mandava <i>"feche o RemoteOps e abra de novo escolhendo o cofre"</i> — a
+    /// MESMA mentira das quatro telas do H2, nascida aqui no G3, antes de o botão existir: com o
+    /// cache da AMK em disco, reabrir entra direto no MESMO cofre e não pergunta nada. O operador
+    /// seguia o conselho, caía onde já estava, e a fila continuava parada — justamente a falha que
+    /// este aviso existe para matar. Quem troca de cofre é o botão, e a frase agora o nomeia.</para>
     /// </summary>
     public string Detail
     {
@@ -65,15 +74,15 @@ public sealed class OtherVaultOutboxViewModel : BaseViewModel
             {
                 return _checkFailed
                     ? "Não foi possível ler a fila de sincronização do outro cofre neste computador "
-                        + "agora. Pode haver alteração esperando para subir lá — abra o RemoteOps "
-                        + "naquele cofre para conferir."
+                        + "agora. Pode haver alteração esperando para subir lá — para abrir aquele "
+                        + "cofre e conferir, " + VaultSwitchText.HowToSwitch
                     : string.Empty;
             }
 
             string frase =
                 $"Essas alterações foram feitas {Onde} e continuam guardadas na fila dele. Elas só "
-                + $"sobem quando o RemoteOps for aberto naquele cofre: feche o RemoteOps e abra de "
-                + $"novo escolhendo {Qual}. Nada foi perdido.";
+                + $"sobem quando você abrir o RemoteOps {NoQual} — para isso, "
+                + $"{VaultSwitchText.HowToSwitch} Nada foi perdido.";
 
             return _checkFailed
                 ? frase + " Um dos cofres não pôde ser lido agora, então pode haver mais coisa "
@@ -107,10 +116,11 @@ public sealed class OtherVaultOutboxViewModel : BaseViewModel
         _ => "no cofre pessoal",
     };
 
-    private string Qual => (_personal > 0, _team > 0) switch
+    /// <summary>Idem, para o "abrir o RemoteOps {aqui}" — no plural, um de cada vez.</summary>
+    private string NoQual => (_personal > 0, _team > 0) switch
     {
-        (true, true) => "cada um deles",
-        (false, true) => "o cofre do time",
-        _ => "o cofre pessoal",
+        (true, true) => "em cada um deles",
+        (false, true) => "no cofre do time",
+        _ => "no cofre pessoal",
     };
 }

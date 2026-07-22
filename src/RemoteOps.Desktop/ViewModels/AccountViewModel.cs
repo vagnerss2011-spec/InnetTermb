@@ -226,6 +226,17 @@ public sealed class AccountViewModel : BaseViewModel
                 // foi código errado — a mensagem muda pra dizer isso. NÃO é erro de credencial.
                 EnterMfaChallenge(codeWasWrong: IsMfaChallenge);
             }
+            catch (WorkspaceChoiceCancelledException)
+            {
+                // O operador FECHOU a tela de escolha do cofre: desistência deliberada, não falha.
+                // Sem este caso ela caía no genérico "Não foi possível concluir a operação. Tente
+                // de novo." — um recado de defeito para um ato que o próprio operador praticou, e é
+                // assim que ele conclui que a escolha do cofre "dá erro". Volta ao login sem berrar
+                // (o contrato escrito no próprio IWorkspaceChooser), dizendo só o que acontece.
+                ErrorMessage = string.Empty;
+                StatusMessage = "Escolha do cofre cancelada — você não entrou. Entre de novo "
+                    + "quando quiser: a escolha aparece depois da senha.";
+            }
             catch (Exception ex)
             {
                 ErrorMessage = DescribeError(ex);

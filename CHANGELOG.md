@@ -224,6 +224,19 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ### Corrigido
 
+- **Mais duas telas mandavam "fechar e abrir" para trocar de cofre — e isso continua não trocando
+  nada.** O aviso de *"alterações paradas no outro cofre"* aconselhava *"feche o RemoteOps e abra de
+  novo escolhendo o cofre"*, e a recusa de convite no cofre pessoal mandava *"ao abrir o RemoteOps de
+  novo, escolha o time"*. As duas frases nasceram **antes** do botão "Trocar de cofre…" e escaparam da
+  primeira varredura por usarem outras palavras: seguir o conselho caía sempre no **mesmo** cofre, com
+  o aviso continuando na tela. Agora as duas usam o **mesmo texto único** das demais, que nomeia o
+  botão e diz o que acontece — e o teste que vigia as outras seis vigia estas também, inclusive contra
+  as variações "abra de novo".
+- **Desistir da escolha do cofre não é mais anunciado como erro.** Fechar a tela *"em qual cofre você
+  quer entrar?"* sem confirmar mostrava *"Não foi possível concluir a operação. Tente de novo."* — um
+  recado de defeito para um ato que o próprio operador praticou, e é assim que se conclui que a
+  escolha "dá erro". Agora a tela de login diz o que aconteceu (a entrada foi cancelada e a escolha
+  reaparece depois da senha), sem moldura de erro.
 - **A tela de escolha do cofre mandava usar um botão que não existe.** Ao abrir com mais de um cofre,
   a explicação dizia *"para trocar de cofre, saia da conta e entre de novo"* — e não existe "Sair da
   conta" em lugar nenhum do RemoteOps. Quem fosse procurar não acharia e concluiria o de sempre: que
