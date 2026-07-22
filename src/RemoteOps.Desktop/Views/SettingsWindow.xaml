@@ -164,6 +164,65 @@
                         <Separator Margin="0,12,0,12"/>
                     </StackPanel>
 
+                    <!-- ⚠️ TROCAR DE COFRE / SAIR DA CONTA — o ÚNICO caminho até a tela de escolha
+                         do cofre. O app entra pelo cache da AMK sem rede e sem perguntar nada, então
+                         enquanto esse cache existir "feche e abra o RemoteOps e escolha o time" não
+                         faz nada: o operador fecha, abre e cai no mesmo cofre pessoal. Some inteira
+                         sem conta na nuvem — sem conta não há de onde sair. -->
+                    <StackPanel x:Name="SwitchVaultSection"
+                                Visibility="{Binding CanSwitchVault, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Text="Trocar de cofre / sair da conta" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                        <TextBlock Text="O cofre é escolhido ao entrar na conta e vale para a sessão inteira. Use isto para trabalhar no cofre do time (ou voltar ao pessoal): o RemoteOps reinicia, pede a sua senha e mostra a lista de cofres."
+                                   Foreground="{DynamicResource Brush.Text.Secondary}"
+                                   FontSize="{DynamicResource Font.Size.Caption}"
+                                   TextWrapping="Wrap" Margin="0,0,0,8"/>
+
+                        <Button x:Name="SwitchVaultButton" Content="{Binding SwitchVaultButtonText}"
+                                Command="{Binding SwitchVaultCommand}"
+                                HorizontalAlignment="Left" Padding="10,4"/>
+
+                        <!-- A confirmação só aparece depois do clique, e é ela que MEDE a fila:
+                             trocar de cofre com trabalho esperando para subir é a única forma de
+                             isto virar perda de trabalho, e o operador precisa do número ANTES. -->
+                        <Border x:Name="SwitchVaultConfirmPanel" Margin="0,10,0,0" Padding="12"
+                                Background="{DynamicResource Brush.Bg.Canvas}"
+                                BorderBrush="{DynamicResource Brush.Border.Subtle}"
+                                BorderThickness="1"
+                                CornerRadius="{DynamicResource Radius.Control}"
+                                Visibility="{Binding IsSwitchVaultConfirmVisible, Converter={StaticResource BoolToVis}}">
+                            <StackPanel>
+                                <TextBlock Text="Sair da conta e escolher outro cofre?" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                                <TextBlock x:Name="SwitchVaultConfirmDetailText" Text="{Binding SwitchVaultConfirmDetail}"
+                                           Foreground="{DynamicResource Brush.Text.Secondary}"
+                                           FontSize="{DynamicResource Font.Size.Caption}"
+                                           TextWrapping="Wrap" Margin="0,0,0,8"/>
+
+                                <!-- O aviso da fila. Só aparece com algo MEDIDO (ou com "não deu para
+                                     conferir"): aviso permanente é aviso que ninguém lê. -->
+                                <TextBlock x:Name="SwitchVaultBacklogText" Text="{Binding SwitchVaultBacklogText}"
+                                           Foreground="{DynamicResource Brush.Status.CriticalBase}"
+                                           TextWrapping="Wrap" Margin="0,0,0,10"
+                                           Visibility="{Binding HasSwitchVaultBacklog, Converter={StaticResource BoolToVis}}"/>
+
+                                <StackPanel Orientation="Horizontal">
+                                    <Button x:Name="ConfirmSwitchVaultButton" Content="Sim, sair e escolher"
+                                            Command="{Binding ConfirmSwitchVaultCommand}"
+                                            Style="{DynamicResource Button.Primary}" Padding="10,4" Margin="0,0,8,0"/>
+                                    <Button x:Name="CancelSwitchVaultButton" Content="Cancelar"
+                                            Command="{Binding CancelSwitchVaultCommand}" Padding="10,4"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock x:Name="SwitchVaultStatusText" Text="{Binding SwitchVaultStatus}"
+                                   Foreground="{DynamicResource Brush.Text.Secondary}"
+                                   TextWrapping="Wrap" Margin="0,8,0,0"
+                                   Visibility="{Binding HasSwitchVaultStatus, Converter={StaticResource BoolToVis}}"/>
+
+                        <!-- Separador DENTRO da seção, pelo mesmo motivo dos blocos acima. -->
+                        <Separator Margin="0,12,0,12"/>
+                    </StackPanel>
+
                     <TextBlock Text="Verificação em duas etapas (2FA)" FontWeight="SemiBold" Margin="0,0,0,4"/>
                     <TextBlock Text="Exige um código do seu aplicativo autenticador ao entrar na conta da nuvem. Protege o acesso ao servidor; não altera a senha do cofre."
                                Foreground="{DynamicResource Brush.Text.Secondary}"

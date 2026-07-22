@@ -161,19 +161,10 @@ internal sealed class OtherVaultOutboxProbe
 
             using SqliteConnection conn = await workspace.OpenConnectionAsync(ct).ConfigureAwait(false);
 
-            // Banco recém-criado, que nunca recebeu edição: sem outbox não há fila, e isso é uma
-            // resposta MEDIDA (zero), não um "não sei" disfarçado.
-            if (!await TableExistsAsync(conn, "local_outbox", ct).ConfigureAwait(false))
-            {
-                return 0;
-            }
-
-            long cursor = await ReadOutboxCursorAsync(conn, ct).ConfigureAwait(false);
-
-            using SqliteCommand cmd = conn.CreateCommand();
-            cmd.CommandText = "SELECT COUNT(*) FROM local_outbox WHERE id > $cursor;";
-            cmd.Parameters.AddWithValue("$cursor", cursor);
-            return Convert.ToInt32(await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false));
+            // A contagem em si mora no OutboxBacklog: a MESMA pergunta é feita pelo VaultSwitch sobre
+            // o banco DESTA sessão (o único que esta sonda pula), e duas cópias do SQL divergiriam.
+            // Zero daqui é sempre MEDIDO — o "não sei" sai pelo catch, como null.
+            return await OutboxBacklog.CountPendingAsync(conn, ct).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -183,55 +174,4 @@ internal sealed class OtherVaultOutboxProbe
         }
     }
 
-    /// <summary>
-    /// O cursor do outbox daquele banco. <c>MAX</c> entre as linhas de propósito: um banco com mais
-    /// de um workspace registrado (não acontece hoje — um banco por escopo) daria o cursor mais
-    /// adiantado, ou seja, MENOS pendências. Errar para menos aqui custa um aviso que não apareceu;
-    /// errar para mais custa um alarme falso recorrente, e alarme falso mata o aviso verdadeiro.
-    /// </summary>
-    private static async Task<long> ReadOutboxCursorAsync(SqliteConnection conn, CancellationToken ct)
-    {
-        if (!await TableExistsAsync(conn, "sync_cursor", ct).ConfigureAwait(false)
-            || !await ColumnExistsAsync(conn, "sync_cursor", "outbox_cursor", ct).ConfigureAwait(false))
-        {
-            // Banco de uma versão anterior à coluna: nada foi marcado como enviado por ela, então
-            // zero é a leitura correta — e não um chute.
-            return 0;
-        }
-
-        using SqliteCommand cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT COALESCE(MAX(outbox_cursor), 0) FROM sync_cursor;";
-        object? valor = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
-        return valor is null or DBNull ? 0 : Convert.ToInt64(valor);
-    }
-
-    private static async Task<bool> TableExistsAsync(
-        SqliteConnection conn, string table, CancellationToken ct)
-    {
-        using SqliteCommand cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = $name;";
-        cmd.Parameters.AddWithValue("$name", table);
-        return Convert.ToInt32(await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false)) > 0;
-    }
-
-    private static async Task<bool> ColumnExistsAsync(
-        SqliteConnection conn, string table, string column, CancellationToken ct)
-    {
-        using SqliteCommand cmd = conn.CreateCommand();
-
-        // `table` é constante do código (sem entrada de usuário) — sem injeção.
-        cmd.CommandText = $"PRAGMA table_info({table});";
-
-        using SqliteDataReader reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
-        while (await reader.ReadAsync(ct).ConfigureAwait(false))
-        {
-            // PRAGMA table_info: cid(0), name(1), type(2), notnull(3), dflt_value(4), pk(5)
-            if (string.Equals(reader.GetString(1), column, StringComparison.Ordinal))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
 }

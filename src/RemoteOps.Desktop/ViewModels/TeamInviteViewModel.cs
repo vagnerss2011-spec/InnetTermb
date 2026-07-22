@@ -58,9 +58,29 @@ public sealed class TeamInviteViewModel : BaseViewModel
     /// </summary>
     public const string EmptyTeamWarning =
         "O time nasce VAZIO. Os seus clientes e equipamentos continuam onde estão, no seu cofre "
-        + "pessoal — eles NÃO vão junto, e ninguém do time passa a enxergá-los. Depois de criar, "
-        + "feche e abra o RemoteOps e escolha o time ao entrar: o que você cadastrar lá dentro é o "
-        + "que o time enxerga.";
+        + "pessoal — eles NÃO vão junto, e ninguém do time passa a enxergá-los. O que você cadastrar "
+        + "DENTRO do time é o que o time enxerga; para entrar nele depois de criar, "
+        + VaultSwitchText.HowToSwitch;
+
+    /// <summary>
+    /// O que a janela diz DEPOIS de o time nascer, ainda com a tela do time aberta. Constante porque
+    /// é uma das quatro frases que apontavam para "feche e abra o RemoteOps" — e quatro cópias do
+    /// mesmo conselho são quatro bugs esperando divergir.
+    /// </summary>
+    public const string TeamCreatedInThisWindowNotice =
+        "Os seus clientes e equipamentos continuam no seu cofre pessoal, intactos e só seus. Para "
+        + "cadastrar coisas no time e convidar gente, " + VaultSwitchText.HowToSwitch;
+
+    /// <summary>
+    /// O recado que as Configurações mostram quando a janela do time FECHA. Ele repete o aviso do
+    /// cofre porque é o último instante em que o operador ainda está pensando no assunto — e é aqui
+    /// que ele decide se vai cadastrar o próximo cliente no cofre certo.
+    /// </summary>
+    public const string TeamCreatedNotice =
+        "O time foi criado e está VAZIO — os seus clientes e equipamentos continuam no seu cofre "
+        + "pessoal, intactos.\n\nEsta janela do RemoteOps continua trabalhando no cofre PESSOAL: "
+        + "nada do que você cadastrar agora vai para o time. Para cadastrar nele e convidar pessoas, "
+        + VaultSwitchText.HowToSwitch;
 
     private readonly TeamContext _team;
     private readonly Action<string> _copyToClipboard;
@@ -267,9 +287,7 @@ public sealed class TeamInviteViewModel : BaseViewModel
             // operador ainda está pensando no assunto — e é aqui que ele decide se vai procurar os
             // ~700 equipamentos do outro lado ou não.
             StatusMessage =
-                $"Time \"{time.Name}\" criado — e ele está VAZIO. Os seus clientes e equipamentos "
-                + "continuam no seu cofre pessoal, intactos e só seus. Para cadastrar coisas no time "
-                + "e convidar gente, feche e abra o RemoteOps e escolha este time ao entrar.";
+                $"Time \"{time.Name}\" criado — e ele está VAZIO. " + TeamCreatedInThisWindowNotice;
 
             TeamCreated?.Invoke(this, time);
         }
@@ -367,9 +385,12 @@ public sealed class TeamInviteViewModel : BaseViewModel
         {
             AcceptedTeamInvite accepted = await _team.Service.AcceptInviteAsync(InviteId.Trim(), Code);
 
+            // O servidor avisou que o token desta sessão ainda diz o tenant antigo. Fechar e abrir
+            // NÃO resolve (o boot reusa os tokens guardados no cofre): quem renova é sair da conta —
+            // e é a mesma ação que faz a tela de escolha oferecer o time recém-aceito.
             StatusMessage = accepted.SessionRefreshRequired
-                ? $"Você entrou no time \"{accepted.WorkspaceName}\" como {accepted.Role}. "
-                  + "Feche e abra o RemoteOps para o acesso valer — a sessão atual ainda é a antiga."
+                ? $"Você entrou no time \"{accepted.WorkspaceName}\" como {accepted.Role}. Para o "
+                  + "acesso valer, " + VaultSwitchText.HowToSwitch
                 : $"Você entrou no time \"{accepted.WorkspaceName}\" como {accepted.Role}.";
 
             Accepted?.Invoke(this, accepted);
@@ -422,7 +443,7 @@ public sealed class TeamInviteViewModel : BaseViewModel
             => "Essa pessoa já é membro deste time.",
 
         CloudSyncException { StatusCode: HttpStatusCode.Unauthorized }
-            => "Sua sessão expirou. Feche e abra o RemoteOps para entrar de novo.",
+            => VaultSwitchText.SessionExpired,
 
         CloudSyncException { StatusCode: >= HttpStatusCode.InternalServerError }
             => "O servidor está fora do ar. Tente de novo em alguns minutos.",

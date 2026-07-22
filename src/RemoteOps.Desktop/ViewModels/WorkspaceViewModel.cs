@@ -59,6 +59,14 @@ public sealed class WorkspaceViewModel : BaseViewModel
     /// </summary>
     public Func<TeamContext?>? TeamFactory { get; set; }
 
+    /// <summary>
+    /// ⚠️ Fábrica LAZY do "trocar de cofre / sair da conta" (Fatia 1, H2). Lazy pelo MESMO motivo das
+    /// três acima: ela precisa do coordenador da conta E do banco desta sessão, que só existem depois
+    /// da ativação. Null (ou fábrica que devolve null) = modo local, e a seção some das Configurações
+    /// — sem conta não há de onde sair.
+    /// </summary>
+    public Func<IVaultSwitch?>? VaultSwitchFactory { get; set; }
+
     public BrowserViewModel Browser { get; }
     public TabsViewModel Tabs { get; }
 
@@ -84,11 +92,13 @@ public sealed class WorkspaceViewModel : BaseViewModel
         IMfaApi? mfaApi = MfaApiFactory?.Invoke();
         CloudResyncService? resync = CloudResyncFactory?.Invoke();
         TeamContext? team = TeamFactory?.Invoke();
+        IVaultSwitch? vaultSwitch = VaultSwitchFactory?.Invoke();
 
         // O indicador de cofre é o DO SHELL, não uma cópia: a tela de Equipe precisa dizer
         // exatamente o que a barra de status diz.
         return new SettingsViewModel(
-            store, _updateService, changelog, bugReport, mfaApi, resync, team, Browser.Vault);
+            store, _updateService, changelog, bugReport, mfaApi, resync, team, Browser.Vault,
+            vaultSwitch);
     }
 
     public string AppVersionText =>

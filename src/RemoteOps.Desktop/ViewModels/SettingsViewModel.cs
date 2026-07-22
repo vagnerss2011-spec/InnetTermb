@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using RemoteOps.Desktop.Account;
@@ -37,6 +38,15 @@ public sealed class SettingsViewModel : BaseViewModel
     // "Reenviando… 700 de 700" eterno. Comparar a geração descarta os atrasados.
     private int _resyncRun;
 
+    // ── Trocar de cofre / sair da conta ──────────────────────────────────────────────────────
+    private readonly IVaultSwitch? _vaultSwitch;
+    private bool _isSwitchVaultConfirmVisible;
+    private bool _isSwitchingVault;
+    private string _switchVaultStatus = string.Empty;
+
+    // null = ainda não foi medido. Diferente de "medido e vazio", que é VaultSwitchBacklog.Empty.
+    private VaultSwitchBacklog? _switchVaultBacklog;
+
     public SettingsViewModel(
         ISettingsStore store,
         IUpdateService? updateService = null,
@@ -45,7 +55,8 @@ public sealed class SettingsViewModel : BaseViewModel
         IMfaApi? mfaApi = null,
         CloudResyncService? resync = null,
         TeamContext? team = null,
-        VaultBadgeViewModel? vaultBadge = null)
+        VaultBadgeViewModel? vaultBadge = null,
+        IVaultSwitch? vaultSwitch = null)
     {
         _store = store;
         VaultBadge = vaultBadge ?? new VaultBadgeViewModel();
@@ -53,6 +64,7 @@ public sealed class SettingsViewModel : BaseViewModel
         _mfaApi = mfaApi;
         _resync = resync;
         _team = team;
+        _vaultSwitch = vaultSwitch;
         Changelog = changelog;
         BugReport = bugReport;
         _settings = store.Load();
@@ -116,6 +128,194 @@ public sealed class SettingsViewModel : BaseViewModel
             () => CanResync && !_isResyncing);
         ConfirmResyncCommand = new RelayCommand(() => _ = ResyncNowAsync(), () => !_isResyncing);
         CancelResyncCommand = new RelayCommand(() => IsResyncConfirmVisible = false);
+
+        // O botão NÃO troca nada: abre a confirmação e MEDE a fila. Sair da conta por um clique
+        // acidental, com trabalho esperando na fila, seria a pior surpresa possível para quem tem
+        // centenas de equipamentos — a mesma disciplina do reenvio logo acima.
+        SwitchVaultCommand = new RelayCommand(
+            () => _ = OpenSwitchVaultAsync(), () => CanSwitchVault && !_isSwitchingVault);
+        ConfirmSwitchVaultCommand = new RelayCommand(
+            () => _ = SwitchVaultNowAsync(), () => !_isSwitchingVault);
+        CancelSwitchVaultCommand = new RelayCommand(() => IsSwitchVaultConfirmVisible = false);
+    }
+
+    // ── Trocar de cofre / sair da conta ───────────────────────────────────────────────────────
+    //
+    // ⚠️ Este é o ÚNICO caminho de produção até a tela de escolha do cofre. O app entra pelo cache
+    // da AMK (`account.amk`) sem rede e sem perguntar nada; enquanto esse arquivo existir, "feche e
+    // abra o RemoteOps e escolha o time" não faz absolutamente nada. Sair da conta é o que o apaga —
+    // e `AccountSyncCoordinator.LogoutAsync`, que já existia e já era testado, não tinha um único
+    // chamador de produção.
+
+    /// <summary>Há conta para sair? Sem ela não existe cofre para trocar.</summary>
+    public bool CanSwitchVault => _vaultSwitch is not null;
+
+    /// <summary>O rótulo do botão, para o render test comparar com o que está desenhado.</summary>
+    public string SwitchVaultButtonText => VaultSwitchText.ButtonLabel;
+
+    /// <summary>Abre a confirmação (e mede a fila). Não troca nada por si só.</summary>
+    public RelayCommand SwitchVaultCommand { get; }
+
+    /// <summary>Confirma: drena, sai da conta e pede o reinício.</summary>
+    public RelayCommand ConfirmSwitchVaultCommand { get; }
+
+    /// <summary>Fecha a confirmação sem sair da conta.</summary>
+    public RelayCommand CancelSwitchVaultCommand { get; }
+
+    /// <summary>
+    /// O que a confirmação explica antes do "sim".
+    ///
+    /// <para><b>A frase da senha não é detalhe.</b> Sair da conta apaga o cache da AMK, e a AMK é a
+    /// raiz do cofre: no boot seguinte, quem cancelar o login recebe <i>"é preciso entrar na conta"</i>
+    /// e o app ENCERRA (<c>App.xaml.cs</c>). Deixar isso implícito transformaria um clique curioso em
+    /// um operador sem app até lembrar a senha — que é o oposto da saída que este botão veio dar.</para>
+    /// </summary>
+    public string SwitchVaultConfirmDetail =>
+        "O RemoteOps fecha e abre sozinho e pede a senha da sua conta — tenha ela à mão, porque sem "
+        + "entrar o app não abre. Os seus equipamentos e senhas continuam neste computador, intactos: "
+        + "sair da conta não apaga nada.";
+
+    /// <summary>A confirmação ("tem certeza?") está na tela.</summary>
+    public bool IsSwitchVaultConfirmVisible
+    {
+        get => _isSwitchVaultConfirmVisible;
+        private set => Set(ref _isSwitchVaultConfirmVisible, value);
+    }
+
+    /// <summary>Uma troca está em curso (bloqueia um segundo disparo).</summary>
+    public bool IsSwitchingVault
+    {
+        get => _isSwitchingVault;
+        private set
+        {
+            Set(ref _isSwitchingVault, value);
+            SwitchVaultCommand.RaiseCanExecuteChanged();
+            ConfirmSwitchVaultCommand.RaiseCanExecuteChanged();
+        }
+    }
+
+    /// <summary>
+    /// ⚠️ <b>O que ficaria para trás, MEDIDO no banco desta sessão.</b> Vazio quando a fila está
+    /// vazia — e "vazia" aqui é uma medição, não uma suposição: um aviso genérico permanente é o
+    /// aviso que ninguém lê, e um aviso ausente sobre um banco que ninguém conseguiu abrir é erro
+    /// virando estado vazio. Por isso "não deu para conferir" tem frase própria.
+    ///
+    /// <para>Nada é apagado nunca: o outbox é durável e append-only, então o que não subir continua
+    /// no banco deste cofre e sobe quando o RemoteOps for aberto nele de novo. O aviso diz isso, e é
+    /// a parte que o operador mais precisa ouvir — sem ela, o primeiro reflexo é refazer o cadastro
+    /// e criar duplicata.</para>
+    /// </summary>
+    public string SwitchVaultBacklogText
+    {
+        get
+        {
+            if (_switchVaultBacklog is not { HasSomethingToSay: true } backlog)
+            {
+                return string.Empty;
+            }
+
+            string naoConferi =
+                "Não foi possível conferir a fila de envio deste cofre agora";
+
+            if (backlog.Pending == 0)
+            {
+                return naoConferi + ". Pode haver alteração esperando para subir — nada é apagado, e "
+                    + "ela sobe quando você abrir este cofre de novo.";
+            }
+
+            string quantidade = backlog.Pending.ToString(CultureInfo.GetCultureInfo("pt-BR"));
+            string frase = backlog.Pending == 1
+                ? "1 alteração ainda não subiu deste cofre. "
+                : $"{quantidade} alterações ainda não subiram deste cofre. ";
+
+            frase += "O RemoteOps tenta enviá-las antes de reiniciar; o que não subir continua "
+                + "guardado aqui e sobe quando você abrir este cofre de novo. Nada é apagado.";
+
+            return backlog.CheckFailed
+                ? frase + " " + naoConferi + " por inteiro, então pode haver mais coisa esperando do "
+                    + "que este número mostra."
+                : frase;
+        }
+    }
+
+    public bool HasSwitchVaultBacklog => !string.IsNullOrEmpty(SwitchVaultBacklogText);
+
+    /// <summary>Recado da última tentativa de sair. Nunca fica em branco quando ela falha.</summary>
+    public string SwitchVaultStatus
+    {
+        get => _switchVaultStatus;
+        private set { Set(ref _switchVaultStatus, value); RaisePropertyChanged(nameof(HasSwitchVaultStatus)); }
+    }
+
+    public bool HasSwitchVaultStatus => !string.IsNullOrEmpty(_switchVaultStatus);
+
+    /// <summary>
+    /// Abre a confirmação e mede a fila desta sessão. A medição acontece AQUI (e não no boot) porque
+    /// o número precisa valer para o instante da decisão — no boot ele já estaria velho.
+    /// </summary>
+    public async Task OpenSwitchVaultAsync(CancellationToken ct = default)
+    {
+        if (_vaultSwitch is not { } vaultSwitch || _isSwitchingVault)
+        {
+            return;
+        }
+
+        SwitchVaultStatus = string.Empty;
+        IsSwitchVaultConfirmVisible = true;
+
+        // A sonda já devolve "não verificado" em vez de estourar; este try/catch é a cinta extra, e
+        // NÃO é um catch vazio: a falha vira o mesmo aviso visível de "não deu para conferir".
+        VaultSwitchBacklog backlog;
+        try
+        {
+            backlog = await vaultSwitch.ReadBacklogAsync(ct);
+        }
+        catch (Exception)
+        {
+            backlog = new VaultSwitchBacklog(0, CheckFailed: true);
+        }
+
+        _switchVaultBacklog = backlog;
+        RaisePropertyChanged(nameof(SwitchVaultBacklogText));
+        RaisePropertyChanged(nameof(HasSwitchVaultBacklog));
+    }
+
+    /// <summary>
+    /// Confirma: drena, sai da conta e pede o reinício.
+    ///
+    /// <para><b>O reinício não é enfeite.</b> O cofre, o banco, a store e todos os ViewModels são
+    /// decididos UMA vez no boot (estágio 1i); sair da conta sem reiniciar deixaria o app rodando
+    /// sobre um cofre de que ele já saiu. E <b>falhar ao sair não pode reiniciar assim mesmo</b>:
+    /// com o cache da AMK intacto, o boot seguinte devolveria o operador ao MESMO cofre e ele
+    /// concluiria que o botão não faz nada — de volta ao beco sem saída que esta entrega fecha.</para>
+    /// </summary>
+    public async Task SwitchVaultNowAsync(CancellationToken ct = default)
+    {
+        if (_vaultSwitch is not { } vaultSwitch || _isSwitchingVault)
+        {
+            return;
+        }
+
+        IsSwitchingVault = true;
+        SwitchVaultStatus = "Enviando o que está na fila e saindo da conta…";
+        try
+        {
+            await vaultSwitch.SignOutAsync(ct);
+        }
+        catch (Exception)
+        {
+            // Sem detalhe da exceção (ADR-013). O recado diz o que NÃO aconteceu, que é o que o
+            // operador precisa saber para não ficar esperando uma tela de login que não vem.
+            SwitchVaultStatus =
+                "Não foi possível sair da conta agora, então o RemoteOps NÃO vai reiniciar. Nada foi "
+                + "alterado e a sua fila continua guardada. Tente de novo; se persistir, reporte pela "
+                + "aba Problemas.";
+            IsSwitchingVault = false;
+            return;
+        }
+
+        IsSwitchVaultConfirmVisible = false;
+        RestartRequested?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>True após um check que encontrou versão nova (habilita "Baixar e instalar").</summary>
@@ -316,11 +516,17 @@ public sealed class SettingsViewModel : BaseViewModel
     /// ninguém lê.
     /// </summary>
     public string TeamScopeNotice =>
-        CanManageTeam && !IsTeamSession
-            ? "Você está no seu cofre pessoal. Convites e lista de membros pertencem a um TIME: "
-              + "crie um (ele nasce vazio, os seus equipamentos não vão junto) ou, se você já tem "
-              + "um, feche e abra o RemoteOps e escolha o time ao entrar."
-            : string.Empty;
+        CanManageTeam && !IsTeamSession ? PersonalSessionNotice : string.Empty;
+
+    /// <summary>
+    /// O corpo do aviso, como constante: é uma das quatro frases que mandavam o operador "fechar e
+    /// abrir o RemoteOps", e a única forma de um teste garantir que ela não volta a mentir é poder
+    /// lê-la sem montar meia sessão de nuvem.
+    /// </summary>
+    public const string PersonalSessionNotice =
+        "Você está no seu cofre pessoal. Convites e lista de membros pertencem a um TIME: "
+        + "crie um (ele nasce vazio, os seus equipamentos não vão junto) ou, se você já tem "
+        + "um, " + VaultSwitchText.HowToSwitch;
 
     public bool HasTeamScopeNotice => !string.IsNullOrEmpty(TeamScopeNotice);
 

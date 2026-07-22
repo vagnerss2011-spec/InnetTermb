@@ -9,6 +9,27 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ### Adicionado
 
+- **"Trocar de cofre…" — o botão que faltava para chegar à escolha do cofre.** Até aqui, quatro telas
+  mandavam *"feche e abra o RemoteOps e escolha o time ao entrar"* — e isso **não funcionava**. Quem
+  já entrou na conta uma vez abre o aplicativo direto, sem senha e sem perguntar nada; fechar e abrir
+  caía sempre no **mesmo cofre pessoal**. O operador repetia, e nada mudava: sem erro, sem aviso e sem
+  saída. Agora, em **Configurações → Conta**, o botão **"Trocar de cofre…"** sai da conta e reinicia o
+  aplicativo, que pede a senha e mostra a lista de cofres — o time entre eles. As quatro mensagens
+  passaram a apontar para esse botão, todas vindas do **mesmo texto**, de modo que elas não podem mais
+  divergir entre si.
+  - **Ele pergunta antes, com número.** A confirmação conta quantas alterações ainda **não subiram**
+    deste cofre e explica o que acontece com elas: o RemoteOps tenta enviá-las antes de reiniciar, e o
+    que não subir **continua guardado aqui**, subindo quando você abrir este cofre de novo. **Nada é
+    apagado.** Se não der para conferir a fila, a tela **diz isso** em vez de fingir que está vazia.
+  - **Envia primeiro, sai depois.** A ordem importa: sair da conta apaga as credenciais de acesso ao
+    servidor, e sair antes de enviar deixaria a fila parada sem ninguém perceber.
+  - **Avisa que a senha da conta é necessária para voltar.** Sem entrar, o RemoteOps não abre — então
+    isso fica escrito **antes** do clique, e não descoberto depois.
+  - **Falhou ao sair? Não reinicia.** Reiniciar assim mesmo devolveria o operador ao mesmo cofre, e
+    ele concluiria (de novo) que o botão não faz nada. A falha vira texto na tela.
+  - **"Sua sessão expirou. Feche e abra o RemoteOps"** era a mesma frase enganosa por outro caminho —
+    reabrir reaproveita a sessão guardada e não entra de novo em lugar nenhum. As três telas que a
+    mostravam passaram a apontar para o botão.
 - **O time agora é um workspace PRÓPRIO, e nasce VAZIO.** Antes desta entrega não existia caminho
   para criar workspace fora do cadastro da conta — ou seja, o "time" era forçosamente o **cofre
   pessoal** de quem convidava. Como a sincronização é escopada por workspace, convidar um colega

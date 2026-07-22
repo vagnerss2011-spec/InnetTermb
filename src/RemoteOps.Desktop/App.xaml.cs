@@ -259,6 +259,13 @@ public partial class App : Application
             // ainda não existem.
             _workspaceViewModel.TeamFactory = TryCreateTeamContext;
 
+            // ⚠️ Trocar de cofre / sair da conta (H2). Lazy pelo mesmo motivo dos três acima. É o
+            // ÚNICO caminho de produção até a tela de escolha do cofre: com o cache da AMK em disco
+            // o boot entra direto, sem rede e sem perguntar — e era por isso que "feche e abra o
+            // RemoteOps e escolha o time" nunca funcionava. O banco é capturado AQUI porque é este o
+            // banco desta sessão, o único que a troca deixa para trás.
+            _workspaceViewModel.VaultSwitchFactory = () => TryCreateVaultSwitch(ctx);
+
             // Recarga da lista de hosts quando o sync baixa dados novos (Fase 2). Sem isto, o device B
             // abre com a lista VAZIA: o LoadAsync roda uma vez no Loaded, e nada recarrega quando o
             // primeiro pull materializa os hosts segundos depois. Debounced (300ms) porque um pull
@@ -490,9 +497,33 @@ public partial class App : Application
     /// </summary>
     private void FlushOutboxOnClose()
     {
+        try
+        {
+            FlushOutboxOnceAsync().GetAwaiter().GetResult();
+        }
+        catch (Exception)
+        {
+            // best-effort: rede fora no fechamento é rotina, não erro.
+        }
+    }
+
+    /// <summary>
+    /// O drenar em si, uma vez só. Tem DOIS chamadores: o fechamento (acima) e o "trocar de cofre"
+    /// (<see cref="TryCreateVaultSwitch"/>), que precisa drenar <b>antes</b> de o logout apagar os
+    /// tokens — sem token o push não sai, e a fila ficaria parada em silêncio.
+    ///
+    /// <para>O <see cref="Task.Run(Func{Task})"/> continua sendo o ponto do desenho: ele tira o
+    /// <c>await</c> do contexto de sincronização da UI, então nenhuma continuação depende da UI
+    /// thread — que é justamente o que permite ao fechamento bloquear nele sem deadlock.</para>
+    ///
+    /// <para>A guarda idempotente vale para os dois: depois da troca de cofre, o <c>OnExit</c> logo
+    /// em seguida não paga um segundo timeout para reempurrar o que já foi.</para>
+    /// </summary>
+    private Task FlushOutboxOnceAsync()
+    {
         if (_outboxFlushed)
         {
-            return;
+            return Task.CompletedTask;
         }
 
         _outboxFlushed = true;
@@ -500,17 +531,10 @@ public partial class App : Application
         SyncSession? session = _syncSession;
         if (session is null)
         {
-            return; // sem sync ativo (offline-first): nada a drenar.
+            return Task.CompletedTask; // sem sync ativo (offline-first): nada a drenar.
         }
 
-        try
-        {
-            Task.Run(() => session.FlushOutboxAsync(FlushOnCloseTimeout)).GetAwaiter().GetResult();
-        }
-        catch (Exception)
-        {
-            // best-effort: rede fora no fechamento é rotina, não erro.
-        }
+        return Task.Run(() => session.FlushOutboxAsync(FlushOnCloseTimeout));
     }
 
     protected override void OnExit(ExitEventArgs e)
@@ -743,16 +767,17 @@ public partial class App : Application
 
         try
         {
-            // 1) Relaunch: com cache da AMK, abre sem pedir senha (spec §4.3) e sem tocar a rede.
-            if (await _coordinator.TryActivateFromCacheAsync() is not null)
-            {
-                return activator.Vault;
-            }
+            // Cache da AMK → entra direto (spec §4.3, sem senha e sem rede); sem cache → login, e é
+            // DENTRO dele que a tela de escolha do cofre aparece. A regra mora no AccountBootPath
+            // para ter teste: a suíte inteira injetava o chooser ou montava o resolvedor à mão, então
+            // "com cache ⇒ sem chooser" — que é exatamente o beco sem saída do operador — nunca foi
+            // exercitado ponta a ponta. A janela é modal e ANTES da MainWindow (sem conta não há raiz
+            // pro cofre); cancelar (X/Esc) devolve null e o app abre local.
+            AccountBootEntry? entry = await new AccountBootPath(
+                _coordinator,
+                _ => Task.FromResult(ShowAccountWindow(config.CloudUrl, config.DeviceId))).EnterAsync();
 
-            // 2) Sem cache: pede login. A janela é modal e ANTES da MainWindow — sem conta não há
-            //    raiz pro cofre. Cancelar (X/Esc) devolve null e o app abre local.
-            AccountSession? session = ShowAccountWindow(config.CloudUrl, config.DeviceId);
-            if (session is null)
+            if (entry is null)
             {
                 _coordinator = null;
                 _accountActivator = null;
@@ -760,12 +785,11 @@ public partial class App : Application
                 return null;
             }
 
-            // A contagem é lida ANTES da ativação porque ela CONSOME a sessão (zera a AMK). É o
-            // único momento em que este app sabe quantos cofres a conta tem: quem escolheu um time
-            // no chooser tem 2+, e a regra 5 usa isso para nunca adotar um dono sem evidência.
-            _accountWorkspaceCount = session.Workspaces.Count;
+            // Quantos cofres a conta enxerga — null quando o boot veio do cache, porque ali não há
+            // lista. Quem escolheu um time no chooser tem 2+, e a regra 5 do resolvedor de escopo usa
+            // isso para nunca adotar um dono sem evidência.
+            _accountWorkspaceCount = entry.WorkspaceCount;
 
-            await _coordinator.ActivateFromLoginAsync(session);
             return activator.Vault;
         }
         catch (Exception ex) when (activator.Vault is not null)
@@ -894,6 +918,22 @@ public partial class App : Application
             // (null no relaunch pelo cache) — e é do login que sai o chooser que oferece o time.
             _accountWorkspaceCount);
     }
+
+    /// <summary>
+    /// ⚠️ <b>O caminho de produção até a tela de escolha do cofre.</b> Devolve <c>null</c> em modo
+    /// local (sem conta): sem conta não há de onde sair, e a seção some das Configurações.
+    ///
+    /// <para>Avaliado a cada abertura das Configurações, de propósito — mesmo padrão do 2FA e do
+    /// reenvio: quem liga a conta durante a sessão passa a ter o botão sem reiniciar o app.</para>
+    ///
+    /// <para>A drenagem passada aqui é o MESMO flush do fechamento (idempotente, com teto próprio).
+    /// Reusar em vez de escrever um segundo drenar garante que a fila não seja empurrada duas vezes
+    /// e que o <c>OnExit</c> logo em seguida não fique esperando um timeout já gasto.</para>
+    /// </summary>
+    private IVaultSwitch? TryCreateVaultSwitch(WorkspaceContext workspace)
+        => _coordinator is { } coordinator
+            ? new VaultSwitch(coordinator, workspace, FlushOutboxOnceAsync)
+            : null;
 
     private TeamContext? TryCreateTeamContext()
     {

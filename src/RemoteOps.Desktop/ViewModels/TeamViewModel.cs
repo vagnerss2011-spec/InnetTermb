@@ -382,7 +382,7 @@ public sealed class TeamViewModel : BaseViewModel
                 + "o time para liberar o seu acesso.",
 
         CloudSyncException { StatusCode: HttpStatusCode.Unauthorized }
-            => "Sua sessão expirou. Feche e abra o RemoteOps para entrar de novo.",
+            => VaultSwitchText.SessionExpired,
 
         CloudSyncException { StatusCode: HttpStatusCode.NotFound }
             => "Este time não existe mais no servidor.",
@@ -412,7 +412,7 @@ public sealed class TeamViewModel : BaseViewModel
                 + "o time (dono ou administrador).",
 
         CloudSyncException { StatusCode: HttpStatusCode.Unauthorized }
-            => "Sua sessão expirou. Feche e abra o RemoteOps para entrar de novo.",
+            => VaultSwitchText.SessionExpired,
 
         CloudSyncException { StatusCode: >= HttpStatusCode.InternalServerError }
             => "O servidor está fora do ar. A pessoa CONTINUA com acesso — tente de novo em alguns "

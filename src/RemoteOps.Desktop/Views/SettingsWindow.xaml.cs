@@ -107,12 +107,12 @@ public partial class SettingsWindow : Window
 
         if (window.CreatedTeam)
         {
+            // O texto sai da MESMA constante que as outras três telas usam (VaultSwitchText): as
+            // quatro mandavam "feche e abra o RemoteOps", que era falso — o app entra pelo cache da
+            // AMK e volta ao mesmo cofre. Quatro cópias eram quatro bugs esperando divergir.
             MessageBox.Show(
                 owner,
-                "O time foi criado e está VAZIO — os seus clientes e equipamentos continuam no seu "
-                + "cofre pessoal, intactos.\n\nEsta janela do RemoteOps continua trabalhando no "
-                + "cofre PESSOAL: nada do que você cadastrar agora vai para o time. Feche e abra o "
-                + "RemoteOps e escolha o time ao entrar para cadastrar nele e convidar pessoas.",
+                TeamInviteViewModel.TeamCreatedNotice,
                 "RemoteOps — Time criado",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
