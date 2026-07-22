@@ -14,8 +14,16 @@ public enum VaultScope
     Personal,
 
     /// <summary>
-    /// O workspace ativo é de TIME — <b>mas o cofre que o app abre continua sendo o PESSOAL</b>
-    /// (Fatia 1; o cofre compartilhado é a Fatia 2). É o estado que precisa gritar.
+    /// O cofre do TIME está ATIVO: as senhas cadastradas aqui são seladas com a chave compartilhada
+    /// e abrem para os colegas. Estado normal de quem escolheu um workspace de time ao abrir.
+    /// </summary>
+    Team,
+
+    /// <summary>
+    /// O workspace ativo é de TIME e a chave <b>ainda não chegou neste computador</b>. Os
+    /// equipamentos aparecem; nenhuma senha do time abre ou é gravada aqui — o cofre recusa alto
+    /// (fail-closed). É o estado que precisa gritar, porque senão vira "o SSH não conecta" no meio
+    /// de um atendimento, sem ninguém ligar uma coisa à outra.
     /// </summary>
     TeamPending,
 
@@ -46,10 +54,19 @@ public sealed class VaultBadgeViewModel : BaseViewModel
     /// de render: um refactor que o apague tem de ficar vermelho.
     /// </summary>
     public const string TeamVaultNotActiveWarning =
-        "Você está trabalhando no cofre PESSOAL. O cofre compartilhado deste time ainda não abre "
-        + "nesta versão: os equipamentos que você cadastrar aqui chegam aos colegas, mas as SENHAS "
-        + "não abrem do outro lado. Até o cofre compartilhado ser liberado, use o time só para "
-        + "convidar pessoas e aceitar convites.";
+        "A chave deste time ainda não chegou neste computador. Os equipamentos aparecem, mas "
+        + "nenhuma senha do time abre ou é gravada aqui. Conecte-se à internet uma vez para o "
+        + "RemoteOps buscar a chave — ou, se você acabou de ser convidado, aceite o convite "
+        + "(identificador + código recebido por outro canal).";
+
+    /// <summary>
+    /// O texto do cofre do time ATIVO. Constante pelo mesmo motivo do de cima: é afirmado por teste
+    /// de render, então apagá-lo num refactor tem de ficar vermelho.
+    /// </summary>
+    public const string TeamVaultActiveDetail =
+        "Cofre do TIME. As senhas cadastradas aqui são seladas com a chave compartilhada e abrem "
+        + "para todos os membros. Os equipamentos do seu cofre pessoal NÃO estão aqui — eles "
+        + "continuam onde sempre estiveram, e ninguém do time os enxerga.";
 
     private VaultScope _scope = VaultScope.LocalOnly;
 
@@ -65,7 +82,8 @@ public sealed class VaultBadgeViewModel : BaseViewModel
     {
         VaultScope.LocalOnly => "Cofre pessoal (só neste PC)",
         VaultScope.Personal => "Cofre pessoal",
-        VaultScope.TeamPending => "Cofre pessoal — o do time ainda não abre aqui",
+        VaultScope.Team => "Cofre do TIME",
+        VaultScope.TeamPending => "Cofre do time — a chave ainda não chegou aqui",
         _ => "Cofre pessoal — cofre do time não confirmado",
     };
 
@@ -84,13 +102,18 @@ public sealed class VaultBadgeViewModel : BaseViewModel
         VaultScope.Personal =>
             "Conta na nuvem, cofre pessoal. O que você cadastra sincroniza entre os SEUS "
             + "computadores; ninguém mais enxerga.",
+        VaultScope.Team => TeamVaultActiveDetail,
         VaultScope.TeamPending => TeamVaultNotActiveWarning,
         _ =>
             "Não foi possível confirmar com o servidor se este workspace é de time. O cofre aberto "
             + "aqui é o PESSOAL — isso não muda. Reconecte para o RemoteOps checar de novo.",
     };
 
-    /// <summary>Acende o alerta visual. Só no estado que precisa saltar aos olhos.</summary>
+    /// <summary>
+    /// Acende o alerta visual. Só no estado que precisa saltar aos olhos: cofre de time SEM a chave.
+    /// O cofre do time ATIVO não é alerta — é o estado normal de quem entrou num time, e um aviso
+    /// permanente é um aviso que ninguém mais lê.
+    /// </summary>
     public bool IsWarning => _scope == VaultScope.TeamPending;
 
     /// <summary>Estado "não deu para perguntar" — visível, nunca silencioso.</summary>
@@ -118,7 +141,23 @@ public sealed class VaultBadgeViewModel : BaseViewModel
     }
 
     /// <summary>
-    /// Descobre o estado perguntando "este workspace é de time?".
+    /// Fixa o estado a partir do ESCOPO já decidido no boot. É o caminho de produção desde a Fatia
+    /// 1i: o app não precisa mais perguntar "este workspace é de time?" — ele já resolveu isso para
+    /// escolher o banco e o cofre. Derivar o indicador de uma SEGUNDA pergunta permitiria que ele
+    /// discordasse do cofre que está realmente aberto, que é a mentira exata que ele existe para
+    /// impedir.
+    /// </summary>
+    internal void ApplyFromSession(Account.SessionVaultKind kind) => Apply(kind switch
+    {
+        Account.SessionVaultKind.Team => VaultScope.Team,
+        Account.SessionVaultKind.TeamWithoutKey => VaultScope.TeamPending,
+        _ => VaultScope.Personal,
+    });
+
+    /// <summary>
+    /// Descobre o estado perguntando "este workspace é de time?". Continua existindo para a tela de
+    /// Configurações, que se reavalia depois de gerar o primeiro convite — ali o escopo do boot é
+    /// anterior ao ato que fez a WK nascer.
     /// </summary>
     /// <param name="isTeamWorkspace">
     /// A sondagem (na prática, <c>TeamInviteService.IsTeamWorkspaceAsync</c>). <c>null</c> = não há
@@ -135,6 +174,9 @@ public sealed class VaultBadgeViewModel : BaseViewModel
 
         try
         {
+            // Sem a chave em mãos aqui, o melhor que esta sondagem sabe dizer é "é de time". Quem
+            // distingue TIME de TIME-SEM-CHAVE é o escopo do boot (ApplyFromSession), que olhou o
+            // disco: por isso este caminho é o de reavaliação, não o de produção.
             Apply(await isTeamWorkspace(ct).ConfigureAwait(false)
                 ? VaultScope.TeamPending
                 : VaultScope.Personal);

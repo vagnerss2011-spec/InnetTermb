@@ -121,13 +121,51 @@ public sealed class TeamInviteService
 
     private readonly ITeamApi _api;
     private readonly WkWorkspaceKeyRing _keyRing;
+    private readonly ISyncMetadataStore? _metadata;
 
-    public TeamInviteService(ITeamApi api, WkWorkspaceKeyRing keyRing)
+    /// <param name="metadata">
+    /// Onde vive o cursor do canal de segredos. <b>Serve para uma coisa só:</b> zerá-lo quando a
+    /// chave do time ATERRISSA neste computador.
+    ///
+    /// <para>O buraco sem isso: um envelope <c>WkRootedV1</c> pode ter chegado ANTES da chave. O
+    /// ciclo o pula (raiz divergente), o cursor avança por cima — porque ele avança por PÁGINA — e o
+    /// envelope fica atrás do cursor para sempre. A senha some sem nunca ter dado erro. O re-pull é
+    /// idempotente por construção, então zerar custa um ciclo e devolve tudo.</para>
+    ///
+    /// <para><c>null</c> é legítimo e não é uma bandeira escondida: o convite pode ser gerado antes
+    /// de existir banco local (não há sessão de sync nem cursor a zerar). Quando não há cursor, não
+    /// há o que consertar.</para>
+    /// </param>
+    public TeamInviteService(ITeamApi api, WkWorkspaceKeyRing keyRing, ISyncMetadataStore? metadata = null)
     {
         ArgumentNullException.ThrowIfNull(api);
         ArgumentNullException.ThrowIfNull(keyRing);
         _api = api;
         _keyRing = keyRing;
+        _metadata = metadata;
+    }
+
+    /// <summary>
+    /// "O cofre ganhou uma raiz — releia tudo." Chamado nos DOIS caminhos em que a WK aterrissa
+    /// vinda de fora (aceite do convite e restauração do servidor). Não relança: falhar em zerar o
+    /// cursor não pode derrubar um aceite que já deu certo — o pior desfecho é continuar sem os
+    /// envelopes que já estavam atrás do cursor, que é exatamente o estado de antes.
+    /// </summary>
+    private async Task ResetSecretsCursorAsync(string serverWorkspaceId, CancellationToken ct)
+    {
+        if (_metadata is not { } metadata)
+        {
+            return;
+        }
+
+        try
+        {
+            await metadata.ResetSecretsCursorAsync(serverWorkspaceId, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Sem detalhe da exceção (ADR-013) e sem relançar: ver o resumo acima.
+        }
     }
 
     /// <summary>
@@ -349,6 +387,10 @@ public sealed class TeamInviteService
             CryptographicOperations.ZeroMemory(wk);
         }
 
+        // Mesma razão do TryRestoreTeamKeyAsync: o convidado pode ter sincronizado metadados antes
+        // de aceitar, e os envelopes do time que desceram naquele intervalo foram pulados.
+        await ResetSecretsCursorAsync(accepted.WorkspaceId, ct).ConfigureAwait(false);
+
         return new AcceptedTeamInvite(
             accepted.WorkspaceId,
             accepted.WorkspaceName,
@@ -381,6 +423,10 @@ public sealed class TeamInviteService
             AppRuntime.TeamVaultWorkspace(workspaceId),
             Convert.FromBase64String(key.WrappedWk),
             ct).ConfigureAwait(false);
+
+        // A chave acabou de aterrissar: releia o canal de segredos desde o começo. Envelopes que
+        // chegaram antes dela foram PULADOS e o cursor passou por cima deles.
+        await ResetSecretsCursorAsync(workspaceId, ct).ConfigureAwait(false);
         return true;
     }
 

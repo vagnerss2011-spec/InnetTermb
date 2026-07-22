@@ -75,6 +75,18 @@ internal sealed class FakeSecretsApi : ISecretsApi
             dto.Algorithm ?? "AES-256-GCM", dto.RevokedAt);
     }
 
+    /// <summary>
+    /// Planta uma linha cujo <c>algorithm</c> desce <b>NULO</b> — registro gravado antes de o campo
+    /// existir, ou servidor antigo que não o ecoa. É o único caso em que o cliente precisa PALPITAR
+    /// a raiz, e palpitar errado num cofre de time grava um envelope que nunca abre.
+    /// </summary>
+    public void SeedRawWithoutAlgorithm(SecretEnvelopeDto dto)
+    {
+        SeedRaw(dto);
+        Guid id = RequireGuid(dto.Id, nameof(dto.Id));
+        _rows[id.ToString()] = _rows[id.ToString()] with { Algorithm = null };
+    }
+
     public Task<IReadOnlyList<SecretUpsertResult>> PushAsync(
         string workspaceId, IReadOnlyList<SecretEnvelopeDto> envelopes, CancellationToken ct = default)
     {
@@ -224,7 +236,7 @@ internal sealed class FakeSecretsApi : ISecretsApi
 
     private sealed record Row(
         Guid Id, Guid WorkspaceId, byte[] Ciphertext, string Nonce, string Tag, string WrappedCek,
-        string CekNonce, string CekTag, string KeyVersion, int Version, long Cursor, string Algorithm,
+        string CekNonce, string CekTag, string KeyVersion, int Version, long Cursor, string? Algorithm,
         DateTimeOffset? RevokedAt)
     {
         /// <summary>

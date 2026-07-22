@@ -59,6 +59,22 @@ public interface ISyncMetadataStore
     Task SaveSecretsCursorAsync(string workspaceId, long cursor, CancellationToken ct = default);
 
     /// <summary>
+    /// <b>Volta o cursor de segredos para o começo</b> — "o cofre ganhou uma raiz, releia tudo".
+    ///
+    /// <para><b>Por que não dá para fazer isso com <see cref="SaveSecretsCursorAsync"/>:</b> aquele é
+    /// MONOTÔNICO por desenho (<c>MAX</c>), justamente para que um save tardio nunca regrida o
+    /// cursor. Chamá-lo com <c>0</c> é um <b>no-op silencioso</b> — exatamente a classe de falha que
+    /// esta fatia existe para matar. Um método com nome próprio mantém "regredir por acidente"
+    /// impossível e torna "reler de propósito" possível, visível e greppável.</para>
+    ///
+    /// <para><b>Quando é chamado:</b> quando a chave de um cofre ATERRISSA neste computador. Um
+    /// envelope daquela raiz pode ter chegado antes dela, sido PULADO, e o cursor ter avançado por
+    /// cima — ele avança por PÁGINA. Sem reler, aquela senha fica atrás do cursor para sempre, sem
+    /// nunca ter dado erro. O re-pull é idempotente por construção, então reler custa um ciclo.</para>
+    /// </summary>
+    Task ResetSecretsCursorAsync(string workspaceId, CancellationToken ct = default);
+
+    /// <summary>
     /// Ledger do que já está no servidor: <c>envelopeId → maior versão confirmada</c>. É o que evita
     /// re-subir o cofre inteiro a cada ciclo e devolver como eco o que acabou de ser baixado.
     /// </summary>

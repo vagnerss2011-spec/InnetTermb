@@ -173,6 +173,28 @@ public sealed class VaultBadgeRenderTests
         Assert.Contains("time", probe.BadgeText, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// <b>Cofre do TIME ativo: a barra para de dizer "pessoal" e o alerta APAGA.</b> Este é o teste
+    /// que fica vermelho se alguém reverter o indicador para o texto da Fatia 1e ("o cofre
+    /// compartilhado ainda não abre nesta versão") — que virou mentira no instante em que o cofre do
+    /// time passou a ser o cofre ativo. E o alerta apagado importa tanto quanto o texto: um aviso
+    /// permanente é um aviso que ninguém mais lê.
+    /// </summary>
+    [Fact]
+    public void CofreDoTimeAtivo_MostraOTexto_ESemAlerta()
+    {
+        BrowserViewModel browser = NewBrowser();
+        browser.Vault.Apply(VaultScope.Team);
+
+        Probe probe = RenderShellAndProbe(browser);
+
+        Assert.True(probe.BadgeVisible);
+        Assert.False(probe.WarningIconVisible);
+        Assert.Equal(browser.Vault.Label, probe.BadgeText);
+        Assert.Contains("TIME", probe.BadgeText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("pessoal", probe.BadgeText, StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>Estado "não confirmado" também é desenhado — silêncio aqui seria a falha muda.</summary>
     [Fact]
     public void NaoConfirmado_ApareceNaBarra()

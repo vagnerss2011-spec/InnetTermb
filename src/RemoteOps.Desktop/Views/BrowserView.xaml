@@ -200,6 +200,29 @@
                     </StackPanel>
                 </Button>
 
+                <!-- Canal de SENHAS, separado do status geral. Antes desta fatia, Degraded/Failed do
+                     canal de segredos eram ESTRUTURALMENTE invisíveis (nenhum binding os lia): a
+                     barra dizia "Sincronizado" enquanto senhas eram puladas. Como o ConflictIndicator
+                     acima, o binding é direto — o DataContext deste Border É a SyncStatusViewModel. -->
+                <StackPanel x:Name="SecretChannelIndicator"
+                            DockPanel.Dock="Left"
+                            Orientation="Horizontal"
+                            Margin="10,0,0,0"
+                            VerticalAlignment="Center"
+                            ToolTip="{Binding SecretChannelDetail}"
+                            Visibility="{Binding HasSecretChannelWarning, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Text="·"
+                               Style="{DynamicResource Text.Caption}"
+                               Foreground="{DynamicResource Brush.Text.Tertiary}"
+                               Margin="0,0,10,0"
+                               VerticalAlignment="Center"/>
+                    <TextBlock x:Name="SecretChannelWarning"
+                               Text="{Binding SecretChannelText}"
+                               Style="{DynamicResource Text.Caption}"
+                               Foreground="{DynamicResource Brush.Status.Pending}"
+                               VerticalAlignment="Center"/>
+                </StackPanel>
+
                 <!-- ATENÇÃO ao DataContext: este Border inteiro está com DataContext="{Binding Sync}"
                      (linha 49). Um binding simples "Update.X" aqui resolveria como Sync.Update.X —
                      propriedade que não existe no SyncStatusViewModel — e falharia EM SILÊNCIO (o WPF

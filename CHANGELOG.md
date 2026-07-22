@@ -9,6 +9,47 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ### Adicionado
 
+- **O time agora é um workspace PRÓPRIO, e nasce VAZIO.** Antes desta entrega não existia caminho
+  para criar workspace fora do cadastro da conta — ou seja, o "time" era forçosamente o **cofre
+  pessoal** de quem convidava. Como a sincronização é escopada por workspace, convidar um colega
+  baixaria **os ~700 clientes do operador inteiros** no computador dele: nomes, endereços, grupos e
+  fabricantes. Não é vazamento de senha (essas continuam cifradas) — é de **cadastro**, e nenhum
+  indicador de cofre falava sobre isso. Agora criar time cria um workspace novo e vazio, e os
+  equipamentos do cofre pessoal ficam **fora do alcance do time**: o operador move cliente a cliente,
+  como ele decidiu.
+- **O cofre do time é o cofre ATIVO do aplicativo.** Ao abrir escolhendo um workspace de time, as
+  senhas cadastradas são seladas com a **chave compartilhada** e **abrem para os colegas** — que era
+  a promessa que faltava. O cofre pessoal e os equipamentos dele **não são tocados**: continuam no
+  mesmo banco, com a mesma chave, no mesmo lugar. São dois bancos separados, um por cofre.
+- **O indicador de cofre diz a verdade nova.** "Cofre do TIME" quando ele está ativo (sem alarme — é
+  o estado normal de quem entrou num time) e um aviso **em destaque** quando o cofre é do time mas
+  **a chave ainda não chegou neste computador**: os equipamentos aparecem, nenhuma senha do time
+  abre, e a tela diz exatamente isso e o que fazer.
+- **Aviso de senhas que não sincronizaram, na barra de status.** O aplicativo já sabia quando o canal
+  de senhas ficava degradado ou caía inteiro — e **não mostrava nada**: a barra dizia "Sincronizado"
+  enquanto senhas eram puladas. Agora isso aparece escrito, separado do status geral, com um texto
+  diferente para cada caso (algumas senhas ficaram para trás × nenhuma senha se moveu).
+- **Depois que a chave do time chega, o aplicativo relê as senhas desde o começo.** Uma senha do time
+  que tivesse descido **antes** da chave era pulada e ficava para trás para sempre, sem nunca dar
+  erro. Agora a chegada da chave manda reler tudo — o que já está no lugar é reconhecido e nada é
+  duplicado.
+
+### Segurança
+
+- **O aplicativo RECUSA abrir quando não sabe dizer de quem é o cofre.** Se este computador nunca viu
+  o workspace escolhido e não há internet para perguntar, o RemoteOps **não abre** aquele workspace e
+  explica por quê, em vez de assumir "é o pessoal". Assumir errado faria os equipamentos pessoais do
+  operador **subirem para o cofre de outra pessoa** — em silêncio.
+- **Cofre de time sem a chave RECUSA em voz alta, e não sorteia chave nenhuma.** Antes isso dependia
+  de uma opção de configuração que alguém poderia ligar por engano; agora é impossível por
+  construção — o cofre simplesmente não tem como criar chave de time. Sortear "só desta vez"
+  produziria senhas que **ninguém do time consegue abrir**, sem um único erro na tela.
+- **Cada senha guarda de que chave ela nasceu.** Com o aplicativo atendendo dois cofres ao mesmo
+  tempo, uma senha selada com uma chave e carimbada com outra abriria um defeito que só apareceria
+  meses depois, no computador do colega, como "a senha não abre". Agora carimbo e chave vêm da mesma
+  decisão, e uma senha que chega do servidor com a chave errada **não é gravada** — vai para o aviso
+  da barra, visível.
+
 - **Convite de time por e-mail + código fora-de-banda (lado servidor).** Quem administra o time gera
   um convite; o app dele sorteia um **código de 160 bits**, embrulha a chave do time sob esse código
   e sobe para o servidor **só o blob cifrado e o SHA-256 do código**. O e-mail leva **o link**, e diz

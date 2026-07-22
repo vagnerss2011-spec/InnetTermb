@@ -198,6 +198,25 @@ public sealed class SqliteSyncMetadataStore : ISyncMetadataStore
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
+    /// <summary>
+    /// Reset EXPLÍCITO (sem <c>MAX</c>): é a única gravação que pode fazer o cursor regredir, e por
+    /// isso ela tem nome próprio. Ver <see cref="ISyncMetadataStore.ResetSecretsCursorAsync"/>.
+    /// </summary>
+    public async Task ResetSecretsCursorAsync(string workspaceId, CancellationToken ct = default)
+    {
+        using SqliteConnection conn = await _workspace.OpenConnectionAsync(ct);
+        await EnsureSchemaAsync(conn, ct);
+
+        using SqliteCommand cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO sync_cursor (workspace_id, cursor, outbox_cursor, secrets_cursor)
+            VALUES ($ws, 0, 0, 0)
+            ON CONFLICT (workspace_id) DO UPDATE SET secrets_cursor = 0;
+            """;
+        cmd.Parameters.AddWithValue("$ws", workspaceId);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
     public async Task<IReadOnlyDictionary<string, int>> GetPushedSecretsAsync(
         string workspaceId, CancellationToken ct = default)
     {

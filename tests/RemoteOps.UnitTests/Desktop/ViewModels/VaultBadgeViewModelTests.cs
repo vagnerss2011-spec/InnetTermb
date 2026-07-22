@@ -43,25 +43,45 @@ public sealed class VaultBadgeViewModelTests
     }
 
     /// <summary>
-    /// <b>O estado que precisa gritar.</b> O workspace escolhido é de TIME, mas o cofre que o app
-    /// abre é o pessoal (o compartilhado é a Fatia 2). Sem esse aviso, tudo o que for cadastrado
-    /// aqui chega ao colega com a senha ilegível — e nada na tela denuncia.
+    /// <b>O estado que precisa gritar (reescrito na Fatia 1i).</b> O cofre do TIME está ativo e a
+    /// chave AINDA NÃO chegou neste computador: os equipamentos aparecem e nenhuma senha do time
+    /// abre ou é gravada. O texto antigo ("o cofre compartilhado ainda não abre nesta versão") virou
+    /// MENTIRA quando o cofre do time passou a ser o cofre ativo — e um aviso que mente é pior que
+    /// aviso nenhum, porque o operador aprende a ignorá-lo.
     /// </summary>
     [Fact]
-    public void WorkspaceDeTime_ComCofrePessoalAtivo_AVISA_ComTextoAcionavel()
+    public void CofreDoTimeSemAChave_AVISA_ComTextoAcionavel()
     {
         VaultBadgeViewModel badge = New();
         badge.Apply(VaultScope.TeamPending);
 
         Assert.True(badge.IsWarning);
-        Assert.Contains("PESSOAL", badge.Detail, StringComparison.Ordinal);
+        Assert.Contains("chave", badge.Detail, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("senha", badge.Detail, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(VaultBadgeViewModel.TeamVaultNotActiveWarning, badge.Detail);
 
-        // O rótulo curto (o que cabe na barra) também precisa carregar o alerta: um operador que só
-        // bate o olho na barra não abre tooltip nenhum.
-        Assert.Contains("pessoal", badge.Label, StringComparison.OrdinalIgnoreCase);
+        // O rótulo curto (o que cabe na barra) também carrega o alerta: quem só bate o olho na barra
+        // não abre tooltip nenhum.
         Assert.Contains("time", badge.Label, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("chave", badge.Label, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// <b>Cofre do time ATIVO: o indicador para de dizer "pessoal".</b> Era esta a limitação que o
+    /// 1e registrou honestamente na tela; agora ela acabou, e o texto tem de acompanhar. E NÃO é
+    /// alerta: um aviso permanente é um aviso que ninguém mais lê.
+    /// </summary>
+    [Fact]
+    public void CofreDoTimeAtivo_DizQueEDoTime_ESemAlarme()
+    {
+        VaultBadgeViewModel badge = New();
+        badge.Apply(VaultScope.Team);
+
+        Assert.False(badge.IsWarning);
+        Assert.Contains("TIME", badge.Label, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("pessoal", badge.Label, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(VaultBadgeViewModel.TeamVaultActiveDetail, badge.Detail);
+        Assert.Contains("TIME", badge.WindowTitle, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Cofre pessoal com conta: sem alarme, e ainda assim dizendo qual cofre é.</summary>

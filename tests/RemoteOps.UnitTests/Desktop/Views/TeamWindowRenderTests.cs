@@ -363,7 +363,8 @@ public sealed class TeamWindowRenderTests
 
     /// <summary>
     /// A tela de Equipe carrega o indicador de cofre desenhado. É aqui que o operador está pensando
-    /// "o que é do time e o que é meu" — e nesta versão a resposta ainda é "tudo é seu".
+    /// "o que é do time e o que é meu" — e o indicador tem de dizer a verdade DESTA sessão, inclusive
+    /// quando ela é "cofre do time, mas a chave ainda não chegou".
     /// </summary>
     [Fact]
     public async Task OIndicadorDeCofre_EstaDesenhado_NaTelaDeEquipe()
@@ -379,7 +380,7 @@ public sealed class TeamWindowRenderTests
         Assert.Equal(badge.Label, probe.VaultBadgeText);
         Assert.Contains(
             probe.VisibleTexts,
-            t => t.Contains("PESSOAL", StringComparison.Ordinal));
+            t => t.Contains("chave", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>

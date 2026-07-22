@@ -11,6 +11,7 @@ using RemoteOps.Security.Account;
 using RemoteOps.Security.Crypto;
 using RemoteOps.Security.Storage;
 using RemoteOps.Sync.Remote;
+using RemoteOps.UnitTests.Sync;
 
 using Xunit;
 
@@ -194,19 +195,25 @@ public sealed class TeamInviteServiceTests
             => throw new NotSupportedException();
     }
 
-    private sealed record Side(FakeTeamApi Api, WkWorkspaceKeyRing Ring, TeamInviteService Service, byte[] Amk);
+    private sealed record Side(
+        FakeTeamApi Api,
+        WkWorkspaceKeyRing Ring,
+        TeamInviteService Service,
+        byte[] Amk,
+        FakeSyncMetadataStore Metadata);
 
     /// <summary>
     /// Um lado (dono ou convidado) com chaveiro próprio. Desde o 1h não há mais bandeira de
     /// "pode criar chave": o fail-closed é do TIPO — o cofre enxerga só o <c>IWorkspaceKeyRing</c>,
     /// que não tem como fazer chave nascer, e quem funda o time chama o tipo concreto.
     /// </summary>
-    private static Side NewSide(FakeTeamApi? api = null)
+    private static Side NewSide(FakeTeamApi? api = null, byte[]? amk = null)
     {
         api ??= new FakeTeamApi();
-        byte[] amk = Amk();
+        amk ??= Amk();
         var ring = TeamKeyRingFactory.New(amk);
-        return new Side(api, ring, new TeamInviteService(api, ring), amk);
+        var metadata = new FakeSyncMetadataStore();
+        return new Side(api, ring, new TeamInviteService(api, ring, metadata), amk, metadata);
     }
 
     // ── Criar o TIME (1g/1h) ─────────────────────────────────────────────────────────────
@@ -285,6 +292,56 @@ public sealed class TeamInviteServiceTests
 
         // E o servidor segue sem chave nenhuma: nada meio-criado ficou para trás lá.
         Assert.Null(api.WorkspaceKey);
+    }
+
+    // ── O cursor de segredos, quando a chave ATERRISSA (1k) ──────────────────────────────
+
+    /// <summary>
+    /// <b>Depois de a chave do time chegar, o cursor volta a ZERO.</b> Sem isto: um envelope
+    /// <c>WkRootedV1</c> que desceu ANTES da chave é PULADO (raiz divergente), o cursor avança por
+    /// cima dele — ele avança por PÁGINA, não por item — e a senha fica atrás do cursor para sempre,
+    /// sem nunca ter dado erro. O re-pull é idempotente por construção, então zerar custa um ciclo e
+    /// devolve tudo.
+    /// </summary>
+    [Fact]
+    public async Task AposRestaurarAWk_OCursorVoltaAZero()
+    {
+        var api = new FakeTeamApi();
+        Side dono = NewSide(api);
+        using WkWorkspaceKeyRing _ = dono.Ring;
+
+        // O time existe e a chave está no servidor (outro device do mesmo dono já a publicou).
+        CreatedTeam time = await dono.Service.CreateTeamAsync("Clientes do ISP");
+
+        // MESMA conta, outro computador: a AMK é portável, o embrulho em disco não é.
+        Side outroPc = NewSide(api, dono.Amk);
+        using WkWorkspaceKeyRing __ = outroPc.Ring;
+
+        // Neste PC o canal de segredos já andou: o cursor está adiantado e os envelopes do time que
+        // desceram nesse intervalo foram pulados (não havia chave para abri-los).
+        await outroPc.Metadata.SaveSecretsCursorAsync(time.WorkspaceId, 4200);
+        Assert.Equal(4200, await outroPc.Metadata.GetSecretsCursorAsync(time.WorkspaceId));
+
+        Assert.True(await outroPc.Service.TryRestoreTeamKeyAsync(time.WorkspaceId));
+
+        Assert.Equal(0, await outroPc.Metadata.GetSecretsCursorAsync(time.WorkspaceId));
+    }
+
+    /// <summary>
+    /// Sem chave de time no servidor (cofre PESSOAL), nada aterrissa — e o cursor NÃO é mexido.
+    /// Zerá-lo aqui obrigaria todo boot de quem só tem cofre pessoal a rebaixar o acervo inteiro.
+    /// </summary>
+    [Fact]
+    public async Task SemChaveNoServidor_OCursorNaoEhMexido()
+    {
+        var api = new FakeTeamApi();
+        Side conta = NewSide(api);
+        using WkWorkspaceKeyRing _ = conta.Ring;
+
+        await conta.Metadata.SaveSecretsCursorAsync(Workspace, 77);
+
+        Assert.False(await conta.Service.TryRestoreTeamKeyAsync(Workspace));
+        Assert.Equal(77, await conta.Metadata.GetSecretsCursorAsync(Workspace));
     }
 
     // ── Lado do DONO ─────────────────────────────────────────────────────────────────────

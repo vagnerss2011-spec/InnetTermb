@@ -864,7 +864,17 @@ public partial class App : Application
 
         var http = new HttpClient { BaseAddress = config.CloudUrl };
         var api = new TeamApiClient(http, config.DeviceId, tokens);
-        return new TeamContext(new TeamInviteService(api, teamKeyRing), api, workspaceId);
+
+        // O store de metadados entra para UMA coisa: zerar o cursor do canal de segredos quando a
+        // chave do time aterrissa aqui. Sem ele, um envelope WkRootedV1 que desceu ANTES da chave
+        // foi pulado, o cursor avançou por cima (ele avança por PÁGINA) e aquela senha fica atrás do
+        // cursor para sempre — sem nunca ter dado erro. É `null` enquanto o banco não existe, e ali
+        // não há cursor a consertar.
+        ISyncMetadataStore? metadata = _syncContext is { } sync
+            ? new SqliteSyncMetadataStore(sync.Workspace)
+            : null;
+
+        return new TeamContext(new TeamInviteService(api, teamKeyRing, metadata), api, workspaceId);
     }
 
     /// <summary>
@@ -887,15 +897,22 @@ public partial class App : Application
         }
 
         TeamContext? team = TryCreateTeamContext();
-        _ = workspace.Browser.Vault.RefreshAsync(
-            team is null
-                ? null
-                : ct => team.Service.IsTeamWorkspaceAsync(team.WorkspaceId, ct));
 
-        if (team is not null)
+        if (team is null)
         {
-            _ = PublishTeamKeyAsync(team);
+            // Sem conta: cofre local, e nenhuma ida à rede. É a verdade, e é o app de sempre.
+            _ = workspace.Browser.Vault.RefreshAsync(null);
+            return;
         }
+
+        // O indicador sai do ESCOPO já resolvido no boot, e não de uma segunda pergunta ao servidor.
+        // O escopo é quem decidiu QUAL banco abrir e QUAL cofre selar: derivar o indicador de outra
+        // fonte permitiria que ele discordasse do cofre realmente aberto — exatamente a mentira que
+        // ele existe para impedir. E, de quebra, ele já distingue TIME de TIME-SEM-CHAVE, o que a
+        // sondagem sozinha não sabe fazer.
+        workspace.Browser.Vault.ApplyFromSession(_sessionScope.Kind);
+
+        _ = PublishTeamKeyAsync(team);
     }
 
     /// <summary>

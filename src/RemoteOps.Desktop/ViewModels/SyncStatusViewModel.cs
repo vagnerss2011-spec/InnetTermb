@@ -27,6 +27,7 @@ public sealed class SyncStatusViewModel : BaseViewModel
     private ISyncController? _controller;
     private SyncState _state = SyncState.Offline;
     private int _conflictCount;
+    private SecretChannelState _secretChannel = SecretChannelState.Idle;
     private bool _isBusy;
 
     // Começa em false: enquanto o canal de hints não confirmou que subiu, o que vale é o laço por
@@ -239,6 +240,44 @@ public sealed class SyncStatusViewModel : BaseViewModel
         _ => $"{_conflictCount} alterações não subiram",
     };
 
+    // ── Canal de SEGREDOS (Fatia 1k) ─────────────────────────────────────────────────────
+    //
+    // Até aqui, `grep -rn "SecretChannel" src/RemoteOps.Desktop/` devolvia ZERO: o orquestrador
+    // calculava Degraded e Failed com cuidado e NADA disso chegava à tela. A barra dizia
+    // "Sincronizado" enquanto senhas eram puladas — e qualquer guarda que mande item suspeito para o
+    // SecretSyncSkip (a de raiz divergente, por exemplo) estava apoiada numa rede que ninguém via.
+
+    /// <summary>
+    /// O canal de senhas está com pendência? Separado do <see cref="IsError"/> de propósito: as duas
+    /// metades do ciclo falham por motivos diferentes e pedem ações diferentes do operador.
+    /// </summary>
+    public bool HasSecretChannelWarning =>
+        _secretChannel is SecretChannelState.Degraded or SecretChannelState.Failed;
+
+    /// <summary>Aviso curto da barra. Vazio quando não há o que avisar — aviso permanente ninguém lê.</summary>
+    public string SecretChannelText => _secretChannel switch
+    {
+        SecretChannelState.Degraded => "senhas com pendência",
+        SecretChannelState.Failed => "senhas não sincronizaram",
+        _ => string.Empty,
+    };
+
+    /// <summary>
+    /// O detalhe acionável. Os dois estados pedem coisas diferentes: no degradado o acervo passou e
+    /// ITENS ficaram para trás (o equipamento pode estar na tela com a senha faltando); no falho
+    /// NENHUMA senha se moveu, e o operador precisa saber que o que ele vê é só metadado.
+    /// </summary>
+    public string SecretChannelDetail => _secretChannel switch
+    {
+        SecretChannelState.Degraded =>
+            "Algumas senhas não subiram ou não desceram neste ciclo. Os equipamentos aparecem "
+            + "normalmente, mas as senhas que faltaram só chegam no próximo ciclo bem-sucedido.",
+        SecretChannelState.Failed =>
+            "Nenhuma senha subiu ou desceu neste ciclo. Os equipamentos podem estar atualizados, "
+            + "mas as senhas não — confira a conexão e sincronize de novo antes de contar com elas.",
+        _ => string.Empty,
+    };
+
     /// <summary>Carrega os conflitos para exibição. NUNCA lança: falha vira lista vazia.</summary>
     public async Task<IReadOnlyList<SyncConflictItem>> LoadConflictsAsync(int limit = 200)
     {
@@ -285,6 +324,7 @@ public sealed class SyncStatusViewModel : BaseViewModel
     {
         _state = status.State;
         _conflictCount = status.ConflictCount;
+        _secretChannel = status.SecretChannel;
         RaiseAllStatusProps();
     }
 
@@ -358,6 +398,9 @@ public sealed class SyncStatusViewModel : BaseViewModel
         RaisePropertyChanged(nameof(StatusDetail));
         RaisePropertyChanged(nameof(HasConflicts));
         RaisePropertyChanged(nameof(ConflictText));
+        RaisePropertyChanged(nameof(HasSecretChannelWarning));
+        RaisePropertyChanged(nameof(SecretChannelText));
+        RaisePropertyChanged(nameof(SecretChannelDetail));
         SyncNowCommand.RaiseCanExecuteChanged();
     }
 }

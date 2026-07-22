@@ -69,6 +69,13 @@ internal sealed class FakeSyncMetadataStore : ISyncMetadataStore
         return Task.CompletedTask;
     }
 
+    /// <summary>Reset explícito — a ÚNICA gravação que pode regredir o cursor (sem o MAX acima).</summary>
+    public Task ResetSecretsCursorAsync(string workspaceId, CancellationToken ct = default)
+    {
+        _secretsCursors[workspaceId] = 0;
+        return Task.CompletedTask;
+    }
+
     public Task<IReadOnlyDictionary<string, int>> GetPushedSecretsAsync(
         string workspaceId, CancellationToken ct = default)
     {

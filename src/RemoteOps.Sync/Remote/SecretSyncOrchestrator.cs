@@ -290,6 +290,22 @@ public sealed class SecretSyncOrchestrator
     {
         SecretEnvelope incoming = SecretEnvelopeWireCodec.FromWire(dto, _vaultWorkspaceId, _vaultAlgorithm);
 
+        // Numa sessão de cofre de TIME, um dto carimbado com OUTRA raiz é veneno: gravá-lo produziria
+        // um envelope que ninguém abre e que PARECE estar lá — o desfecho que esta fatia existe para
+        // matar. Melhor não ter a senha e SABER (o item vai para o SecretSyncSkip, que a barra
+        // mostra) do que tê-la ilegível e não saber.
+        //
+        // A guarda vale SÓ no cofre do time. No pessoal o comportamento fica idêntico ao de hoje, de
+        // propósito: o acervo do operador tem envelopes de raiz legada, e barrá-los aqui faria as
+        // senhas dele pararem de descer em silêncio — exatamente a falha que a regra "formato novo
+        // entra ADICIONANDO, nunca trocando" existe para impedir.
+        if (string.Equals(_vaultAlgorithm, VaultAlgorithms.WkRootedV1, StringComparison.Ordinal)
+            && !string.Equals(incoming.Algorithm, _vaultAlgorithm, StringComparison.Ordinal))
+        {
+            throw new CloudSyncException(
+                $"Envelope '{incoming.EnvelopeId}' veio com raiz divergente do cofre desta sessão.");
+        }
+
         SecretEnvelope? existing = await _store.GetAsync(incoming.EnvelopeId, ct);
         if (existing is not null && existing.Version > incoming.Version)
         {
