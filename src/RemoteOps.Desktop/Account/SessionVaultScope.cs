@@ -7,8 +7,16 @@ using RemoteOps.Security.Vault;
 
 namespace RemoteOps.Desktop.Account;
 
-/// <summary>Que cofre esta sessão do app abriu.</summary>
-internal enum SessionVaultKind
+/// <summary>
+/// Que cofre esta sessão do app abriu.
+///
+/// <para><b>Por que é público</b> (o <see cref="SessionVaultScope"/> continua interno): esta é a
+/// pergunta que o convite tem de fazer antes de deixar qualquer dado sair da máquina. O
+/// <c>TeamInviteService</c> e a tela de Equipe são públicos e precisam recebê-la pelo construtor —
+/// deduzi-la por outro caminho criaria uma segunda fonte da verdade sobre o cofre aberto, que é
+/// exatamente a divergência que esta fatia inteira existe para matar.</para>
+/// </summary>
+public enum SessionVaultKind
 {
     /// <summary>Cofre pessoal: <c>ws-local</c>, raiz AMK, <c>sync-local.db</c>. O app de sempre.</summary>
     Personal,

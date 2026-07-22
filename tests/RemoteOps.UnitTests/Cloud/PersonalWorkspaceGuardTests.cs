@@ -11,6 +11,8 @@ using RemoteOps.Cloud.Data.Entities;
 using RemoteOps.Cloud.Rbac;
 using RemoteOps.Cloud.Teams;
 using RemoteOps.Security.Account;
+using RemoteOps.Sync.Remote;
+using RemoteOps.UnitTests.Sync;
 
 using Xunit;
 
@@ -153,6 +155,49 @@ public sealed class PersonalWorkspaceGuardTests
             HttpStatusCode.NotFound,
             (await http.GetAsync($"/workspaces/{dono.WorkspaceId}/key")).StatusCode);
     }
+
+    // ── O CLIENTE lê a recusa (G2) ────────────────────────────────────────────
+
+    /// <summary>
+    /// <b>O cliente real lê o MOTIVO, não só o número.</b> Num PC contaminado por um clique do botão
+    /// de convite antigo existe uma chave de time gravada sob o cofre PESSOAL, e o reparo de boot
+    /// tenta publicá-la. Sem ler o <c>reason</c>, o app escrevia "(servidor fora de alcance)" no
+    /// painel de Logs — um recado errado sobre a única coisa que o operador poderia consertar.
+    ///
+    /// <para>O teste fala com o backend REAL de propósito: um fake que devolvesse o motivo pronto
+    /// testaria a minha suposição sobre o servidor, não o servidor.</para>
+    /// </summary>
+    [Fact]
+    public async Task ClienteReal_LeOMotivoDaRecusa_EmVezDeSoOStatus()
+    {
+        using var factory = new CloudApiFactory();
+        using var http = factory.CreateClient();
+        Account dono = await RegisterAsync(http, "dono@test.local");
+        Auth(http, dono.Token, dono.DeviceId);
+
+        var api = new TeamApiClient(
+            http,
+            Guid.Parse(dono.DeviceId),
+            new FakeTokenStore(new TokenSet(
+                dono.Token, dono.RefreshToken, DateTimeOffset.UtcNow.AddHours(1))));
+
+        var erro = await Assert.ThrowsAsync<CloudSyncException>(
+            () => api.PublishWorkspaceKeyAsync(
+                dono.WorkspaceId,
+                new PublishTeamWorkspaceKeyRequest(Convert.ToBase64String(Rand(60)), 1)));
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, erro.StatusCode);
+        Assert.Equal(CloudRefusalReasons.PersonalWorkspace, erro.Reason);
+    }
+
+    /// <summary>
+    /// A duplicata do motivo no cliente (o Desktop não referencia o assembly da nuvem) fica AMARRADA
+    /// ao servidor. Sem esta linha, renomear o código lá deixaria a tela daqui mostrando o genérico
+    /// "o servidor recusou a operação (HTTP 422)" — e ninguém notaria até um operador ligar.
+    /// </summary>
+    [Fact]
+    public void OMotivoDoCliente_EOMesmoDoServidor()
+        => Assert.Equal(PersonalWorkspaceException.ReasonCode, CloudRefusalReasons.PersonalWorkspace);
 
     // ── O time continua funcionando ───────────────────────────────────────────
 

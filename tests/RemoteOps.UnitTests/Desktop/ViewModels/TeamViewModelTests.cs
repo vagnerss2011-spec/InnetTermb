@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 
+using RemoteOps.Desktop.Account;
 using RemoteOps.Desktop.ViewModels;
 using RemoteOps.Sync.Remote;
 
@@ -120,7 +121,7 @@ public sealed class TeamViewModelTests
     {
         var api = new FakeTeamApi();
         api.Members.AddRange(members);
-        return (new TeamViewModel(api, Workspace), api);
+        return (new TeamViewModel(api, Workspace, SessionVaultKind.Team), api);
     }
 
     // ── Listar ───────────────────────────────────────────────────────────────────────────
@@ -416,6 +417,37 @@ public sealed class TeamViewModelTests
         Assert.Equal(1, pedidos);
     }
 
+    // ── A verdade sobre ONDE o operador está (G2) ────────────────────────────────────────
+
+    /// <summary>
+    /// <b>Na sessão do cofre PESSOAL a tela de Equipe não oferece convite.</b> Um convite emitido a
+    /// partir de uma sessão pessoal apontaria para o cofre com todos os clientes do operador. E o
+    /// botão não some calado: no lugar dele fica escrito o motivo e o próximo passo — um botão que só
+    /// sabe recusar ensina o operador a ignorar recusas.
+    /// </summary>
+    [Fact]
+    public void SessaoPESSOAL_NaoOfereceOBotaoDeConvite_EExplicaPorQue()
+    {
+        var vm = new TeamViewModel(new FakeTeamApi(), Workspace, SessionVaultKind.Personal);
+
+        Assert.False(vm.CanInvite);
+        Assert.False(vm.InviteCommand.CanExecute(null));
+        Assert.True(vm.HasInviteBlockedNotice);
+        Assert.Contains("PESSOAL", vm.InviteBlockedNotice, StringComparison.Ordinal);
+        Assert.Contains("Crie um time", vm.InviteBlockedNotice, StringComparison.Ordinal);
+    }
+
+    /// <summary>A metade que impede "esconder tudo": na sessão de TIME o convite é oferecido.</summary>
+    [Fact]
+    public void SessaoDeTIME_OfereceOBotaoDeConvite()
+    {
+        var vm = new TeamViewModel(new FakeTeamApi(), Workspace, SessionVaultKind.Team);
+
+        Assert.True(vm.CanInvite);
+        Assert.True(vm.InviteCommand.CanExecute(null));
+        Assert.False(vm.HasInviteBlockedNotice);
+    }
+
     // ── Indicador de cofre dentro da própria tela ────────────────────────────────────────
 
     /// <summary>
@@ -427,7 +459,7 @@ public sealed class TeamViewModelTests
     {
         var badge = new VaultBadgeViewModel();
         badge.Apply(VaultScope.TeamPending);
-        var vm = new TeamViewModel(new FakeTeamApi(), Workspace, badge);
+        var vm = new TeamViewModel(new FakeTeamApi(), Workspace, SessionVaultKind.Team, badge);
 
         Assert.Same(badge, vm.Vault);
         Assert.True(vm.Vault.IsWarning);

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 
 namespace RemoteOps.Sync.Remote;
 
@@ -39,7 +40,7 @@ public sealed class TeamApiClient : ITeamApi
         // já teria nascido em disco, órfã. Quem trata o 409 é o chamador, sorteando outro GUID.
         if (!resp.IsSuccessStatusCode)
         {
-            throw new CloudSyncException(resp.StatusCode);
+            throw await FailAsync(resp, ct);
         }
 
         return await CloudAuthChannel.ReadResultAsync<CreateTeamWorkspaceResponse>(resp, ct);
@@ -57,7 +58,7 @@ public sealed class TeamApiClient : ITeamApi
 
         if (!resp.IsSuccessStatusCode)
         {
-            throw new CloudSyncException(resp.StatusCode);
+            throw await FailAsync(resp, ct);
         }
 
         return await CloudAuthChannel.ReadResultAsync<CreateTeamInviteResponse>(resp, ct);
@@ -76,7 +77,7 @@ public sealed class TeamApiClient : ITeamApi
 
         if (!resp.IsSuccessStatusCode)
         {
-            throw new CloudSyncException(resp.StatusCode);
+            throw await FailAsync(resp, ct);
         }
 
         return await CloudAuthChannel.ReadResultAsync<TeamInviteContextResponse>(resp, ct);
@@ -94,7 +95,7 @@ public sealed class TeamApiClient : ITeamApi
 
         if (!resp.IsSuccessStatusCode)
         {
-            throw new CloudSyncException(resp.StatusCode);
+            throw await FailAsync(resp, ct);
         }
 
         return await CloudAuthChannel.ReadResultAsync<AcceptTeamInviteResponse>(resp, ct);
@@ -116,7 +117,7 @@ public sealed class TeamApiClient : ITeamApi
 
         if (!resp.IsSuccessStatusCode)
         {
-            throw new CloudSyncException(resp.StatusCode);
+            throw await FailAsync(resp, ct);
         }
 
         return await CloudAuthChannel.ReadResultAsync<TeamWorkspaceKeyResponse>(resp, ct);
@@ -144,7 +145,7 @@ public sealed class TeamApiClient : ITeamApi
 
         if (!resp.IsSuccessStatusCode)
         {
-            throw new CloudSyncException(resp.StatusCode);
+            throw await FailAsync(resp, ct);
         }
 
         var body = await CloudAuthChannel.ReadResultAsync<PublishTeamWorkspaceKeyResponse>(resp, ct);
@@ -162,7 +163,7 @@ public sealed class TeamApiClient : ITeamApi
         // neste ponto. Quem decide o que dizer ao operador é a VM, com o erro na mão.
         if (!resp.IsSuccessStatusCode)
         {
-            throw new CloudSyncException(resp.StatusCode);
+            throw await FailAsync(resp, ct);
         }
 
         return await CloudAuthChannel.ReadResultAsync<TeamMembersResponse>(resp, ct);
@@ -183,7 +184,43 @@ public sealed class TeamApiClient : ITeamApi
             HttpStatusCode.NotFound => TeamMemberRemoval.NotAMember,
             HttpStatusCode.Conflict => TeamMemberRemoval.LastOwner,
             _ when resp.IsSuccessStatusCode => TeamMemberRemoval.Removed,
-            _ => throw new CloudSyncException(resp.StatusCode),
+            _ => throw await FailAsync(resp, ct),
         };
+    }
+
+    /// <summary>
+    /// Monta a falha carregando o <c>reason</c> do ProblemDetails quando o servidor mandou um.
+    ///
+    /// <para><b>Por que o motivo, e não só o status:</b> a recusa "este workspace é o seu cofre
+    /// pessoal" chega como 422, e sem ela o app escrevia "(servidor fora de alcance)" no painel de
+    /// Logs — um recado errado sobre a única coisa que o operador poderia consertar. Casar substring
+    /// do <c>detail</c> em pt-BR não serve: esse texto muda na primeira revisão.</para>
+    ///
+    /// <para><b>Ler o corpo não pode virar um segundo modo de falha.</b> Resposta sem corpo, com
+    /// HTML de proxy ou com JSON de outro formato devolve <c>null</c> e a exceção sai com o status —
+    /// exatamente o comportamento de antes. E só o <c>reason</c> é lido: nada do corpo entra na
+    /// mensagem da exceção (ADR-013).</para>
+    /// </summary>
+    private static async Task<CloudSyncException> FailAsync(
+        HttpResponseMessage resp, CancellationToken ct)
+    {
+        string? reason = null;
+        try
+        {
+            var problem = await resp.Content.ReadFromJsonAsync<JsonElement>(ct);
+            if (problem.ValueKind is JsonValueKind.Object
+                && problem.TryGetProperty("reason", out JsonElement value)
+                && value.ValueKind is JsonValueKind.String)
+            {
+                reason = value.GetString();
+            }
+        }
+        catch (Exception ex) when (ex is JsonException or NotSupportedException or HttpRequestException)
+        {
+            // Sem motivo legível — e isso NÃO vira "não é aquele motivo": quem lê o `Reason` trata
+            // null como "o servidor não disse".
+        }
+
+        return new CloudSyncException(resp.StatusCode, reason);
     }
 }

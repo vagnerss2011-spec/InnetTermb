@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
 
+using RemoteOps.Desktop.Account;
 using RemoteOps.Sync.Remote;
 
 namespace RemoteOps.Desktop.ViewModels;
@@ -76,6 +77,7 @@ public sealed class TeamViewModel : BaseViewModel
 
     private readonly ITeamApi _api;
     private readonly string _workspaceId;
+    private readonly SessionVaultKind _sessionKind;
 
     private bool _isLoading;
     private bool _loaded;
@@ -85,17 +87,28 @@ public sealed class TeamViewModel : BaseViewModel
     private string _statusMessage = string.Empty;
     private bool _isBusy;
 
-    public TeamViewModel(ITeamApi api, string workspaceId, VaultBadgeViewModel? vault = null)
+    /// <param name="sessionKind">
+    /// Que cofre esta sessão abriu. <b>Sem default</b>: quem monta a tela tem de DIZER, porque é
+    /// disso que depende oferecer ou não o convite — e um default herdado em silêncio é exatamente
+    /// como o botão passou a apontar para o cofre pessoal.
+    /// </param>
+    public TeamViewModel(
+        ITeamApi api,
+        string workspaceId,
+        SessionVaultKind sessionKind,
+        VaultBadgeViewModel? vault = null)
     {
         ArgumentNullException.ThrowIfNull(api);
         ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
 
         _api = api;
         _workspaceId = workspaceId;
+        _sessionKind = sessionKind;
         Vault = vault ?? new VaultBadgeViewModel();
 
         ReloadCommand = new RelayCommand(() => _ = LoadAsync(), () => !_isLoading);
-        InviteCommand = new RelayCommand(() => InviteRequested?.Invoke(this, EventArgs.Empty));
+        InviteCommand = new RelayCommand(
+            () => InviteRequested?.Invoke(this, EventArgs.Empty), () => CanInvite);
         RemoveCommand = new RelayCommand(BeginRemoval, target => target is TeamMemberViewModel);
         ConfirmRemoveCommand = new RelayCommand(() => _ = ConfirmRemoveAsync(), () => !_isBusy);
         CancelRemoveCommand = new RelayCommand(CancelRemoval);
@@ -108,6 +121,26 @@ public sealed class TeamViewModel : BaseViewModel
 
     /// <summary>Em qual cofre o operador está — repetido aqui porque é onde ele pensa nisso.</summary>
     public VaultBadgeViewModel Vault { get; }
+
+    /// <summary>
+    /// Convidar faz sentido nesta sessão? Só num cofre de TIME. Numa sessão pessoal o "time" seria o
+    /// acervo particular do operador, e oferecer o botão como se ele fosse funcionar é a mentira que
+    /// esta tela existe justamente para não contar.
+    /// </summary>
+    public bool CanInvite => _sessionKind is
+        SessionVaultKind.Team or
+        SessionVaultKind.TeamWithoutKey;
+
+    /// <summary>Aparece no LUGAR do botão de convite quando a sessão é a do cofre pessoal.</summary>
+    public string InviteBlockedNotice =>
+        CanInvite
+            ? string.Empty
+            : "Esta sessão abriu o seu COFRE PESSOAL, não um time. Convidar alguém daqui daria a "
+              + "essa pessoa acesso a todos os seus clientes e equipamentos — por isso o convite "
+              + "não é oferecido. Crie um time em Configurações → Conta → Equipe e escolha-o ao "
+              + "abrir o RemoteOps.";
+
+    public bool HasInviteBlockedNotice => !string.IsNullOrEmpty(InviteBlockedNotice);
 
     public string Title => "Equipe";
 

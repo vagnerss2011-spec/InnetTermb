@@ -65,7 +65,8 @@ public partial class SettingsWindow : Window
             return;
         }
 
-        var teamViewModel = new TeamViewModel(team.Api, team.WorkspaceId, Vm.VaultBadge);
+        var teamViewModel = new TeamViewModel(
+            team.Api, team.WorkspaceId, team.SessionKind, Vm.VaultBadge);
         var window = new TeamWindow(teamViewModel) { Owner = this };
 
         // Convidar a partir da tela de Equipe: a janela de convite abre por CIMA dela e, ao fechar,
@@ -81,22 +82,41 @@ public partial class SettingsWindow : Window
     }
 
     /// <summary>
-    /// Abre a janela de convite (modal) e, ao fechar, REAVALIA em qual cofre o operador está.
+    /// Abre a janela de time (modal) no modo pedido — fundar, convidar ou entrar — e, ao fechar,
+    /// REAVALIA em qual cofre o operador está.
     ///
     /// <para>Sem essa reavaliação existe uma janela de falha muda concreta: gerar o primeiro convite
     /// é o ato que faz a chave do time NASCER neste PC, ou seja, é exatamente aí que o workspace
     /// ativo passa a ser "de time" — e o indicador continuaria dizendo "cofre pessoal", sem o aviso,
     /// até o próximo reinício. É o pior momento possível para o aviso sumir: o operador acabou de
     /// convidar alguém e vai começar a cadastrar achando que já está compartilhando.</para>
+    ///
+    /// <para><b>Criar o time NÃO troca o cofre desta sessão</b>, e o operador precisa saber disso
+    /// antes de ir cadastrar. O cofre é decidido uma vez, no boot — trocá-lo com a UI viva exigiria
+    /// trocar cofre, banco, store e todos os ViewModels ao mesmo tempo. Por isso o aviso aparece na
+    /// hora: sem ele o operador cria o time, cadastra o cliente seguinte no cofre PESSOAL e só
+    /// descobre semanas depois, quando o colega diz que não vê nada.</para>
     /// </summary>
     private void ShowInviteWindow(Account.TeamContext team, TeamInviteMode mode, Window owner)
     {
-        var window = new TeamInviteWindow(
-            new TeamInviteViewModel(team.Service, team.WorkspaceId, mode))
+        var window = new TeamInviteWindow(new TeamInviteViewModel(team, mode))
         {
             Owner = owner,
         };
         window.ShowDialog();
+
+        if (window.CreatedTeam)
+        {
+            MessageBox.Show(
+                owner,
+                "O time foi criado e está VAZIO — os seus clientes e equipamentos continuam no seu "
+                + "cofre pessoal, intactos.\n\nEsta janela do RemoteOps continua trabalhando no "
+                + "cofre PESSOAL: nada do que você cadastrar agora vai para o time. Feche e abra o "
+                + "RemoteOps e escolha o time ao entrar para cadastrar nele e convidar pessoas.",
+                "RemoteOps — Time criado",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
 
         // Barato: com a chave já no disco, a sondagem nem toca a rede. A regra em si mora no VM
         // (SettingsViewModel.RefreshVaultScopeAsync), onde é exercitada por teste.

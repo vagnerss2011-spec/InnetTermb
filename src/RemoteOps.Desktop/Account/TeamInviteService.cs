@@ -34,7 +34,37 @@ public sealed class TeamInviteException : Exception
 /// propósito: aquele existe porque o convite tem CRIPTO no meio; membros são só HTTP, e passar por
 /// um "serviço" que não faz nada seria uma camada a manter sem nada a ganhar.
 /// </param>
-public sealed record TeamContext(TeamInviteService Service, ITeamApi Api, string WorkspaceId);
+/// <param name="WorkspaceId">
+/// O workspace ATIVO desta sessão — que pode perfeitamente ser o cofre PESSOAL do operador. É por
+/// isso que ele nunca deve ser usado como "o workspace do time" sem passar pelo
+/// <see cref="TeamContext.TeamWorkspaceId"/>: era exatamente essa confusão que fazia o botão de
+/// convite apontar para o cofre com os ~700 clientes do dono.
+/// </param>
+/// <param name="SessionKind">
+/// Que cofre esta sessão abriu, decidido no boot (<c>SessionVaultScopeResolver</c>). Vem de fora
+/// porque quem sabe é o boot: recalcular aqui produziria uma segunda resposta, e duas respostas
+/// sobre "em que cofre eu estou" é a divergência mais cara desta base.
+/// </param>
+public sealed record TeamContext(
+    TeamInviteService Service, ITeamApi Api, string WorkspaceId, SessionVaultKind SessionKind)
+{
+    /// <summary>
+    /// Esta sessão abriu um cofre de TIME (com a chave ou ainda sem ela). É a única condição em que
+    /// convidar alguém e listar membros fazem sentido: fora dela, o <paramref name="WorkspaceId"/> é
+    /// o cofre pessoal, e o "time" seria o acervo particular do operador.
+    /// </summary>
+    public bool IsTeamSession =>
+        SessionKind is SessionVaultKind.Team or SessionVaultKind.TeamWithoutKey;
+
+    /// <summary>
+    /// O workspace do TIME desta sessão, ou <c>null</c> quando ela abriu o cofre pessoal.
+    ///
+    /// <para>Existe para que "o workspace do time" seja um valor que ou É de time ou NÃO EXISTE —
+    /// e não um id qualquer que quem chama precisa lembrar de checar. Quem esquecer a checagem
+    /// recebe <c>null</c> e falha na hora, em vez de convidar alguém para o cofre pessoal.</para>
+    /// </summary>
+    public string? TeamWorkspaceId => IsTeamSession ? WorkspaceId : null;
+}
 
 /// <summary>Convite recém-gerado — o que a tela do dono precisa mostrar.</summary>
 /// <param name="Code">
@@ -119,10 +149,30 @@ public sealed class TeamInviteService
     /// </summary>
     private const int WkVersionV1 = 1;
 
+    /// <summary>
+    /// A recusa que o operador LÊ quando tenta convidar alguém estando no cofre pessoal.
+    ///
+    /// <para>Constante pública (e não string solta no meio do método) porque ela é afirmada por
+    /// teste de VM e de render: um refactor que a apague, ou que a troque por um erro genérico, tem
+    /// de ficar vermelho. E porque o texto é a metade útil da guarda — "não foi possível concluir a
+    /// operação" faria o operador tentar de novo achando que foi a rede.</para>
+    /// </summary>
+    public const string PersonalSessionRefusal =
+        "Você está no seu COFRE PESSOAL, não num time. Convidar alguém a partir daqui daria a essa "
+        + "pessoa acesso a TODOS os seus clientes e equipamentos cadastrados. Crie um time em "
+        + "Configurações → Conta → Equipe (ele nasce vazio) e, ao abrir o RemoteOps de novo, escolha "
+        + "o time — o convite sai de dentro dele.";
+
     private readonly ITeamApi _api;
     private readonly WkWorkspaceKeyRing _keyRing;
+    private readonly SessionVaultKind _sessionKind;
     private readonly ISyncMetadataStore? _metadata;
 
+    /// <param name="sessionKind">
+    /// Que cofre esta sessão do app abriu. <b>Obrigatório e sem default</b>: um default aqui seria
+    /// herdado em silêncio por qualquer chamador novo, e o valor errado nesta linha é o vazamento do
+    /// acervo do operador. Quem constrói o serviço tem de DIZER em que cofre está.
+    /// </param>
     /// <param name="metadata">
     /// Onde vive o cursor do canal de segredos. <b>Serve para uma coisa só:</b> zerá-lo quando a
     /// chave do time ATERRISSA neste computador.
@@ -136,12 +186,17 @@ public sealed class TeamInviteService
     /// de existir banco local (não há sessão de sync nem cursor a zerar). Quando não há cursor, não
     /// há o que consertar.</para>
     /// </param>
-    public TeamInviteService(ITeamApi api, WkWorkspaceKeyRing keyRing, ISyncMetadataStore? metadata = null)
+    public TeamInviteService(
+        ITeamApi api,
+        WkWorkspaceKeyRing keyRing,
+        SessionVaultKind sessionKind,
+        ISyncMetadataStore? metadata = null)
     {
         ArgumentNullException.ThrowIfNull(api);
         ArgumentNullException.ThrowIfNull(keyRing);
         _api = api;
         _keyRing = keyRing;
+        _sessionKind = sessionKind;
         _metadata = metadata;
     }
 
@@ -239,12 +294,38 @@ public sealed class TeamInviteService
     /// Gera o convite. O código sorteado volta para a TELA (nunca para o servidor, nunca para o
     /// e-mail): quem o entrega é o operador, pelo canal que ele escolher.
     /// </summary>
+    /// <exception cref="TeamInviteException">
+    /// A sessão abriu o cofre PESSOAL — ver <see cref="PersonalSessionRefusal"/>.
+    /// </exception>
     public async Task<GeneratedTeamInvite> CreateInviteAsync(
         string workspaceId, string email, string role, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
         ArgumentException.ThrowIfNullOrWhiteSpace(email);
         ArgumentException.ThrowIfNullOrWhiteSpace(role);
+
+        // ⚠️ FAIL-CLOSED, E A PRIMEIRA COISA QUE ACONTECE AQUI.
+        //
+        // O `workspaceId` é o workspace ATIVO da sessão. Numa sessão de cofre PESSOAL ele é o cofre
+        // com os ~700 clientes do operador, e o /sync é escopado por workspace + membership: o
+        // convite emitido contra ele faria o convidado baixar nomes, endereços, grupos e fabricantes
+        // inteiros. Não é vazamento de senha — é de CADASTRO, e nenhum indicador de cofre fala sobre
+        // isso.
+        //
+        // A recusa vem ANTES de tudo, e a ordem é a guarda: as linhas abaixo fazem a WK do time
+        // NASCER neste computador. Num cofre pessoal isso grava `wk:time:{workspacePessoal}` em
+        // disco, e é justamente esse blob que faz o boot seguinte classificar o cofre pessoal como
+        // "de time" (regra 3 do SessionVaultScopeResolver) — ou seja, uma recusa tardia diria "não"
+        // e deixaria o estrago plantado do mesmo jeito. Ela também não toca a REDE: quem está no
+        // cofre pessoal não paga round-trip para ouvir um não que este computador já sabe dar.
+        //
+        // O servidor recusa por conta própria desde o estágio G1 (422 `workspace.personal`). São
+        // duas guardas de propósito: a de lá sobrevive a um cliente adulterado; a daqui é a que fala
+        // pt-BR com o operador e a única que impede a chave de nascer no lugar errado.
+        if (_sessionKind is not (SessionVaultKind.Team or SessionVaultKind.TeamWithoutKey))
+        {
+            throw new TeamInviteException(PersonalSessionRefusal);
+        }
 
         string code = TeamInviteCrypto.GenerateCode();
         string vaultWorkspaceId = AppRuntime.TeamVaultWorkspace(workspaceId);
@@ -474,10 +555,33 @@ public sealed class TeamInviteService
             return TeamKeyUpload.NoLocalKey;
         }
 
-        TeamKeyPublication outcome = await _api.PublishWorkspaceKeyAsync(
-            workspaceId,
-            new PublishTeamWorkspaceKeyRequest(Convert.ToBase64String(wrapped), WkVersionV1),
-            ct).ConfigureAwait(false);
+        TeamKeyPublication outcome;
+        try
+        {
+            outcome = await _api.PublishWorkspaceKeyAsync(
+                workspaceId,
+                new PublishTeamWorkspaceKeyRequest(Convert.ToBase64String(wrapped), WkVersionV1),
+                ct).ConfigureAwait(false);
+        }
+        catch (CloudSyncException ex) when (ex.Reason == CloudRefusalReasons.PersonalWorkspace)
+        {
+            // O SERVIDOR diz que este workspace é o cofre pessoal (422). Só existe um jeito de haver
+            // uma chave de time em disco para um cofre pessoal: o botão de convite defeituoso das
+            // versões anteriores, que fazia a WK nascer sob `time:{workspacePessoal}` no instante do
+            // clique. O blob é INERTE — ninguém o usa, e o cofre pessoal continua com a raiz de
+            // sempre —, mas o reparo de boot tentaria publicá-lo em toda abertura.
+            //
+            // Sem este caso o app escrevia "(servidor fora de alcance)" no painel de Logs: um recado
+            // ERRADO, sobre a rede, para uma recusa que a rede entregou perfeitamente. Aqui a frase
+            // diz o que é — e diz que nada foi perdido, que é o que o operador precisa ouvir.
+            throw new TeamInviteException(
+                "Este computador guarda uma chave de time associada ao seu COFRE PESSOAL, sobra de "
+                + "uma versão anterior do RemoteOps. O servidor recusou registrá-la, e fez certo: "
+                + "cofre pessoal não é time. Nada foi perdido e nada mudou — os seus equipamentos e "
+                + "senhas continuam como estavam. Para compartilhar de verdade, crie um time em "
+                + "Configurações → Conta → Equipe.",
+                ex);
+        }
 
         if (outcome is TeamKeyPublication.Stored)
         {

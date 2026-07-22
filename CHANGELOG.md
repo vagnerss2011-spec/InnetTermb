@@ -36,6 +36,28 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ### Segurança
 
+- **Existe finalmente um botão para CRIAR o time — e o convite parou de apontar para o seu cofre
+  pessoal.** Até esta entrega não havia caminho nenhum na tela para criar um time: o único botão de
+  convite que existia convidava para o **workspace aberto no momento**, que para quem usa o RemoteOps
+  é o **cofre pessoal**. Um clique bastava — o colega aceitava e baixava **todos os seus clientes e
+  equipamentos** (nomes, endereços, grupos, fabricantes) no computador dele, e o seu cofre pessoal
+  virava um cofre de duas raízes para sempre. Nada na tela avisava. Agora:
+  - **"Criar time…"** em Configurações → Conta → Equipe cria um workspace **novo e vazio**, e a tela
+    diz isso **antes** do clique, em destaque: os seus equipamentos **não vão junto** e ninguém do
+    time passa a enxergá-los. Ao terminar, o aplicativo avisa que **esta janela continua no cofre
+    pessoal** e que é preciso fechar e reabrir escolhendo o time para cadastrar nele.
+  - **Convidar só existe dentro de um time.** Na sessão do cofre pessoal os botões "Convidar
+    alguém…" e "Ver a equipe…" **não são desenhados** — e no lugar deles fica escrito o motivo e o
+    próximo passo, em vez de um botão que só sabe dar erro.
+  - **Recusa fail-closed, antes de qualquer rede.** Mesmo que algo chame o convite a partir de uma
+    sessão pessoal, o aplicativo **recusa em voz alta**, com a frase inteira na tela — e recusa
+    **antes** de a chave do time nascer neste computador, que era justamente o rastro que o botão
+    defeituoso deixava no disco.
+  - **Quem já clicou no botão antigo recebe o recado certo.** Nesses computadores sobrou uma chave de
+    time associada ao cofre pessoal; o servidor recusa registrá-la, e o aplicativo agora explica isso
+    no painel de Logs em vez de escrever *"servidor fora de alcance"* — um recado errado sobre a rede,
+    para algo que a rede entregou perfeitamente. **Nada é perdido e nada muda** nos seus equipamentos
+    e senhas.
 - **O SERVIDOR passou a recusar sozinho compartilhar o seu cofre pessoal.** Cada workspace agora
   guarda como nasceu — cofre **pessoal** (o que vem junto com a conta) ou **time** (criado de
   propósito, vazio). Convidar alguém, ou registrar uma chave de time, só é aceito num workspace de

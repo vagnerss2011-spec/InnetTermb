@@ -207,13 +207,22 @@ public sealed class TeamInviteServiceTests
     /// "pode criar chave": o fail-closed é do TIPO — o cofre enxerga só o <c>IWorkspaceKeyRing</c>,
     /// que não tem como fazer chave nascer, e quem funda o time chama o tipo concreto.
     /// </summary>
-    private static Side NewSide(FakeTeamApi? api = null, byte[]? amk = null)
+    /// <param name="sessionKind">
+    /// O cofre que a sessão abriu. O default é <see cref="SessionVaultKind.Team"/> porque é o que
+    /// estes testes encenam: o <c>Workspace</c> daqui É o workspace do time. A sessão PESSOAL tem
+    /// arquivo próprio (<c>PersonalSessionInviteGuardTests</c>), onde o assunto é a RECUSA.
+    /// </param>
+    private static Side NewSide(
+        FakeTeamApi? api = null,
+        byte[]? amk = null,
+        SessionVaultKind sessionKind = SessionVaultKind.Team)
     {
         api ??= new FakeTeamApi();
         amk ??= Amk();
         var ring = TeamKeyRingFactory.New(amk);
         var metadata = new FakeSyncMetadataStore();
-        return new Side(api, ring, new TeamInviteService(api, ring, metadata), amk, metadata);
+        return new Side(
+            api, ring, new TeamInviteService(api, ring, sessionKind, metadata), amk, metadata);
     }
 
     // ── Criar o TIME (1g/1h) ─────────────────────────────────────────────────────────────
@@ -473,7 +482,7 @@ public sealed class TeamInviteServiceTests
 
         // Mesma conta (mesma AMK), device novo: ring vazio.
         using var ringNovo = TeamKeyRingFactory.New(dono.Amk);
-        var servicoNovo = new TeamInviteService(api, ringNovo);
+        var servicoNovo = new TeamInviteService(api, ringNovo, SessionVaultKind.Team);
         GeneratedTeamInvite invite = await servicoNovo.CreateInviteAsync(
             Workspace, "b@innet.tec.br", "Manager");
 
@@ -521,7 +530,7 @@ public sealed class TeamInviteServiceTests
 
         // O SEGUNDO PC do dono: mesma conta (mesma AMK), disco limpo.
         using var segundo = TeamKeyRingFactory.New(dono.Amk);
-        var servico = new TeamInviteService(api, segundo);
+        var servico = new TeamInviteService(api, segundo, SessionVaultKind.Team);
 
         // O indicador não pode dizer "cofre pessoal" aqui — e a mesma pergunta traz a chave de volta.
         Assert.True(await servico.IsTeamWorkspaceAsync(Workspace));
@@ -598,7 +607,7 @@ public sealed class TeamInviteServiceTests
         // PC nº 1 publica a chave DE VERDADE do time.
         using var pc1 = TeamKeyRingFactory.New(amk);
         await pc1.ImportWorkspaceKeyAsync(vaultWorkspace, RandomNumberGenerator.GetBytes(32));
-        await new TeamInviteService(api, pc1).PublishOwnWrappedKeyAsync(Workspace);
+        await new TeamInviteService(api, pc1, SessionVaultKind.Team).PublishOwnWrappedKeyAsync(Workspace);
         string guardadoAntes = api.WorkspaceKey!.WrappedWk;
 
         // PC nº 2, mesma conta, com OUTRA chave no disco (a bifurcação já aconteceu neste device).
@@ -606,7 +615,7 @@ public sealed class TeamInviteServiceTests
         await pc2.ImportWorkspaceKeyAsync(vaultWorkspace, RandomNumberGenerator.GetBytes(32));
 
         var erro = await Assert.ThrowsAsync<TeamInviteException>(
-            () => new TeamInviteService(api, pc2).PublishOwnWrappedKeyAsync(Workspace));
+            () => new TeamInviteService(api, pc2, SessionVaultKind.Team).PublishOwnWrappedKeyAsync(Workspace));
 
         Assert.Contains("chave", erro.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(guardadoAntes, api.WorkspaceKey!.WrappedWk);
@@ -839,7 +848,7 @@ public sealed class TeamInviteServiceTests
         // Mesma conta (mesma AMK), device NOVO: ring vazio.
         byte[] amk = dono.Amk;
         using var ringNovo = TeamKeyRingFactory.New(amk);
-        var servico = new TeamInviteService(api, ringNovo);
+        var servico = new TeamInviteService(api, ringNovo, SessionVaultKind.Team);
 
         // O servidor guarda o embrulho da membership — que é o que o ring do dono produziu.
         byte[] wrapped = await dono.Ring.ImportWorkspaceKeyAsync(

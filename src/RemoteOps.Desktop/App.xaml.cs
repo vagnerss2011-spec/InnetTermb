@@ -880,7 +880,21 @@ public partial class App : Application
             ? new SqliteSyncMetadataStore(sync.Workspace)
             : null;
 
-        return new TeamContext(new TeamInviteService(api, teamKeyRing, metadata), api, workspaceId);
+        // ⚠️ O ESCOPO DA SESSÃO ENTRA AQUI, e é ele que decide se convidar é sequer possível. O
+        // `workspaceId` é o ATIVO — para o operador de ISP, o cofre PESSOAL com os ~700 clientes —, e
+        // até esta correção o botão de convite mandava um convite para ELE: um clique e o colega
+        // baixava nomes, IPs, grupos e fabricantes inteiros. A marca vem do escopo já resolvido no
+        // boot, e não de uma segunda pergunta: duas respostas sobre "que cofre eu abri" divergiriam,
+        // e a divergência aqui é justamente o vazamento.
+        //
+        // Durante a RESOLUÇÃO do escopo esta fábrica também é chamada (a sonda online), e ali
+        // `_sessionScope` ainda é o pessoal — o que está certo: naquele momento só se usa o
+        // IsTeamWorkspaceAsync, que não convida ninguém e não depende da marca.
+        return new TeamContext(
+            new TeamInviteService(api, teamKeyRing, _sessionScope.Kind, metadata),
+            api,
+            workspaceId,
+            _sessionScope.Kind);
     }
 
     /// <summary>

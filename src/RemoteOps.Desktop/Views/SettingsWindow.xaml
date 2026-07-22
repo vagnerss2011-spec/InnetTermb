@@ -117,7 +117,15 @@
                                    FontSize="{DynamicResource Font.Size.Caption}"
                                    TextWrapping="Wrap" Margin="0,0,0,10"/>
 
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <!-- ⚠️ AÇÕES QUE SÓ EXISTEM DENTRO DE UM TIME. Somem inteiras na sessão do
+                             cofre pessoal: até esta entrega "Convidar alguém…" convidava para o
+                             workspace ATIVO — o cofre com todos os clientes do operador — e o
+                             convidado baixava o cadastro inteiro pelo sync. Deixar o botão desenhado
+                             e só recusar no clique ensinaria que "às vezes dá erro", e é assim que
+                             uma recusa vira ruído e para de ser lida. Elas não somem CALADAS: o
+                             painel logo abaixo diz onde o operador está e o que fazer. -->
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4"
+                                    Visibility="{Binding IsTeamSession, Converter={StaticResource BoolToVis}}">
                             <!-- Primeiro botão e único em destaque: ver COM QUEM o cofre é
                                  compartilhado é o que o operador procura ao abrir esta seção; o
                                  convite é uma ação de dentro dessa tela. -->
@@ -126,10 +134,31 @@
                                     Style="{DynamicResource Button.Primary}"
                                     Padding="10,4" Margin="0,0,8,0"/>
                             <Button x:Name="InviteToTeamButton" Content="Convidar alguém…"
-                                    Command="{Binding InviteToTeamCommand}" Padding="10,4" Margin="0,0,8,0"/>
+                                    Command="{Binding InviteToTeamCommand}" Padding="10,4"/>
+                        </StackPanel>
+
+                        <!-- Sempre disponíveis: fundar um time (nasce vazio, não compartilha nada do
+                             que já existe) e entrar num time para o qual você foi convidado. -->
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <Button x:Name="CreateTeamButton" Content="Criar time…"
+                                    Command="{Binding CreateTeamCommand}" Padding="10,4" Margin="0,0,8,0"/>
                             <Button x:Name="JoinTeamButton" Content="Tenho um convite…"
                                     Command="{Binding JoinTeamCommand}" Padding="10,4"/>
                         </StackPanel>
+
+                        <!-- O motivo, ESCRITO. Um botão que some sem explicação é a mesma falha
+                             silenciosa por outro caminho: o operador conclui que o recurso sumiu. -->
+                        <Border x:Name="TeamScopeNoticePanel" Margin="0,8,0,0" Padding="10,7"
+                                Background="{DynamicResource Brush.Bg.Canvas}"
+                                BorderBrush="{DynamicResource Brush.Border.Subtle}"
+                                BorderThickness="1"
+                                CornerRadius="{DynamicResource Radius.Control}"
+                                Visibility="{Binding HasTeamScopeNotice, Converter={StaticResource BoolToVis}}">
+                            <TextBlock x:Name="TeamScopeNoticeText" Text="{Binding TeamScopeNotice}"
+                                       Foreground="{DynamicResource Brush.Text.Secondary}"
+                                       FontSize="{DynamicResource Font.Size.Caption}"
+                                       TextWrapping="Wrap"/>
+                        </Border>
 
                         <!-- Separador DENTRO da seção, pelo mesmo motivo do bloco de reenvio acima. -->
                         <Separator Margin="0,12,0,12"/>

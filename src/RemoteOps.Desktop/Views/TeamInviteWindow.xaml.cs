@@ -24,14 +24,23 @@ public partial class TeamInviteWindow : Window
         InitializeComponent();
         DataContext = viewModel;
         viewModel.Accepted += (_, _) => Joined = true;
+        viewModel.TeamCreated += (_, _) => CreatedTeam = true;
     }
 
     /// <summary>O convidado entrou num time nesta sessão da janela.</summary>
     public bool Joined { get; private set; }
+
+    /// <summary>
+    /// Um time foi fundado nesta sessão da janela. Quem abriu usa isto para reavaliar o indicador de
+    /// cofre: a chave do time acabou de nascer neste computador.
+    /// </summary>
+    public bool CreatedTeam { get; private set; }
 
     private TeamInviteViewModel Vm => (TeamInviteViewModel)DataContext;
 
     private async void Generate_Click(object sender, RoutedEventArgs e) => await Vm.GenerateAsync();
 
     private async void Accept_Click(object sender, RoutedEventArgs e) => await Vm.AcceptAsync();
+
+    private async void CreateTeam_Click(object sender, RoutedEventArgs e) => await Vm.CreateTeamAsync();
 }

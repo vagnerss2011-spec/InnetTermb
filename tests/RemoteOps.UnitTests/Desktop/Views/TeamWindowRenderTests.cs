@@ -9,6 +9,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 
+using RemoteOps.Desktop.Account;
 using RemoteOps.Desktop.ViewModels;
 using RemoteOps.Desktop.Views;
 using RemoteOps.Sync.Remote;
@@ -85,11 +86,16 @@ public sealed class TeamWindowRenderTests
         bool LoadErrorVisible,
         string LoadErrorText,
         bool VaultBadgeVisible,
-        string VaultBadgeText);
+        string VaultBadgeText,
+        bool InviteButtonVisible,
+        bool InviteBlockedVisible,
+        string InviteBlockedText);
 
     private static Probe RenderAndProbe(TeamViewModel vm, Action<TeamWindow>? interact = null)
     {
-        Probe probe = new([], false, 0, false, string.Empty, false, string.Empty, false, string.Empty);
+        Probe probe = new(
+            [], false, 0, false, string.Empty, false, string.Empty, false, string.Empty,
+            false, false, string.Empty);
 
         Exception? error = StaThreadRunner.Run(() =>
         {
@@ -113,6 +119,8 @@ public sealed class TeamWindowRenderTests
                 var loadError = window.FindName("LoadErrorPanel") as FrameworkElement;
                 var loadErrorText = window.FindName("LoadErrorText") as TextBlock;
                 var badge = window.FindName("VaultBadgeText") as TextBlock;
+                var invite = window.FindName("InviteButton") as FrameworkElement;
+                var inviteBlocked = window.FindName("InviteBlockedText") as TextBlock;
 
                 probe = new Probe(
                     VisibleTexts: [.. VisibleTexts(window)],
@@ -123,7 +131,10 @@ public sealed class TeamWindowRenderTests
                     LoadErrorVisible: IsEffectivelyVisible(loadError),
                     LoadErrorText: loadErrorText?.Text ?? string.Empty,
                     VaultBadgeVisible: IsEffectivelyVisible(badge),
-                    VaultBadgeText: badge?.Text ?? string.Empty);
+                    VaultBadgeText: badge?.Text ?? string.Empty,
+                    InviteButtonVisible: IsEffectivelyVisible(invite),
+                    InviteBlockedVisible: IsEffectivelyVisible(inviteBlocked),
+                    InviteBlockedText: inviteBlocked?.Text ?? string.Empty);
             }
             finally
             {
@@ -205,7 +216,7 @@ public sealed class TeamWindowRenderTests
 
     private static async Task<TeamViewModel> Loaded(StubTeamApi api, VaultBadgeViewModel? badge = null)
     {
-        var vm = new TeamViewModel(api, Workspace, badge);
+        var vm = new TeamViewModel(api, Workspace, SessionVaultKind.Team, badge);
         await vm.LoadAsync();
         return vm;
     }
@@ -383,6 +394,43 @@ public sealed class TeamWindowRenderTests
             t => t.Contains("chave", StringComparison.OrdinalIgnoreCase));
     }
 
+    // ── A verdade sobre ONDE o operador está (G2) ────────────────────────────────────────
+
+    /// <summary>
+    /// <b>Na sessão do cofre PESSOAL a tela de Equipe não DESENHA o botão de convidar</b> — e põe no
+    /// lugar dele o motivo, escrito. Oferecer o botão ali seria oferecer, com outra roupa, o convite
+    /// que entrega os ~700 clientes do operador.
+    /// </summary>
+    [Fact]
+    public async Task SessaoPESSOAL_NaoDESENHA_OBotaoDeConvite_EExplicaNaTela()
+    {
+        var api = new StubTeamApi();
+        api.Members.Add(new TeamMemberDto("u1", "dono@innet.tec.br", "Vagner", TeamRoles.Owner, true, 1));
+        var vm = new TeamViewModel(api, Workspace, SessionVaultKind.Personal);
+        await vm.LoadAsync();
+
+        Probe probe = RenderAndProbe(vm);
+
+        Assert.False(probe.InviteButtonVisible);
+        Assert.True(probe.InviteBlockedVisible);
+        Assert.Equal(vm.InviteBlockedNotice, probe.InviteBlockedText);
+        Assert.Contains("COFRE PESSOAL", probe.InviteBlockedText, StringComparison.Ordinal);
+    }
+
+    /// <summary>A metade que impede "esconder tudo": na sessão de TIME o botão está desenhado.</summary>
+    [Fact]
+    public async Task SessaoDeTIME_DESENHA_OBotaoDeConvite()
+    {
+        var api = new StubTeamApi();
+        api.Members.Add(new TeamMemberDto("u1", "dono@innet.tec.br", "Vagner", TeamRoles.Owner, true, 1));
+        TeamViewModel vm = await Loaded(api);
+
+        Probe probe = RenderAndProbe(vm);
+
+        Assert.True(probe.InviteButtonVisible);
+        Assert.False(probe.InviteBlockedVisible);
+    }
+
     /// <summary>
     /// O seletor de papel do convite é um <c>ComboBox</c>: o popup dele precisa ABRIR com os itens
     /// desenhados e legíveis. Item de popup sem estilo implícito cai no Aero2 CLARO — texto branco
@@ -392,9 +440,13 @@ public sealed class TeamWindowRenderTests
     public void SeletorDePapel_AbreOPopup_ComOsItensDesenhados()
     {
         using var ring = TeamKeyRingFactory.New(new byte[32]);
+        var api = new StubTeamApi();
         var vm = new TeamInviteViewModel(
-            new RemoteOps.Desktop.Account.TeamInviteService(new StubTeamApi(), ring),
-            Workspace,
+            new TeamContext(
+                new TeamInviteService(api, ring, SessionVaultKind.Team),
+                api,
+                Workspace,
+                SessionVaultKind.Team),
             TeamInviteMode.Generate,
             copyToClipboard: _ => { });
 

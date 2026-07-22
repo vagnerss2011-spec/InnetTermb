@@ -75,12 +75,23 @@ public sealed class TeamInviteWindowRenderTests
             => throw new NotSupportedException();
     }
 
+    /// <param name="sessionKind">
+    /// Que cofre a sessão abriu. O default é <see cref="SessionVaultKind.Team"/> porque a maioria
+    /// destes testes encena o dono do time; a sessão PESSOAL tem teste próprio, e ali o alvo é a
+    /// RECUSA aparecendo escrita na tela.
+    /// </param>
     private static TeamInviteViewModel NewViewModel(
-        TeamInviteMode mode, out WkWorkspaceKeyRing ring)
+        TeamInviteMode mode,
+        out WkWorkspaceKeyRing ring,
+        SessionVaultKind sessionKind = SessionVaultKind.Team)
     {
         ring = TeamKeyRingFactory.New(new byte[32]);
-        var service = new TeamInviteService(new StubTeamApi(), ring);
-        return new TeamInviteViewModel(service, Workspace, mode, copyToClipboard: _ => { });
+        var api = new StubTeamApi();
+        var service = new TeamInviteService(api, ring, sessionKind);
+        return new TeamInviteViewModel(
+            new TeamContext(service, api, Workspace, sessionKind),
+            mode,
+            copyToClipboard: _ => { });
     }
 
     private sealed record Probe(
@@ -89,12 +100,18 @@ public sealed class TeamInviteWindowRenderTests
         string WarningText,
         string CodeText,
         Visibility GenerateButtonVisibility,
-        Visibility AcceptButtonVisibility);
+        Visibility AcceptButtonVisibility,
+        Visibility CreateTeamButtonVisibility,
+        Visibility EmptyTeamWarningVisibility,
+        string EmptyTeamWarningText,
+        Visibility ErrorBoxVisibility,
+        string ErrorText);
 
     private static (Exception? Error, Probe Result) RenderAndProbe(TeamInviteViewModel vm)
     {
         var probe = new Probe([], Visibility.Collapsed, string.Empty, string.Empty,
-            Visibility.Collapsed, Visibility.Collapsed);
+            Visibility.Collapsed, Visibility.Collapsed, Visibility.Collapsed, Visibility.Collapsed,
+            string.Empty, Visibility.Collapsed, string.Empty);
 
         Exception? error = StaThreadRunner.Run(() =>
         {
@@ -114,6 +131,10 @@ public sealed class TeamInviteWindowRenderTests
                 var code = window.FindName("GeneratedCodeText") as TextBlock;
                 var generate = window.FindName("GenerateButton") as Button;
                 var accept = window.FindName("AcceptButton") as Button;
+                var createTeam = window.FindName("CreateTeamButton") as Button;
+                var emptyWarning = window.FindName("EmptyTeamWarningText") as TextBlock;
+                var errorBox = window.FindName("ErrorBox") as FrameworkElement;
+                var errorText = window.FindName("ErrorText") as TextBlock;
 
                 probe = new Probe(
                     VisibleTexts: [.. VisibleTexts(window)],
@@ -121,7 +142,12 @@ public sealed class TeamInviteWindowRenderTests
                     WarningText: warning?.Text ?? string.Empty,
                     CodeText: code?.Text ?? string.Empty,
                     GenerateButtonVisibility: IsEffectivelyVisible(generate) ? Visibility.Visible : Visibility.Collapsed,
-                    AcceptButtonVisibility: IsEffectivelyVisible(accept) ? Visibility.Visible : Visibility.Collapsed);
+                    AcceptButtonVisibility: IsEffectivelyVisible(accept) ? Visibility.Visible : Visibility.Collapsed,
+                    CreateTeamButtonVisibility: IsEffectivelyVisible(createTeam) ? Visibility.Visible : Visibility.Collapsed,
+                    EmptyTeamWarningVisibility: IsEffectivelyVisible(emptyWarning) ? Visibility.Visible : Visibility.Collapsed,
+                    EmptyTeamWarningText: emptyWarning?.Text ?? string.Empty,
+                    ErrorBoxVisibility: IsEffectivelyVisible(errorBox) ? Visibility.Visible : Visibility.Collapsed,
+                    ErrorText: errorText?.Text ?? string.Empty);
             }
             finally
             {
@@ -244,6 +270,72 @@ public sealed class TeamInviteWindowRenderTests
             Assert.Contains("Entrar num time", probe.VisibleTexts);
             Assert.Contains("Identificador do convite", probe.VisibleTexts);
             Assert.Contains("Código do convite", probe.VisibleTexts);
+        }
+    }
+
+    // ── Criar o time ─────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// <b>O aviso do time VAZIO tem de estar na tela ANTES do clique.</b> Quem tem ~700 clientes
+    /// cadastrados espera vê-los do outro lado; o time é um workspace novo e nasce sem nada. Uma
+    /// expectativa frustrada aqui vira o operador procurando os equipamentos e concluindo que a
+    /// sincronização quebrou.
+    ///
+    /// <para>O teste afirma VISIBILIDADE e TEXTO: binding quebrado no WPF não lança — cai no default,
+    /// e o default de <see cref="UIElement.Visibility"/> é <see cref="Visibility.Visible"/>. Um teste
+    /// de "não estourou" passaria com a caixa do aviso desenhada e VAZIA.</para>
+    /// </summary>
+    [Fact]
+    public void ModoCriarTime_MostraOAvisoDeTimeVAZIO_EOBotaoDeCriar()
+    {
+        TeamInviteViewModel vm = NewViewModel(
+            TeamInviteMode.CreateTeam, out WkWorkspaceKeyRing ring, SessionVaultKind.Personal);
+        using (ring)
+        {
+            var (error, probe) = RenderAndProbe(vm);
+
+            Assert.Null(error);
+            Assert.Equal(Visibility.Visible, probe.CreateTeamButtonVisibility);
+            Assert.Equal(Visibility.Visible, probe.EmptyTeamWarningVisibility);
+            Assert.Equal(TeamInviteViewModel.EmptyTeamWarning, probe.EmptyTeamWarningText);
+            Assert.Contains("VAZIO", probe.EmptyTeamWarningText, StringComparison.Ordinal);
+            Assert.Contains("NÃO vão junto", probe.EmptyTeamWarningText, StringComparison.Ordinal);
+
+            // E os outros dois lados da janela ficam fora: um formulário de convite aberto junto
+            // faria o operador achar que criar e convidar são o mesmo clique.
+            Assert.Equal(Visibility.Collapsed, probe.GenerateButtonVisibility);
+            Assert.Equal(Visibility.Collapsed, probe.AcceptButtonVisibility);
+            Assert.Contains("Criar um time", probe.VisibleTexts);
+            Assert.Contains("Nome do time", probe.VisibleTexts);
+        }
+    }
+
+    /// <summary>
+    /// <b>A recusa do cofre pessoal APARECE ESCRITA.</b> Se a janela de convite for aberta numa
+    /// sessão pessoal (um caminho que a tela não oferece mais, mas que um refactor pode reabrir), o
+    /// operador lê o motivo e o que fazer — nunca um "não foi possível concluir a operação", que o
+    /// faria tentar de novo achando que foi a rede.
+    /// </summary>
+    [Fact]
+    public async Task ModoGerar_NaSessaoPESSOAL_ARecusaAparecEscritaNaTela()
+    {
+        TeamInviteViewModel vm = NewViewModel(
+            TeamInviteMode.Generate, out WkWorkspaceKeyRing ring, SessionVaultKind.Personal);
+        using (ring)
+        {
+            vm.Email = "colega@innet.tec.br";
+            await vm.GenerateAsync();
+
+            var (error, probe) = RenderAndProbe(vm);
+
+            Assert.Null(error);
+            Assert.Equal(Visibility.Visible, probe.ErrorBoxVisibility);
+            Assert.Equal(TeamInviteService.PersonalSessionRefusal, probe.ErrorText);
+            Assert.Contains("COFRE PESSOAL", probe.ErrorText, StringComparison.Ordinal);
+
+            // E nenhum código foi sorteado/desenhado: recusar é recusar.
+            Assert.Equal(Visibility.Collapsed, probe.WarningVisibility);
+            Assert.Empty(probe.CodeText);
         }
     }
 

@@ -24,13 +24,29 @@
     <DockPanel Margin="20">
 
         <!-- ── Rodapé de ações ─────────────────────────────────────────────── -->
+        <!--
+            ⚠️ O botão de CONVIDAR só existe numa sessão de cofre de TIME. Numa sessão pessoal o
+            convite apontaria para o cofre com todos os clientes do operador — e ele não some calado:
+            o painel logo abaixo diz o motivo e o próximo passo.
+        -->
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,14,0,0">
             <Button x:Name="InviteButton" Content="Convidar alguém…"
                     Command="{Binding InviteCommand}"
-                    Style="{DynamicResource Button.Primary}" Padding="10,5" Margin="0,0,8,0"/>
+                    Style="{DynamicResource Button.Primary}" Padding="10,5" Margin="0,0,8,0"
+                    Visibility="{Binding CanInvite, Converter={StaticResource BoolToVis}}"/>
             <Button x:Name="ReloadButton" Content="Atualizar"
                     Command="{Binding ReloadCommand}" Padding="10,5"/>
         </StackPanel>
+
+        <Border x:Name="InviteBlockedPanel" DockPanel.Dock="Bottom" Margin="0,14,0,0" Padding="10,7"
+                CornerRadius="{DynamicResource Radius.Control}"
+                Background="{DynamicResource Brush.Bg.Canvas}"
+                BorderBrush="{DynamicResource Brush.Border.Subtle}"
+                BorderThickness="1"
+                Visibility="{Binding HasInviteBlockedNotice, Converter={StaticResource BoolToVis}}">
+            <TextBlock x:Name="InviteBlockedText" Text="{Binding InviteBlockedNotice}"
+                       Style="{DynamicResource Text.Caption}" TextWrapping="Wrap"/>
+        </Border>
 
         <!-- ── Cabeçalho ───────────────────────────────────────────────────── -->
         <StackPanel DockPanel.Dock="Top">

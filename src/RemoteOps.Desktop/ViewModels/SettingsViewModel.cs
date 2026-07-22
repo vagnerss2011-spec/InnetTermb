@@ -78,17 +78,35 @@ public sealed class SettingsViewModel : BaseViewModel
             () => _mfaApi != null);
 
         // Equipe (Fatia 1). Só com conta na nuvem ativa: sem servidor não há convite nem membro.
+        //
+        // ⚠️ CONVIDAR exige mais do que conta: exige estar NUMA SESSÃO DE TIME. Até esta entrega o
+        // botão convidava para o workspace ATIVO — o cofre pessoal do operador — e o convidado
+        // baixava os ~700 clientes dele pelo /sync. Oferecer o botão numa sessão pessoal, mesmo com
+        // a guarda do serviço no lugar, ensinaria o operador que "às vezes dá erro": é assim que a
+        // recusa vira ruído e para de ser lida.
         InviteToTeamCommand = new RelayCommand(
             () => TeamInviteRequested?.Invoke(this, TeamInviteMode.Generate),
-            () => _team != null);
+            () => IsTeamSession);
+
+        // ENTRAR num time vale em qualquer sessão: o aceite cria uma membership nova e não toca o
+        // cofre que está aberto agora.
         JoinTeamCommand = new RelayCommand(
             () => TeamInviteRequested?.Invoke(this, TeamInviteMode.Accept),
             () => _team != null);
 
         // A tela cheia da equipe (membros, papéis, remover) — 1e. É a partir daqui que o operador
-        // enxerga COM QUEM o cofre é compartilhado; até a 1d ele só sabia quem tinha convidado.
+        // enxerga COM QUEM o cofre é compartilhado. Também só na sessão de time: no cofre pessoal
+        // ela listaria a "equipe" de um workspace que só tem o dono, chamando de time o acervo
+        // particular dele.
         ManageTeamCommand = new RelayCommand(
             () => TeamManagementRequested?.Invoke(this, EventArgs.Empty),
+            () => IsTeamSession);
+
+        // Criar o time. Vale em QUALQUER sessão — inclusive (e principalmente) na do cofre pessoal,
+        // que é de onde todo operador parte. Criar não compartilha nada: nasce um workspace NOVO e
+        // vazio, e o acervo pessoal não é tocado.
+        CreateTeamCommand = new RelayCommand(
+            () => TeamInviteRequested?.Invoke(this, TeamInviteMode.CreateTeam),
             () => _team != null);
 
         // O botão NÃO reenvia: abre a confirmação. Reenviar o acervo inteiro por um clique acidental
@@ -282,6 +300,31 @@ public sealed class SettingsViewModel : BaseViewModel
     public bool CanManageTeam => _team != null;
 
     /// <summary>
+    /// Esta sessão abriu o cofre de um TIME. É o que separa "posso convidar e listar membros" de
+    /// "estou no meu cofre pessoal".
+    ///
+    /// <para><b>Por que a tela precisa disto:</b> até esta entrega o botão "Convidar alguém…"
+    /// convidava para o workspace ATIVO. Numa sessão pessoal isso é o cofre com todos os clientes do
+    /// operador, e o convidado baixaria o cadastro inteiro. Oferecer o botão como se ele fosse
+    /// funcionar é a metade da tela que ainda mentiria mesmo com a guarda do serviço no lugar.</para>
+    /// </summary>
+    public bool IsTeamSession => _team?.IsTeamSession == true;
+
+    /// <summary>
+    /// A frase que explica onde o operador está e o que fazer, quando ele tem conta na nuvem mas a
+    /// sessão é a do cofre pessoal. Vazia nas demais situações — aviso permanente é aviso que
+    /// ninguém lê.
+    /// </summary>
+    public string TeamScopeNotice =>
+        CanManageTeam && !IsTeamSession
+            ? "Você está no seu cofre pessoal. Convites e lista de membros pertencem a um TIME: "
+              + "crie um (ele nasce vazio, os seus equipamentos não vão junto) ou, se você já tem "
+              + "um, feche e abra o RemoteOps e escolha o time ao entrar."
+            : string.Empty;
+
+    public bool HasTeamScopeNotice => !string.IsNullOrEmpty(TeamScopeNotice);
+
+    /// <summary>
     /// O indicador de cofre do shell, repassado à tela de Equipe. É a MESMA instância que a barra de
     /// status usa — duas cópias do estado divergiriam, e a tela de Equipe é justamente onde a
     /// divergência seria mais cara de acreditar. Nunca null (sem shell, nasce em "cofre pessoal",
@@ -324,6 +367,9 @@ public sealed class SettingsViewModel : BaseViewModel
     public RelayCommand JoinTeamCommand { get; }
 
     public RelayCommand ManageTeamCommand { get; }
+
+    /// <summary>Funda um time novo e vazio (abre a janela no modo de criação).</summary>
+    public RelayCommand CreateTeamCommand { get; }
 
     /// <summary>Disparado após persistir; a janela fecha e avisa "requer reinício" se necessário.</summary>
     public event EventHandler? Saved;
