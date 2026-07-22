@@ -103,14 +103,28 @@ internal sealed class TeamKeyBootRepair
                 + "chave na sua conta.");
             return TeamVaultReadiness.StillWithoutKey;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Cancelamento DE VERDADE: o token DESTA chamada foi cancelado (o app fechando). Propaga
+            // sem linha de log — a última tela não pode ganhar um aviso que não significa nada.
+            throw;
+        }
+        catch (Exception ex)
         {
             // Falha vira TEXTO, nunca silêncio: sem esta linha o operador olharia o aviso da barra
             // sem saber se o app chegou a tentar. E ela distingue "o servidor não respondeu" de "a
             // resposta não serviu" — as duas pedem coisas diferentes dele.
+            //
+            // ⚠️ O timeout do HttpClient chega como TaskCanceledException (uma OCE) — e o boot chama
+            // este reparo SEM token (ct = default), então ali TODO OCE é a rede pendurada, nunca o
+            // chamador desistindo. Excluí-lo por tipo (`is not OperationCanceledException`) fazia a
+            // forma MAIS comum de "servidor fora de alcance" numa rede de campo escapar para a Task
+            // descartada do boot: nenhuma linha, com o aviso da barra prometendo o desfecho nos Logs.
             _log?.Emit(
                 "[time] Não foi possível buscar a chave deste time na sua conta agora"
-                + (ex is CloudSyncException ? " (servidor fora de alcance)." : ".")
+                + (ex is CloudSyncException or OperationCanceledException
+                    ? " (servidor fora de alcance)."
+                    : ".")
                 + " Nenhuma senha do time abre neste computador enquanto isso; o RemoteOps tenta de "
                 + "novo na próxima abertura.");
             return TeamVaultReadiness.StillWithoutKey;
@@ -141,8 +155,16 @@ internal sealed class TeamKeyBootRepair
                 ? TeamVaultReadiness.StillWithoutKey
                 : TeamVaultReadiness.KeyHere;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
+            // Mesma regra da outra metade: só o cancelamento do token DESTA chamada propaga calado.
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // O timeout do HttpClient é TaskCanceledException e cai AQUI de propósito (ver a outra
+            // metade): no boot não há token, então OCE sem ct cancelado é a rede pendurada — e a
+            // frase "(servidor fora de alcance)" abaixo é exatamente o recado certo para ele.
             // Sem detalhe técnico e sem blob (ADR-013): o texto é para o operador. Engolir calado
             // seria pior — este é o aviso de que o segundo computador dele pode não abrir o cofre do
             // time, ou de que a chave daqui não é a mesma da conta.

@@ -55,10 +55,27 @@ public sealed class TeamKeyBootRepairTests
         /// <summary>O servidor está fora: toda consulta de chave estoura.</summary>
         public bool Offline { get; set; }
 
+        /// <summary>
+        /// A rede PENDUROU e o HttpClient desistiu: é o <see cref="TaskCanceledException"/> que o
+        /// timeout dele lança — a forma mais comum de "servidor fora de alcance" numa rede de campo
+        /// (rota em blackhole, sem RST). NÃO é o mesmo que <see cref="Offline"/>: conexão recusada
+        /// chega como <c>CloudSyncException</c>/<c>HttpRequestException</c>, timeout chega como OCE.
+        /// </summary>
+        public bool TimedOut { get; set; }
+
         public Task<TeamWorkspaceKeyResponse?> GetWorkspaceKeyAsync(
             string workspaceId, CancellationToken ct = default)
         {
+            // Cancelamento DE VERDADE (ct do chamador cancelado) se comporta como o transporte real:
+            // estoura antes de qualquer coisa. É o que o teste do app-fechando exercita.
+            ct.ThrowIfCancellationRequested();
+
             Calls.Add("get-key");
+            if (TimedOut)
+            {
+                throw new TaskCanceledException("A task was canceled.");
+            }
+
             return Offline
                 ? throw new CloudSyncException(System.Net.HttpStatusCode.ServiceUnavailable)
                 : Task.FromResult(WorkspaceKey);
@@ -67,7 +84,14 @@ public sealed class TeamKeyBootRepairTests
         public Task<TeamKeyPublication> PublishWorkspaceKeyAsync(
             string workspaceId, PublishTeamWorkspaceKeyRequest request, CancellationToken ct = default)
         {
+            ct.ThrowIfCancellationRequested();
+
             Calls.Add("publish-key");
+            if (TimedOut)
+            {
+                throw new TaskCanceledException("A task was canceled.");
+            }
+
             if (Offline)
             {
                 throw new CloudSyncException(System.Net.HttpStatusCode.ServiceUnavailable);
@@ -206,6 +230,83 @@ public sealed class TeamKeyBootRepairTests
             Assert.Equal(TeamVaultReadiness.StillWithoutKey, readiness);
             Assert.NotEmpty(log.Lines);
             Assert.Contains("[time]", log.All, StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
+    /// <b>Timeout NÃO é o app fechando.</b> O timeout do HttpClient chega como
+    /// <c>TaskCanceledException</c> — uma <c>OperationCanceledException</c> — e o boot chama este
+    /// reparo SEM token nenhum (<c>ct = default</c>): cancelamento de chamador é impossível ali, então
+    /// todo OCE que aparece É a rede pendurada. Tratá-lo como "o app está fechando" deixava a exceção
+    /// escapar para a Task descartada do boot (<c>_ = RepairTeamKeyAsync(...)</c>): nenhuma linha no
+    /// painel de Logs, com o aviso da barra PROMETENDO que "o painel de Logs mostra o que aconteceu
+    /// na última tentativa". A promessa quebrada é a falha silenciosa clássica desta base — e as
+    /// telas interativas já tratam <c>TaskCanceledException</c> como "o servidor demorou demais".
+    /// </summary>
+    [Fact]
+    public async Task TimeoutDaRede_TAMBEM_EscreveNosLogs_EmVezDeEscaparCalado()
+    {
+        byte[] amk = RandomNumberGenerator.GetBytes(32);
+        var (api, ring, team, log) = Cenario(SessionVaultKind.TeamWithoutKey, amk);
+        using (ring)
+        {
+            api.TimedOut = true;
+
+            TeamVaultReadiness readiness = await new TeamKeyBootRepair(log).RunAsync(team);
+
+            Assert.Equal(TeamVaultReadiness.StillWithoutKey, readiness);
+            Assert.NotEmpty(log.Lines);
+            Assert.Contains("[time]", log.All, StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
+    /// <b>O mesmo timeout, na metade que PUBLICA.</b> A chave está aqui e o cofre do time funciona —
+    /// a falha foi só de publicação. O desfecho tem de ser <c>KeyHere</c> (dizer o contrário
+    /// acenderia alarme falso) e a falha tem de virar linha de log, porque é o único aviso de que o
+    /// SEGUNDO computador do operador pode não ter o que restaurar.
+    /// </summary>
+    [Fact]
+    public async Task TimeoutNaPublicacao_EscreveNosLogs_ESemAlarmeFalsoNoCofre()
+    {
+        byte[] amk = RandomNumberGenerator.GetBytes(32);
+        var (api, ring, team, log) = Cenario(SessionVaultKind.Team, amk);
+        using (ring)
+        {
+            using (WorkspaceKey _ = await ring.MintWorkspaceKeyAsync(
+                AppRuntime.TeamVaultWorkspace(WorkspaceDoTime)))
+            {
+            }
+
+            api.TimedOut = true;
+
+            TeamVaultReadiness readiness = await new TeamKeyBootRepair(log).RunAsync(team);
+
+            Assert.Equal(TeamVaultReadiness.KeyHere, readiness);
+            Assert.NotEmpty(log.Lines);
+            Assert.Contains("[time]", log.All, StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
+    /// <b>A metade que impede "logar tudo": cancelamento DE VERDADE sobe e não vira linha.</b> Quando
+    /// o token DESTA chamada foi cancelado (o app fechando), a exceção propaga — o chamador descarta,
+    /// e está certo — e o painel de Logs não ganha um aviso que não significa nada na última tela.
+    /// </summary>
+    [Fact]
+    public async Task CancelamentoDeVerdade_SOBE_ENaoViraLinhaDeLog()
+    {
+        byte[] amk = RandomNumberGenerator.GetBytes(32);
+        var (api, ring, team, log) = Cenario(SessionVaultKind.TeamWithoutKey, amk);
+        using (ring)
+        {
+            using var cts = new CancellationTokenSource();
+            await cts.CancelAsync();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => new TeamKeyBootRepair(log).RunAsync(team, cts.Token));
+
+            Assert.Empty(log.Lines);
         }
     }
 
