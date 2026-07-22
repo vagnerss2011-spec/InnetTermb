@@ -48,8 +48,10 @@ public sealed class SessionVaultScopeTests : IDisposable
 
     private string OwnerPath => Path.Combine(_dir, "sync-local.owner");
 
+    private string PersonalDbPath => Path.Combine(_dir, "sync-local.db");
+
     private SessionVaultScopeResolver Resolver(WkWorkspaceKeyRing ring) =>
-        new(ring, _store, OwnerPath);
+        new(ring, _store, OwnerPath, PersonalDbPath);
 
     private WkWorkspaceKeyRing Ring() => TeamKeyRingFactory.New(_store, _amk);
 
@@ -208,6 +210,114 @@ public sealed class SessionVaultScopeTests : IDisposable
         Assert.NotEqual(time.VaultWorkspaceId, time.DbName);
 
         Assert.Equal(-1, SessionVaultScope.Personal.DbName.IndexOfAny(Path.GetInvalidFileNameChars()));
+    }
+
+    /// <summary>
+    /// <b>Sem marcador, a evidência de time em disco fala mais alto que a adoção.</b> O colega cujo
+    /// <c>sync-local.owner</c> falhou ao ser escrito (ou foi apagado por uma limpeza) e que já tem a
+    /// WK do time no disco NÃO pode ter o banco pessoal adotado pelo workspace do TIME: isso
+    /// amarraria <c>sync-local.db</c> ao workspace dos colegas — os hosts pessoais dele subiriam
+    /// para o time e os do time desceriam para o banco pessoal, sem um único erro na tela. E o
+    /// marcador ficaria envenenado com o GUID do time, para sempre.
+    /// </summary>
+    [Fact]
+    public async Task SemMarcador_ComChaveDeTimeNoDisco_AbreOTime_ENaoAdotaODono()
+    {
+        using WkWorkspaceKeyRing ring = Ring();
+        (await ring.MintWorkspaceKeyAsync(AppRuntime.TeamVaultWorkspace(OutroWorkspace))).Dispose();
+
+        SessionVaultScope escopo = await Resolver(ring).ResolveAsync(OutroWorkspace, ProbeThatExplodes());
+
+        Assert.Equal(SessionVaultKind.Team, escopo.Kind);
+        Assert.Equal("time:" + OutroWorkspace, escopo.VaultWorkspaceId);
+        Assert.False(File.Exists(OwnerPath)); // um workspace de TIME nunca vira dono do banco pessoal
+    }
+
+    /// <summary>
+    /// <b>Máquina NOVA (sem banco pessoal) escolhendo o TIME primeiro.</b> O segundo PC do colega:
+    /// login, chooser com dois cofres, ele escolhe o do time. Adotar esse workspace como dono do
+    /// banco pessoal (o comportamento antigo da regra 1) abriria <c>sync-local.db</c> sincronizando
+    /// contra o workspace do TIME — contaminação de metadados nos dois sentidos, em silêncio. A
+    /// sonda decide (e restaura a chave na mesma ida); o dono só é adotado quando a resposta é
+    /// "não é de time".
+    /// </summary>
+    [Fact]
+    public async Task MaquinaNova_EscolhendoOTimePrimeiro_ASondaDecide_EODonoNaoEAdotado()
+    {
+        using WkWorkspaceKeyRing ring = Ring();
+
+        Task<bool> SondaQueRestaura(string ws, CancellationToken ct)
+            => ring.MintWorkspaceKeyAsync(AppRuntime.TeamVaultWorkspace(ws), ct)
+                .ContinueWith(t => { t.Result.Dispose(); return true; }, TaskScheduler.Default);
+
+        SessionVaultScope escopo = await Resolver(ring).ResolveAsync(OutroWorkspace, SondaQueRestaura);
+
+        Assert.Equal(SessionVaultKind.Team, escopo.Kind);
+        Assert.False(File.Exists(OwnerPath));
+    }
+
+    /// <summary>
+    /// Máquina nova, sem banco pessoal, SEM rede: recusa. O antigo caminho respondia "pessoal" e
+    /// gravava o dono — transformando "não sei" na pior afirmação possível. A primeira abertura de
+    /// uma máquina nova acabou de exigir a rede para o próprio login, então recusar aqui não
+    /// tranca ninguém que já conseguia trabalhar.
+    /// </summary>
+    [Fact]
+    public async Task MaquinaNova_SemRede_RECUSA_NaoAdotaODono()
+    {
+        using WkWorkspaceKeyRing ring = Ring();
+
+        await Assert.ThrowsAsync<SessionVaultScopeException>(
+            () => Resolver(ring).ResolveAsync(OutroWorkspace, ProbeThatFailsOffline()));
+
+        Assert.False(File.Exists(OwnerPath));
+    }
+
+    /// <summary>
+    /// <b>Marcador ILEGÍVEL não é marcador AUSENTE.</b> Tratar falha de leitura como "primeira
+    /// ativação" regrava o dono com o workspace da vez — se o operador estiver abrindo o do time,
+    /// o banco pessoal muda de dono em silêncio e o app passa a abri-lo como pessoal do TIME para
+    /// sempre. "Não sei quem é o dono" tem que recusar alto; a próxima abertura, com o arquivo
+    /// legível de novo, volta ao normal.
+    /// </summary>
+    [Fact]
+    public async Task MarcadorIlegivel_RECUSA_EmVezDeReadotarComOWorkspaceDaVez()
+    {
+        using WkWorkspaceKeyRing ring = Ring();
+        File.WriteAllText(OwnerPath, ServerWorkspace);
+
+        // O banco pessoal EXISTE: é a máquina do operador, no boot de todo dia. Sem esta linha o
+        // teste passaria por outro caminho (a recusa da máquina nova) e deixaria de provar a única
+        // coisa que importa aqui: ilegível ≠ ausente. Com o marcador colapsado em "ausente", a
+        // regra do upgrade adotaria o workspace da vez como dono — sem exceção nenhuma.
+        File.WriteAllText(PersonalDbPath, "banco antigo");
+
+        using (new FileStream(OwnerPath, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            await Assert.ThrowsAsync<SessionVaultScopeException>(
+                () => Resolver(ring).ResolveAsync(OutroWorkspace, ProbeThatExplodes()));
+        }
+
+        // O conteúdo sobreviveu intacto: o dono continua sendo o workspace original.
+        Assert.Equal(ServerWorkspace, File.ReadAllText(OwnerPath).Trim());
+    }
+
+    /// <summary>
+    /// O caso do UPGRADE de toda a frota: banco pessoal já existe, marcador ainda não. Continua
+    /// pessoal, continua offline (a sonda não pode nem ser tocada) — byte a byte o app de hoje.
+    /// É esta regra que impede a correção da máquina nova de virar um imposto de rede no boot de
+    /// quem já usava o RemoteOps.
+    /// </summary>
+    [Fact]
+    public async Task UpgradeComBancoLocal_SemMarcador_SeguePessoal_SemSonda()
+    {
+        using WkWorkspaceKeyRing ring = Ring();
+        File.WriteAllText(PersonalDbPath, "banco antigo");
+
+        SessionVaultScope escopo = await Resolver(ring).ResolveAsync(ServerWorkspace, ProbeThatExplodes());
+
+        Assert.Equal(SessionVaultKind.Personal, escopo.Kind);
+        Assert.Equal(ServerWorkspace, File.ReadAllText(OwnerPath).Trim());
     }
 
     private static Func<string, CancellationToken, Task<bool>> Probe(bool resposta) =>

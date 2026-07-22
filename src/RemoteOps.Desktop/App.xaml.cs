@@ -839,7 +839,13 @@ public partial class App : Application
         }
 
         var resolver = new SessionVaultScopeResolver(
-            teamKeyRing, fileStore, Path.Combine(dataDir, "sync-local.owner"));
+            teamKeyRing,
+            fileStore,
+            Path.Combine(dataDir, "sync-local.owner"),
+            // O MESMO nome que a LocalSyncClientFactory monta para AppRuntime.DbWorkspace: a
+            // existência deste arquivo é o que diz "esta máquina já usava o RemoteOps antes dos
+            // times" — e só ela pode adotar o dono do banco pessoal sem perguntar à rede.
+            Path.Combine(dataDir, $"sync-{AppRuntime.DbWorkspace}.db"));
 
         return await resolver.ResolveAsync(
             workspaceId,

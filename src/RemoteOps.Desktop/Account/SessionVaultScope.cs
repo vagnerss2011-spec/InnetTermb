@@ -92,17 +92,27 @@ internal sealed class SessionVaultScopeResolver
     private readonly WkWorkspaceKeyRing _teamKeyRing;
     private readonly IVaultRootingStore _rooting;
     private readonly string _ownerMarkerPath;
+    private readonly string _personalDbPath;
 
+    /// <param name="personalDbPath">
+    /// O caminho do banco pessoal (<c>sync-local.db</c>). A EXISTÊNCIA dele é o que separa "máquina
+    /// que já usava o RemoteOps antes dos times" (adota o dono sem rede — o caso de toda a frota no
+    /// upgrade) de "máquina nova" (a sonda decide, porque o primeiro workspace aberto aqui pode
+    /// muito bem ser o do TIME).
+    /// </param>
     internal SessionVaultScopeResolver(
-        WkWorkspaceKeyRing teamKeyRing, IVaultRootingStore rooting, string ownerMarkerPath)
+        WkWorkspaceKeyRing teamKeyRing, IVaultRootingStore rooting, string ownerMarkerPath,
+        string personalDbPath)
     {
         ArgumentNullException.ThrowIfNull(teamKeyRing);
         ArgumentNullException.ThrowIfNull(rooting);
         ArgumentException.ThrowIfNullOrWhiteSpace(ownerMarkerPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(personalDbPath);
 
         _teamKeyRing = teamKeyRing;
         _rooting = rooting;
         _ownerMarkerPath = ownerMarkerPath;
+        _personalDbPath = personalDbPath;
     }
 
     /// <param name="probeIsTeamAsync">
@@ -122,58 +132,87 @@ internal sealed class SessionVaultScopeResolver
         ArgumentException.ThrowIfNullOrWhiteSpace(serverWorkspaceId);
         ArgumentNullException.ThrowIfNull(probeIsTeamAsync);
 
-        string? dono = ReadOwnerMarker();
+        (bool legivel, string? dono) = ReadOwnerMarker();
 
-        // REGRA 1 — primeira ativação depois do upgrade. Hoje `sync-local.db` É o banco pessoal
-        // deste workspace, por construção: não existia como criar workspace de time antes do 1g.
-        if (dono is null)
+        // REGRA 1 — o caso do operador, sempre. E ela vem ANTES de qualquer regra de time: é isto
+        // que impede o app dele de mudar de cofre sozinho por causa do blob `wk:time:{W_pessoal}`
+        // que o build 1e gravou no instante em que ele clicou "convidar".
+        if (legivel && string.Equals(dono, serverWorkspaceId, StringComparison.OrdinalIgnoreCase))
         {
-            WriteOwnerMarker(serverWorkspaceId);
             return SessionVaultScope.Personal;
         }
 
-        // REGRA 2 — o caso do operador, sempre. E ela vem ANTES de qualquer regra de time: é isto
-        // que impede o app dele de mudar de cofre sozinho por causa do blob `wk:time:{W_pessoal}`
-        // que o build 1e gravou no instante em que ele clicou "convidar".
-        if (string.Equals(dono, serverWorkspaceId, StringComparison.OrdinalIgnoreCase))
+        // REGRA 2 — marcador ILEGÍVEL não é marcador AUSENTE. O arquivo está aí, dizendo quem é o
+        // dono do banco pessoal — só não deu para ler AGORA (antivírus, backup, permissão). Tratar
+        // isso como "primeira ativação" regravaria o dono com o workspace da vez: se for o do TIME,
+        // o banco pessoal muda de dono em silêncio e cada boot seguinte o abre como pessoal do time.
+        // E as regras de evidência tampouco podem rodar: sem saber o dono, a chave de time em disco
+        // não distingue "workspace do time" de "workspace pessoal com o blob que o 1e deixou".
+        // "Não sei quem é o dono" recusa alto; a próxima abertura, com o arquivo legível, volta ao
+        // normal — nada é perdido nem regravado.
+        if (!legivel)
         {
-            return SessionVaultScope.Personal;
+            throw new SessionVaultScopeException(
+                "O arquivo que identifica o dono do cofre local ('sync-local.owner') está ilegível "
+                + "neste momento. Nada foi alterado. Feche e abra o RemoteOps de novo; se o aviso "
+                + "continuar, verifique permissões/antivírus na pasta de dados do RemoteOps.");
         }
 
         string vaultWorkspaceId = AppRuntime.TeamVaultWorkspace(serverWorkspaceId);
 
         // REGRA 3 — a WK está aqui: é cofre de time, e a resposta vale OFFLINE (a condição normal
-        // de campo, e o caminho de todo boot depois do primeiro).
+        // de campo, e o caminho de todo boot depois do primeiro). Ela vem ANTES da adoção do dono
+        // (regra 5) de propósito: um workspace com chave de time em disco NUNCA pode ser adotado
+        // como dono do banco pessoal — nem quando o marcador se perdeu. Adotar aqui amarraria
+        // `sync-local.db` ao workspace do TIME: os hosts pessoais subiriam para os colegas e os do
+        // time desceriam para o banco pessoal, sem um único erro na tela.
         if (await HasTeamKeyAsync(vaultWorkspaceId, ct).ConfigureAwait(false))
         {
             return SessionVaultScope.Team(serverWorkspaceId, temChave: true);
         }
 
-        // REGRA 4 — a chave já aterrissou aqui um dia (marcador), mas o blob não está mais. Cair em
-        // "pessoal" aqui é o desastre; fail-closed é a resposta.
+        // REGRA 4 — a chave já aterrissou aqui um dia (marcador de raiz), mas o blob não está mais.
+        // Cair em "pessoal" aqui é o desastre; fail-closed é a resposta.
         if (await _rooting.LoadKeyRootingAsync(vaultWorkspaceId, ct).ConfigureAwait(false)
             is VaultKeyRooting.WkRandom)
         {
             return SessionVaultScope.Team(serverWorkspaceId, temChave: false);
         }
 
-        // REGRA 5 — workspace que esta máquina nunca viu. UM round-trip, uma vez na vida deste
-        // par (máquina, workspace): a sonda restaura a chave na mesma ida, e a regra 3 responde
-        // daqui em diante.
-        bool ehDeTime;
-        try
+        // REGRA 5 — sem dono registrado e sem NENHUMA evidência de time para este workspace.
+        if (dono is null)
         {
-            ehDeTime = await probeIsTeamAsync(serverWorkspaceId, ct).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            throw new SessionVaultScopeException(
-                "Este computador ainda não conhece o cofre deste workspace. Conecte-se à internet uma "
-                + "vez para o RemoteOps identificá-lo — enquanto isso, abra o seu cofre pessoal.",
-                ex);
+            // O banco pessoal já existe → esta máquina usava o RemoteOps antes dos times (o caso de
+            // TODA a frota no upgrade): `sync-local.db` é o banco pessoal deste workspace, por
+            // construção — não existia como criar workspace de time. Adota o dono, sem rede.
+            if (File.Exists(_personalDbPath))
+            {
+                WriteOwnerMarker(serverWorkspaceId);
+                return SessionVaultScope.Personal;
+            }
+
+            // Máquina NOVA. O primeiro workspace aberto aqui pode muito bem ser o do TIME (o
+            // segundo PC do colega, escolhendo o time no chooser) — adotá-lo às cegas amarraria o
+            // banco pessoal ao workspace dos colegas. A sonda decide; e a primeira abertura de uma
+            // máquina nova acabou de exigir a rede para o próprio login, então perguntar aqui não
+            // tranca ninguém que já conseguia trabalhar.
+            if (await ProbeAsync(serverWorkspaceId, probeIsTeamAsync, ct).ConfigureAwait(false))
+            {
+                // A sonda restaura a chave na mesma ida; se não restaurou, fail-closed e alto.
+                return SessionVaultScope.Team(
+                    serverWorkspaceId,
+                    temChave: await HasTeamKeyAsync(vaultWorkspaceId, ct).ConfigureAwait(false));
+            }
+
+            // "Não é de time" — é o cofre pessoal desta conta: adota como dono do banco pessoal.
+            WriteOwnerMarker(serverWorkspaceId);
+            return SessionVaultScope.Personal;
         }
 
-        if (!ehDeTime)
+        // REGRA 6 — há um dono registrado (outro workspace) e nenhuma evidência local: workspace
+        // que esta máquina nunca viu. UM round-trip, uma vez na vida deste par (máquina,
+        // workspace): a sonda restaura a chave na mesma ida, e a regra 3 responde daqui em diante.
+        if (!await ProbeAsync(serverWorkspaceId, probeIsTeamAsync, ct).ConfigureAwait(false))
         {
             // O servidor respondeu: não há chave de time aqui. Como este workspace TAMBÉM não é o
             // dono do banco pessoal desta máquina, ele é o cofre pessoal de outra conta/instalação.
@@ -190,6 +229,28 @@ internal sealed class SessionVaultScopeResolver
             temChave: await HasTeamKeyAsync(vaultWorkspaceId, ct).ConfigureAwait(false));
     }
 
+    /// <summary>
+    /// A sonda online, com a MESMA recusa escrita nos dois pontos em que ela é consultada: falha de
+    /// rede nunca vira resposta — nem "é de time", nem "é pessoal".
+    /// </summary>
+    private static async Task<bool> ProbeAsync(
+        string serverWorkspaceId,
+        Func<string, CancellationToken, Task<bool>> probeIsTeamAsync,
+        CancellationToken ct)
+    {
+        try
+        {
+            return await probeIsTeamAsync(serverWorkspaceId, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            throw new SessionVaultScopeException(
+                "Este computador ainda não conhece o cofre deste workspace. Conecte-se à internet uma "
+                + "vez para o RemoteOps identificá-lo — enquanto isso, abra o seu cofre pessoal.",
+                ex);
+        }
+    }
+
     private async Task<bool> HasTeamKeyAsync(string vaultWorkspaceId, CancellationToken ct)
     {
         using WorkspaceKey? wk = await _teamKeyRing
@@ -199,25 +260,33 @@ internal sealed class SessionVaultScopeResolver
     }
 
     /// <summary>
-    /// Leitura fail-safe: arquivo ilegível é tratado como "não sei" (marcador ausente), e não como
-    /// erro de boot. O pior que isso faz é uma regravação; travar o app por causa de um arquivo de
-    /// 36 bytes seria trocar um problema pequeno por um que ninguém consegue destravar.
+    /// Lê o marcador distinguindo AUSENTE de ILEGÍVEL — a distinção é o que impede "não consegui
+    /// ler" de virar "primeira ativação" e regravar o dono com o workspace da vez. (A versão
+    /// anterior colapsava os dois em <c>null</c>: "o pior que isso faz é uma regravação" — só que a
+    /// regravação podia ser com o GUID do TIME, e aí o banco pessoal mudava de dono em silêncio.)
     /// </summary>
-    private string? ReadOwnerMarker()
+    /// <returns>
+    /// <c>Legivel=true, Dono=null</c> — não há dono registrado (primeira ativação de verdade).
+    /// <c>Legivel=true, Dono=x</c> — o dono é <c>x</c>.
+    /// <c>Legivel=false</c> — o arquivo EXISTE e não deu para ler: quem chama recusa alto.
+    /// </returns>
+    private (bool Legivel, string? Dono) ReadOwnerMarker()
     {
         try
         {
             if (!File.Exists(_ownerMarkerPath))
             {
-                return null;
+                return (true, null);
             }
 
             string conteudo = File.ReadAllText(_ownerMarkerPath).Trim();
-            return string.IsNullOrWhiteSpace(conteudo) ? null : conteudo;
+            return (true, string.IsNullOrWhiteSpace(conteudo) ? null : conteudo);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return null;
+            // Sumiu entre o Exists e a leitura? Então está mesmo ausente. Persistindo no disco e
+            // ilegível, a resposta é "não sei" — e "não sei" recusa, nunca afirma.
+            return (!File.Exists(_ownerMarkerPath), null);
         }
     }
 

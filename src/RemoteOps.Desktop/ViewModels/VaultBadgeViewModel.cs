@@ -172,6 +172,17 @@ public sealed class VaultBadgeViewModel : BaseViewModel
             return;
         }
 
+        // O cofre do time ATIVO nunca é rebaixado pela sondagem. O boot abriu o cofre COM a chave
+        // (a resposta saiu do disco e vale offline); a sondagem não sabe da chave e responderia
+        // "é de time" → TeamPending — e a barra gritaria "nenhuma senha é gravada aqui" com o cofre
+        // funcionando. Alarme falso ensina o operador a ignorar o único aviso que importa. Esta
+        // reavaliação existe para o caminho oposto (sessão PESSOAL cujo workspace virou de time ao
+        // gerar o primeiro convite) — para uma sessão de time completa, não há nada a reavaliar.
+        if (_scope == VaultScope.Team)
+        {
+            return;
+        }
+
         try
         {
             // Sem a chave em mãos aqui, o melhor que esta sondagem sabe dizer é "é de time". Quem

@@ -137,6 +137,43 @@ public sealed class VaultBadgeViewModelTests
         Assert.Contains("confirm", badge.Detail, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// <b>A sondagem NUNCA rebaixa o cofre do time ATIVO.</b> A reavaliação roda toda vez que a
+    /// janela de convite fecha — inclusive numa sessão que abriu o cofre do time COM a chave. A
+    /// sondagem responde "é de time" sem saber da chave, e o mapeamento cru (é de time →
+    /// TeamPending) faria a barra e o título gritarem "a chave ainda não chegou / nenhuma senha é
+    /// gravada aqui" com o cofre funcionando perfeitamente. Alarme falso ensina o operador a
+    /// ignorar o ÚNICO aviso que importa de verdade.
+    /// </summary>
+    [Fact]
+    public async Task Sondagem_NaoRebaixaOCofreDoTimeAtivo_ParaPendente()
+    {
+        VaultBadgeViewModel badge = New();
+        badge.ApplyFromSession(RemoteOps.Desktop.Account.SessionVaultKind.Team);
+
+        await badge.RefreshAsync(_ => Task.FromResult(true));
+
+        Assert.Equal(VaultScope.Team, badge.Scope);
+        Assert.False(badge.IsWarning);
+    }
+
+    /// <summary>
+    /// Nem para "não confirmado": a resposta do boot saiu do DISCO (a chave está aqui) e vale
+    /// offline. Uma falha de sondagem não desconfirma o que o disco afirmou — e o texto de
+    /// Unconfirmed ("o cofre aberto aqui é o PESSOAL") seria mentira numa sessão de time.
+    /// </summary>
+    [Fact]
+    public async Task SondagemQueFalha_NaoRebaixaOCofreDoTimeAtivo_ParaNaoConfirmado()
+    {
+        VaultBadgeViewModel badge = New();
+        badge.ApplyFromSession(RemoteOps.Desktop.Account.SessionVaultKind.Team);
+
+        await badge.RefreshAsync(_ => throw new HttpRequestException("rede fora (teste)"));
+
+        Assert.Equal(VaultScope.Team, badge.Scope);
+        Assert.False(badge.IsUnconfirmed);
+    }
+
     /// <summary>Sem sondagem (modo local puro) o estado permanece o de sempre — nada muda.</summary>
     [Fact]
     public async Task SemSondagem_ContinuaLocal()
