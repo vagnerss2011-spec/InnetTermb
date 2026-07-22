@@ -15,6 +15,18 @@ public static class VaultAlgorithms
 
     /// <summary>E2EE Fase 1: WDK = HKDF-SHA256(AMK, workspaceId). Portável entre devices.</summary>
     public const string AmkRootedV1 = "AES-256-GCM;CEK-wrap;AMK-HKDF-v1";
+
+    /// <summary>
+    /// Time (Fatia 1): a chave do workspace é ALEATÓRIA e compartilhada — não deriva de ninguém.
+    /// Precisa ser assim: derivar da AMK (que é por CONTA) faria cada membro do mesmo workspace
+    /// chegar a uma chave diferente, e o colega não decifraria nada. Sendo sorteada, ela pode ser
+    /// entregue cifrada a cada membro; em disco fica embrulhada sob a AMK de quem a guarda.
+    ///
+    /// <para><b>O AAD deste esquema é MAIOR</b> — prende também o <c>CredentialId</c> e o próprio
+    /// <c>Algorithm</c> (ver <c>EnvelopeCipher.BuildAad</c>). Só vale para envelopes NOVOS: mexer no
+    /// AAD do <see cref="AmkRootedV1"/> tornaria ilegível tudo o que já está selado em produção.</para>
+    /// </summary>
+    public const string WkRootedV1 = "AES-256-GCM;CEK-wrap;WK-random-v1";
 }
 
 /// <summary>
@@ -28,4 +40,11 @@ public enum VaultKeyRooting
 
     /// <summary>WDK derivada da AMK portável (E2EE Fase 1).</summary>
     AmkDerived = 1,
+
+    /// <summary>
+    /// WK aleatória do workspace, compartilhada pelo time (Fatia 1). Valor NOVO no fim do enum: o
+    /// <c>FileVaultStore</c> persiste a raiz como int, então renumerar os existentes reetiquetaria
+    /// cofres já gravados.
+    /// </summary>
+    WkRandom = 2,
 }

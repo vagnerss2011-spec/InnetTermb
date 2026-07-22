@@ -135,7 +135,11 @@ public sealed class CredentialVault : IVault, ICredentialVault
     private SecretEnvelope CreateEnvelope(string workspaceId, string credentialId, string type, int version, ReadOnlySpan<byte> workspaceKey, ReadOnlyMemory<char> secret)
     {
         string envelopeId = Guid.NewGuid().ToString("n");
-        byte[] aad = EnvelopeCipher.BuildAad(envelopeId, workspaceId, version, type);
+        // O AAD depende do ESQUEMA, e quem decide o esquema é a raiz — por isso o AlgorithmId entra
+        // aqui e não é lido do envelope (que ainda não existe). No WkRootedV1 o AAD prende também o
+        // credentialId; nas raízes antigas o formato fica idêntico ao que já está em disco.
+        string algorithm = _keyRing.AlgorithmId;
+        byte[] aad = EnvelopeCipher.BuildAad(envelopeId, workspaceId, version, type, credentialId, algorithm);
         byte[] wrapAad = EnvelopeCipher.BuildWrapAad(workspaceId);
 
         int rentSize = Encoding.UTF8.GetMaxByteCount(Math.Max(1, secret.Length));
@@ -154,7 +158,7 @@ public sealed class CredentialVault : IVault, ICredentialVault
                 Version = version,
                 // Quem carimba o esquema é a RAIZ: assim o Algorithm de cada envelope diz a verdade
                 // sobre como ele foi selado, inclusive depois do cofre migrar de DPAPI para AMK.
-                Algorithm = _keyRing.AlgorithmId,
+                Algorithm = algorithm,
                 WrappedCek = payload.WrappedCek,
                 CekNonce = payload.CekNonce,
                 CekTag = payload.CekTag,

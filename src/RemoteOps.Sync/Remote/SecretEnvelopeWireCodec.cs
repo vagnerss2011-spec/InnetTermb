@@ -62,10 +62,22 @@ internal static class SecretEnvelopeWireCodec
     /// outro. O backend agora aceita material vazio EXATAMENTE neste caso.</para>
     ///
     /// <para>Envelope VIVO sem material continua barrado: ali o vazio é corrupção, não revogação.</para>
+    ///
+    /// <para><b>A raiz do TIME entra ADICIONANDO</b> (Fatia 1): <c>WkRootedV1</c> passa a subir sem
+    /// que <c>AmkRootedV1</c> deixe de subir. Trocar uma pela outra faria as senhas do cofre pessoal
+    /// pararem de sincronizar EM SILÊNCIO — a classe de falha mais traiçoeira desta base.</para>
     /// </summary>
     internal static bool IsSyncable(SecretEnvelope envelope) =>
-        string.Equals(envelope.Algorithm, VaultAlgorithms.AmkRootedV1, StringComparison.Ordinal)
+        IsSyncableRoot(envelope.Algorithm)
         && (envelope.RevokedAt is not null || HasMaterial(envelope));
+
+    /// <summary>
+    /// Raízes PORTÁVEIS — as que outro device consegue abrir. Fica de fora a DPAPI, cuja WDK é
+    /// aleatória por MÁQUINA: subir o que está selado nela publicaria lixo indecifrável.
+    /// </summary>
+    private static bool IsSyncableRoot(string algorithm) =>
+        string.Equals(algorithm, VaultAlgorithms.AmkRootedV1, StringComparison.Ordinal)
+        || string.Equals(algorithm, VaultAlgorithms.WkRootedV1, StringComparison.Ordinal);
 
     private static bool HasMaterial(SecretEnvelope envelope) =>
         envelope.Ciphertext.Length > 0
@@ -111,7 +123,16 @@ internal static class SecretEnvelopeWireCodec
     /// Identidade do cofre local sob a qual o envelope será gravado. Vem do chamador de propósito: o
     /// workspace que o servidor ecoa é o GUID dele, não o do cofre.
     /// </param>
-    internal static SecretEnvelope FromWire(SecretEnvelopeDto dto, string vaultWorkspaceId)
+    /// <param name="defaultAlgorithm">
+    /// Raiz a assumir quando o fio NÃO traz <c>algorithm</c> (servidor antigo, ou registro gravado
+    /// antes de o campo existir). Quem sabe a raiz do cofre é o chamador: num cofre de time, o
+    /// palpite "AMK" produziria um envelope que monta o AAD errado e simplesmente não abre. O
+    /// default preserva o comportamento de hoje (cofre pessoal) — o parâmetro ADICIONA, não troca.
+    /// </param>
+    internal static SecretEnvelope FromWire(
+        SecretEnvelopeDto dto,
+        string vaultWorkspaceId,
+        string defaultAlgorithm = VaultAlgorithms.AmkRootedV1)
     {
         (string type, string credentialId) = ParseHeader(dto.KeyVersion);
         bool revogado = dto.RevokedAt is not null;
@@ -124,7 +145,7 @@ internal static class SecretEnvelopeWireCodec
             CredentialId = credentialId,
             Type = type,
             Version = dto.Version,
-            Algorithm = dto.Algorithm ?? VaultAlgorithms.AmkRootedV1,
+            Algorithm = dto.Algorithm ?? defaultAlgorithm,
             // Revogado DESCARTA o material que veio junto, em vez de confiar no que o fio trouxe. O
             // servidor já recusa lápide com material, mas isto é defesa em profundidade: um servidor
             // comprometido não pode contrabandear ciphertext por baixo da marca de revogação e fazer

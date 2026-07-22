@@ -124,15 +124,25 @@ public sealed class LocalVaultMigrator
         ReadOnlySpan<byte> newKey,
         string algorithmId)
     {
-        // O AAD deriva só de id/workspace/versão/tipo — todos preservados na migração. Logo o mesmo
-        // AAD autentica o envelope antes e depois; muda só a chave que embrulha a CEK.
-        byte[] aad = EnvelopeCipher.BuildAad(envelope);
+        // Dois AADs, e não um: o de ABERTURA sai do envelope como ele está no disco (raiz antiga), o
+        // de SELAGEM sai da raiz de DESTINO. Hoje os dois dão exatamente o mesmo resultado — DPAPI e
+        // AMK compartilham o formato congelado — mas desde que o WkRootedV1 existe o AAD é função do
+        // ESQUEMA. Reusar um só AAD faria a primeira migração para uma raiz de formato diferente
+        // gravar envelopes que nunca mais abrem, e sem erro nenhum na hora da migração.
+        byte[] openAad = EnvelopeCipher.BuildAad(envelope);
+        byte[] sealAad = EnvelopeCipher.BuildAad(
+            envelope.EnvelopeId,
+            envelope.WorkspaceId,
+            envelope.Version,
+            envelope.Type,
+            envelope.CredentialId,
+            algorithmId);
         byte[] wrapAad = EnvelopeCipher.BuildWrapAad(envelope.WorkspaceId);
 
-        byte[] plaintext = EnvelopeCipher.Open(legacyKey, envelope, aad, wrapAad);
+        byte[] plaintext = EnvelopeCipher.Open(legacyKey, envelope, openAad, wrapAad);
         try
         {
-            EnvelopeCipher.SealedSecret payload = EnvelopeCipher.Seal(newKey, plaintext, aad, wrapAad);
+            EnvelopeCipher.SealedSecret payload = EnvelopeCipher.Seal(newKey, plaintext, sealAad, wrapAad);
             return envelope with
             {
                 Algorithm = algorithmId,

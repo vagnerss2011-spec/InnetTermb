@@ -1,9 +1,11 @@
 namespace RemoteOps.Security.Crypto;
 
 /// <summary>
-/// Fornece a Workspace Data Key (WDK) de cada workspace. Existem duas raízes: a legada
-/// (<see cref="WorkspaceKeyRing"/> — WDK aleatória protegida por DPAPI, presa à máquina) e a do
-/// E2EE (<c>AmkWorkspaceKeyRing</c> — WDK derivada da AMK portável).
+/// Fornece a chave de dados de cada workspace. Existem TRÊS raízes, e a diferença entre elas é a
+/// quem a chave está presa: a legada (<see cref="WorkspaceKeyRing"/> — aleatória protegida por
+/// DPAPI, presa à MÁQUINA), a do E2EE (<c>AmkWorkspaceKeyRing</c> — derivada da AMK, presa à CONTA)
+/// e a do time (<c>WkWorkspaceKeyRing</c> — aleatória, presa a NINGUÉM, e por isso a única que pode
+/// ser entregue cifrada a outro membro).
 /// </summary>
 public interface IWorkspaceKeyRing
 {

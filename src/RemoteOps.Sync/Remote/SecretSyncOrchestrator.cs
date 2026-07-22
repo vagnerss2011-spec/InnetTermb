@@ -34,6 +34,7 @@ public sealed class SecretSyncOrchestrator
     private readonly ISecretsApi _api;
     private readonly ISyncMetadataStore _metadata;
     private readonly int _amkKeyVersion;
+    private readonly string _vaultAlgorithm;
     private readonly int _pageSize;
 
     // Entrada pública: além do ciclo de fundo, um "forçar sync" da UI pode chamar isto. Dois ciclos
@@ -52,6 +53,11 @@ public sealed class SecretSyncOrchestrator
     /// <c>ICredentialStore</c> puro, que só tem CRUD por id).
     /// </param>
     /// <param name="amkKeyVersion">Versão do esquema de embrulho da AMK da conta (spec §4.2).</param>
+    /// <param name="vaultAlgorithm">
+    /// Raiz de chave deste cofre. Só é usada quando o servidor NÃO ecoa <c>algorithm</c> (servidor
+    /// antigo, ou registro anterior ao campo): ali, assumir a raiz errada grava um envelope que monta
+    /// o AAD errado e nunca abre. O default é a raiz da AMK — o cofre pessoal segue como hoje.
+    /// </param>
     public SecretSyncOrchestrator(
         string serverWorkspaceId,
         string vaultWorkspaceId,
@@ -59,13 +65,15 @@ public sealed class SecretSyncOrchestrator
         ISecretsApi api,
         ISyncMetadataStore metadata,
         int amkKeyVersion = 1,
-        int pageSize = 200)
+        int pageSize = 200,
+        string vaultAlgorithm = VaultAlgorithms.AmkRootedV1)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(serverWorkspaceId);
         ArgumentException.ThrowIfNullOrWhiteSpace(vaultWorkspaceId);
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(api);
         ArgumentNullException.ThrowIfNull(metadata);
+        ArgumentException.ThrowIfNullOrWhiteSpace(vaultAlgorithm);
 
         _serverWorkspaceId = serverWorkspaceId;
         _vaultWorkspaceId = vaultWorkspaceId;
@@ -74,6 +82,7 @@ public sealed class SecretSyncOrchestrator
         _metadata = metadata;
         _amkKeyVersion = amkKeyVersion;
         _pageSize = pageSize;
+        _vaultAlgorithm = vaultAlgorithm;
     }
 
     /// <summary>
@@ -263,7 +272,7 @@ public sealed class SecretSyncOrchestrator
 
     private async Task ApplyAsync(SecretEnvelopeDto dto, CancellationToken ct)
     {
-        SecretEnvelope incoming = SecretEnvelopeWireCodec.FromWire(dto, _vaultWorkspaceId);
+        SecretEnvelope incoming = SecretEnvelopeWireCodec.FromWire(dto, _vaultWorkspaceId, _vaultAlgorithm);
 
         SecretEnvelope? existing = await _store.GetAsync(incoming.EnvelopeId, ct);
         if (existing is not null && existing.Version > incoming.Version)

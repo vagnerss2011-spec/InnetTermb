@@ -229,4 +229,69 @@ public sealed class SecretEnvelopeWireCodecTests
     public void NaoSyncable_TombstoneDpapi() =>
         Assert.False(SecretEnvelopeWireCodec.IsSyncable(
             Tombstone() with { Algorithm = VaultAlgorithms.DpapiRootedV1 }));
+
+    // ── Raiz do time (WkRootedV1) ────────────────────────────────────────────────────────
+    //
+    // Entra ADICIONANDO: a raiz do time passa a subir SEM que a da AMK pare de subir. É a classe de
+    // falha mais traiçoeira desta base — um `IsSyncable` que TROCA a raiz aceita faria as senhas do
+    // cofre pessoal pararem de sincronizar em silêncio, e ninguém veria erro nenhum.
+
+    /// <summary>O envelope do time sobe: sem isso o cofre compartilhado nunca sai do primeiro PC.</summary>
+    [Fact]
+    public void Syncable_EnvelopeDoTime() =>
+        Assert.True(SecretEnvelopeWireCodec.IsSyncable(Envelope() with { Algorithm = VaultAlgorithms.WkRootedV1 }));
+
+    /// <summary>E a revogação dele também — senão a senha velha fica viva no PC do colega.</summary>
+    [Fact]
+    public void Syncable_TombstoneDoTime() =>
+        Assert.True(SecretEnvelopeWireCodec.IsSyncable(Tombstone() with { Algorithm = VaultAlgorithms.WkRootedV1 }));
+
+    /// <summary>
+    /// O carimbo do time atravessa o fio intacto. Errar aqui não dá erro de transporte: dá um
+    /// envelope que monta o AAD errado e simplesmente NÃO ABRE no outro device.
+    /// </summary>
+    [Fact]
+    public void FromWire_PreservaOCarimboDoTime()
+    {
+        SecretEnvelopeDto dto = SecretEnvelopeWireCodec.ToWire(
+            Envelope() with { Algorithm = VaultAlgorithms.WkRootedV1 }, ServerWorkspace, 1);
+
+        Assert.Equal(VaultAlgorithms.WkRootedV1, dto.Algorithm);
+        Assert.Equal(
+            VaultAlgorithms.WkRootedV1,
+            SecretEnvelopeWireCodec.FromWire(dto, VaultWorkspace).Algorithm);
+    }
+
+    /// <summary>
+    /// Servidor antigo (ou registro gravado antes do campo existir) não ecoa <c>algorithm</c>. Quem
+    /// sabe a raiz do cofre é o chamador — no cofre do time, o palpite "AMK" produziria um envelope
+    /// que não abre.
+    /// </summary>
+    [Fact]
+    public void FromWire_SemAlgorithmNoFio_UsaARaizQueOChamadorInformou()
+    {
+        SecretEnvelopeDto dto = SecretEnvelopeWireCodec.ToWire(Envelope(), ServerWorkspace, 1) with
+        {
+            Algorithm = null,
+        };
+
+        Assert.Equal(
+            VaultAlgorithms.WkRootedV1,
+            SecretEnvelopeWireCodec.FromWire(dto, VaultWorkspace, VaultAlgorithms.WkRootedV1).Algorithm);
+    }
+
+    /// <summary>
+    /// Regressão do que NÃO mudou: sem raiz informada, o default continua sendo a AMK — exatamente
+    /// o comportamento de hoje para o cofre pessoal.
+    /// </summary>
+    [Fact]
+    public void FromWire_SemAlgorithmNoFio_ODefaultContinuaSendoAAmk()
+    {
+        SecretEnvelopeDto dto = SecretEnvelopeWireCodec.ToWire(Envelope(), ServerWorkspace, 1) with
+        {
+            Algorithm = null,
+        };
+
+        Assert.Equal(VaultAlgorithms.AmkRootedV1, SecretEnvelopeWireCodec.FromWire(dto, VaultWorkspace).Algorithm);
+    }
 }

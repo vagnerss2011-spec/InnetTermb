@@ -60,6 +60,22 @@ O AAD liga cada ciphertext à sua identidade lógica e impede troca/replay:
 
 Adulterar campo (incluindo `type`), trocar envelope entre workspaces ou fazer downgrade de versão quebra a verificação do tag → `CryptographicException`.
 
+Esse formato é **congelado**: vale para `DpapiRootedV1` e `AmkRootedV1`, e alterar um byte tornaria ilegível tudo o que já está selado em produção.
+
+#### Raiz do time e AAD ampliado (`WkRootedV1`, Fatia 1)
+
+A chave do workspace de **time** é **aleatória** (32 bytes CSPRNG), não derivada. Precisa ser: `AmkKeyDerivation.DeriveWorkspaceKey` = `HKDF(AMK, workspaceId)` e a **AMK é por conta**, então dois membros do mesmo workspace derivariam chaves **diferentes** e um não abriria o cofre do outro. Sendo sorteada, a WK pode ser **entregue cifrada** a cada membro; em disco fica **embrulhada sob a AMK** de quem a guarda (`AccountKeyService.WrapKey`, AAD `wk|{workspaceId}`), nunca em claro.
+
+- Carimbo: `VaultAlgorithms.WkRootedV1` = `AES-256-GCM;CEK-wrap;WK-random-v1`; raiz `VaultKeyRooting.WkRandom`.
+- Implementação: `WkWorkspaceKeyRing` — a **terceira** implementação de `IWorkspaceKeyRing`, ao lado do DPAPI e da AMK.
+- **AAD do payload neste esquema:** `env|{envelopeId}|{workspaceId}|v{version}|{type}|{credentialId}|{algorithm}`.
+
+O acréscimo de `credentialId` e `algorithm` responde a um achado da revisão de segurança da v1.4.7: hoje o `Algorithm` e o cabeçalho `type|credentialId` viajam **fora de qualquer AAD** (o cabeçalho vai no `keyVersion`, que o servidor guarda como string opaca), o que permitiria a um servidor malicioso **re-associar** um envelope a outra credencial. Num cofre compartilhado o efeito é concreto: o colega abriria a senha do equipamento X sob o equipamento Y e a usaria. O `algorithm` entra junto para fechar o **downgrade** — sem ele, rebaixar o carimbo para `AmkRootedV1` pediria o AAD antigo, que não tem `credentialId`.
+
+**Limitação assumida:** os envelopes já selados sob `AmkRootedV1`/`DpapiRootedV1` continuam sem `credentialId` no AAD. Corrigir o esquema antigo exigiria reescrever todos eles; a correção entra onde é de graça — nos envelopes que nascem agora. O teste `Amk_CredentialIdTrocado_ContinuaAbrindo_LimitacaoAssumidaDoEsquemaAntigo` documenta a fronteira em código.
+
+O wrap da CEK segue `wdk|{workspaceId}` nas três raízes: ele já prende o embrulho ao workspace, e o esquema é autenticado no AAD do payload.
+
 ### Proteção da chave local (DPAPI)
 
 - Via P/Invoke a `crypt32.dll` (`CryptProtectData`/`CryptUnprotectData`) — **sem pacote NuGet externo**, honrando a restrição "sem libs externas sem ADR".

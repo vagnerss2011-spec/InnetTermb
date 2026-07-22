@@ -100,12 +100,54 @@ internal static class EnvelopeCipher
     /// AAD do payload: liga o ciphertext à identidade do envelope. O <paramref name="type"/> entra
     /// para autenticar o campo estrutural — mesmo sem RBAC por tipo hoje, impede que um atacante
     /// com escrita no store altere o Type sem quebrar a verificação GCM.
+    ///
+    /// <para><b>Formato CONGELADO.</b> É o AAD do <c>DpapiRootedV1</c> e do <c>AmkRootedV1</c>:
+    /// alterar um único byte aqui torna ilegível TUDO o que já está selado em produção. Campo novo
+    /// no AAD entra por esquema NOVO — ver a sobrecarga com <c>credentialId</c>.</para>
     /// </summary>
     internal static byte[] BuildAad(string envelopeId, string workspaceId, int version, string type) =>
         Encoding.UTF8.GetBytes($"env|{envelopeId}|{workspaceId}|v{version}|{type}");
 
+    /// <summary>
+    /// AAD por ESQUEMA. No <see cref="VaultAlgorithms.WkRootedV1"/> (a raiz do time) o AAD prende
+    /// também o <paramref name="credentialId"/> e o próprio <paramref name="algorithm"/>; nas raízes
+    /// antigas cai, byte a byte, no formato congelado acima.
+    ///
+    /// <para><b>Por que os dois campos:</b> hoje o <c>Algorithm</c> e o cabeçalho
+    /// <c>type|credentialId</c> viajam FORA de qualquer AAD (o cabeçalho vai no <c>keyVersion</c>,
+    /// que o servidor guarda como string opaca). Um servidor malicioso poderia então RE-ASSOCIAR um
+    /// envelope a outra credencial — e num cofre de TIME o efeito é concreto: o colega abriria a
+    /// senha do equipamento X achando que é a do equipamento Y, e a usaria. O <c>algorithm</c> entra
+    /// junto para fechar o downgrade: sem ele, rebaixar o carimbo para <c>AmkRootedV1</c> pediria o
+    /// AAD antigo, que não tem credentialId.</para>
+    ///
+    /// <para>Corrigir o esquema ANTIGO era impossível sem reescrever todos os envelopes já selados —
+    /// por isso a correção entra onde é de graça: nos envelopes que nascem agora.</para>
+    /// </summary>
+    internal static byte[] BuildAad(
+        string envelopeId,
+        string workspaceId,
+        int version,
+        string type,
+        string credentialId,
+        string algorithm) =>
+        string.Equals(algorithm, VaultAlgorithms.WkRootedV1, StringComparison.Ordinal)
+            ? Encoding.UTF8.GetBytes($"env|{envelopeId}|{workspaceId}|v{version}|{type}|{credentialId}|{algorithm}")
+            : BuildAad(envelopeId, workspaceId, version, type);
+
+    /// <summary>
+    /// AAD de um envelope existente. O esquema sai do próprio <c>Algorithm</c> gravado — e é isso
+    /// que faz a adulteração do carimbo se denunciar: com o Algorithm trocado, o AAD montado na
+    /// leitura não é o que selou, e o tag GCM não fecha.
+    /// </summary>
     internal static byte[] BuildAad(SecretEnvelope envelope) =>
-        BuildAad(envelope.EnvelopeId, envelope.WorkspaceId, envelope.Version, envelope.Type);
+        BuildAad(
+            envelope.EnvelopeId,
+            envelope.WorkspaceId,
+            envelope.Version,
+            envelope.Type,
+            envelope.CredentialId,
+            envelope.Algorithm);
 
     /// <summary>AAD do embrulho da CEK: liga a CEK embrulhada ao workspace.</summary>
     internal static byte[] BuildWrapAad(string workspaceId) =>
