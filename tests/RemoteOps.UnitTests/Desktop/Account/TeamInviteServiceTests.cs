@@ -331,13 +331,14 @@ public sealed class TeamInviteServiceTests
         await outroPc.Metadata.SaveSecretsCursorAsync(time.WorkspaceId, 4200);
         Assert.Equal(4200, await outroPc.Metadata.GetSecretsCursorAsync(time.WorkspaceId));
 
-        Assert.True(await outroPc.Service.TryRestoreTeamKeyAsync(time.WorkspaceId));
+        Assert.Equal(
+            TeamKeyRestore.Restored, await outroPc.Service.TryRestoreTeamKeyAsync(time.WorkspaceId));
 
         Assert.Equal(0, await outroPc.Metadata.GetSecretsCursorAsync(time.WorkspaceId));
     }
 
     /// <summary>
-    /// Sem chave de time no servidor (cofre PESSOAL), nada aterrissa — e o cursor NÃO é mexido.
+    /// Sem embrulho desta conta no servidor (404), nada aterrissa — e o cursor NÃO é mexido.
     /// Zerá-lo aqui obrigaria todo boot de quem só tem cofre pessoal a rebaixar o acervo inteiro.
     /// </summary>
     [Fact]
@@ -349,7 +350,9 @@ public sealed class TeamInviteServiceTests
 
         await conta.Metadata.SaveSecretsCursorAsync(Workspace, 77);
 
-        Assert.False(await conta.Service.TryRestoreTeamKeyAsync(Workspace));
+        Assert.Equal(
+            TeamKeyRestore.NoWrapForThisAccount,
+            await conta.Service.TryRestoreTeamKeyAsync(Workspace));
         Assert.Equal(77, await conta.Metadata.GetSecretsCursorAsync(Workspace));
     }
 
@@ -533,7 +536,7 @@ public sealed class TeamInviteServiceTests
         var servico = new TeamInviteService(api, segundo, SessionVaultKind.Team);
 
         // O indicador não pode dizer "cofre pessoal" aqui — e a mesma pergunta traz a chave de volta.
-        Assert.True(await servico.IsTeamWorkspaceAsync(Workspace));
+        Assert.Equal(WorkspaceKindFact.Team, await servico.ProbeWorkspaceKindAsync(Workspace));
 
         using WorkspaceKey? restaurada = await segundo.TryGetWorkspaceKeyAsync(vaultWorkspace);
         Assert.NotNull(restaurada);
@@ -829,7 +832,7 @@ public sealed class TeamInviteServiceTests
         await dono.Service.CreateInviteAsync(Workspace, "colega@innet.tec.br", "Manager");
         api.Calls.Clear();
 
-        Assert.True(await dono.Service.IsTeamWorkspaceAsync(Workspace));
+        Assert.Equal(WorkspaceKindFact.Team, await dono.Service.ProbeWorkspaceKindAsync(Workspace));
         Assert.DoesNotContain("key", api.Calls);
     }
 
@@ -857,7 +860,7 @@ public sealed class TeamInviteServiceTests
                 RemoteOps.Desktop.Account.AppRuntime.TeamVaultWorkspace(Workspace)))!.Key.ToArray());
         api.WorkspaceKey = new TeamWorkspaceKeyResponse(Workspace, Convert.ToBase64String(wrapped), 1);
 
-        Assert.True(await servico.IsTeamWorkspaceAsync(Workspace));
+        Assert.Equal(WorkspaceKindFact.Team, await servico.ProbeWorkspaceKindAsync(Workspace));
         Assert.Contains("key", api.Calls);
 
         // Restaurou de verdade: a próxima pergunta já sai do disco.
@@ -867,15 +870,43 @@ public sealed class TeamInviteServiceTests
         agoraLocal.Dispose();
     }
 
-    /// <summary>Workspace pessoal: o servidor responde 404 (null) e a resposta é "não é time".</summary>
+    /// <summary>
+    /// ⚠️ <b>404 NÃO é "cofre pessoal" — é "NÃO SEI".</b> O servidor devolve 404 quando <b>a SUA
+    /// CONTA</b> não guarda embrulho naquele workspace (<c>TeamService.GetWorkspaceKeyAsync</c>), o
+    /// que acontece tanto num cofre pessoal quanto num TIME cujo embrulho do dono nunca subiu. E um
+    /// 404 de INFRAESTRUTURA (proxy sem a rota, URL errada, cliente novo × backend velho) chega
+    /// exatamente igual.
+    ///
+    /// <para>Enquanto isto respondia <c>false</c>, a ausência virava afirmação: o resolvedor de
+    /// escopo gravava <c>sync-local.owner</c> com o GUID do TIME e o banco com os ~700 equipamentos
+    /// do operador passava a subir para os colegas. Quem afirma que um workspace é pessoal é o
+    /// <c>kind</c> que vem na lista do login — nunca a falta de uma chave.</para>
+    /// </summary>
     [Fact]
-    public async Task ECofrePessoal_QuandoOServidorNaoTemChave()
+    public async Task Servidor404_NaoAfirma_CofrePessoal_Responde_NAO_SEI()
     {
         var api = new FakeTeamApi { WorkspaceKey = null };
         Side conta = NewSide(api);
         using WkWorkspaceKeyRing ring = conta.Ring;
 
-        Assert.False(await conta.Service.IsTeamWorkspaceAsync(Workspace));
+        Assert.Equal(WorkspaceKindFact.Unknown, await conta.Service.ProbeWorkspaceKindAsync(Workspace));
+    }
+
+    /// <summary>
+    /// O MESMO 404, visto pelo contrato de restauração: "o servidor não guarda embrulho SEU aqui".
+    /// A distinção é o contrato, e não só a chamada — enquanto o retorno fosse <c>bool</c> com o doc
+    /// dizendo "false = cofre PESSOAL", o próximo chamador recriaria o defeito.
+    /// </summary>
+    [Fact]
+    public async Task Restauracao404_Diz_SemEmbrulhoParaEstaConta_ENao_EhPessoal()
+    {
+        var api = new FakeTeamApi { WorkspaceKey = null };
+        Side conta = NewSide(api);
+        using WkWorkspaceKeyRing ring = conta.Ring;
+
+        Assert.Equal(
+            TeamKeyRestore.NoWrapForThisAccount,
+            await conta.Service.TryRestoreTeamKeyAsync(Workspace));
     }
 
     /// <summary>
@@ -891,7 +922,7 @@ public sealed class TeamInviteServiceTests
         using WkWorkspaceKeyRing ring = conta.Ring;
 
         await Assert.ThrowsAsync<HttpRequestException>(
-            () => conta.Service.IsTeamWorkspaceAsync(Workspace));
+            () => conta.Service.ProbeWorkspaceKindAsync(Workspace));
     }
 
     /// <summary>

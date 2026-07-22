@@ -103,6 +103,31 @@ public enum TeamKeyUpload
     AlreadyOnServer,
 }
 
+/// <summary>
+/// ⚠️ <b>Desfecho de buscar no servidor o embrulho da chave do time DESTA CONTA.</b>
+///
+/// <para><b>Por que não é um <c>bool</c>:</b> era, e o <c>false</c> carregava um significado que ele
+/// não tem. O servidor responde 404 quando <b>a sua conta</b> não guarda embrulho <b>naquele
+/// workspace</b> (<c>TeamService.GetWorkspaceKeyAsync</c>) — o que acontece num cofre pessoal, mas
+/// também num TIME cujo embrulho do dono nunca subiu, e num 404 de INFRAESTRUTURA (proxy sem a rota,
+/// URL errada, cliente novo falando com backend velho — a janela real da ordem de deploy). Com o
+/// contrato dizendo "false = cofre PESSOAL", cada chamador novo recriava a mesma conflação: o
+/// resolvedor de escopo chegou a gravar o dono do banco com os ~700 equipamentos usando o GUID do
+/// TIME.</para>
+/// </summary>
+public enum TeamKeyRestore
+{
+    /// <summary>O embrulho veio e a chave está no chaveiro deste computador.</summary>
+    Restored,
+
+    /// <summary>
+    /// <b>O servidor não guarda embrulho DESTA CONTA NESTE workspace</b> (404). Não diz — e não pode
+    /// dizer — se o workspace é pessoal ou de time. Quem afirma isso é o <c>kind</c> que viaja na
+    /// lista de workspaces do login.
+    /// </summary>
+    NoWrapForThisAccount,
+}
+
 /// <summary>Time recém-criado: o workspace no servidor e a identidade LOCAL do cofre dele.</summary>
 /// <param name="VaultWorkspaceId">
 /// <c>time:{workspaceId}</c>. Separado do id do servidor porque as três raízes convivem no MESMO
@@ -348,7 +373,9 @@ public sealed class TeamInviteService
             .TryGetWorkspaceKeyAsync(vaultWorkspaceId, ct)
             .ConfigureAwait(false);
 
-        if (wk is null && await TryRestoreTeamKeyAsync(workspaceId, ct).ConfigureAwait(false))
+        if (wk is null
+            && await TryRestoreTeamKeyAsync(workspaceId, ct).ConfigureAwait(false)
+                is TeamKeyRestore.Restored)
         {
             wk = await _keyRing.TryGetWorkspaceKeyAsync(vaultWorkspaceId, ct).ConfigureAwait(false);
         }
@@ -495,18 +522,24 @@ public sealed class TeamInviteService
     /// não abriria nada, <b>sem erro nenhum</b>.
     /// </summary>
     /// <returns>
-    /// <c>true</c> se o workspace é de TIME e a chave está no lugar; <c>false</c> se o servidor
-    /// respondeu que não há chave (cofre PESSOAL, cuja chave se deriva da AMK). Os dois são
-    /// respostas legítimas — a distinção é o que o app usa para escolher a raiz certa.
+    /// <see cref="TeamKeyRestore.Restored"/> quando o embrulho veio e a chave está no lugar;
+    /// <see cref="TeamKeyRestore.NoWrapForThisAccount"/> quando o servidor respondeu 404.
+    ///
+    /// <para>⚠️ <b>O 404 NÃO significa "cofre pessoal".</b> O doc anterior afirmava isso, e a
+    /// afirmação era o defeito: o servidor devolve 404 quando <b>esta conta</b> não guarda embrulho
+    /// <b>neste workspace</b> — o que também acontece num TIME cujo embrulho do dono nunca subiu — e
+    /// um 404 de infraestrutura é indistinguível. Quem sabe a natureza do workspace é o <c>kind</c>
+    /// da lista de workspaces do login (<see cref="AccountWorkspace.Kind"/>).</para>
     /// </returns>
-    public async Task<bool> TryRestoreTeamKeyAsync(string workspaceId, CancellationToken ct = default)
+    public async Task<TeamKeyRestore> TryRestoreTeamKeyAsync(
+        string workspaceId, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
 
         TeamWorkspaceKeyResponse? key = await _api.GetWorkspaceKeyAsync(workspaceId, ct).ConfigureAwait(false);
         if (key is null)
         {
-            return false;
+            return TeamKeyRestore.NoWrapForThisAccount;
         }
 
         await _keyRing.RestoreWrappedWorkspaceKeyAsync(
@@ -517,7 +550,7 @@ public sealed class TeamInviteService
         // A chave acabou de aterrissar: releia o canal de segredos desde o começo. Envelopes que
         // chegaram antes dela foram PULADOS e o cursor passou por cima deles.
         await ResetSecretsCursorAsync(workspaceId, ct).ConfigureAwait(false);
-        return true;
+        return TeamKeyRestore.Restored;
     }
 
     /// <summary>
@@ -607,7 +640,8 @@ public sealed class TeamInviteService
         // ser só por presença/igualdade de bytes sem enfraquecer nada.
         try
         {
-            if (!await TryRestoreTeamKeyAsync(workspaceId, ct).ConfigureAwait(false))
+            if (await TryRestoreTeamKeyAsync(workspaceId, ct).ConfigureAwait(false)
+                is not TeamKeyRestore.Restored)
             {
                 // O servidor disse "já tenho uma" e, um instante depois, "não tenho nenhuma". Não dá
                 // para afirmar nada; tentar de novo é honesto, inventar um desfecho não é.
@@ -630,8 +664,7 @@ public sealed class TeamInviteService
     }
 
     /// <summary>
-    /// Este workspace é de TIME (chave aleatória, compartilhada) ou PESSOAL (chave derivada da AMK)?
-    /// É a pergunta que alimenta o indicador de cofre do shell.
+    /// O que dá para DESCOBRIR sobre este workspace a partir da chave — <b>e o que não dá</b>.
     ///
     /// <para><b>Disco primeiro, servidor depois.</b> Ter a WK deste workspace guardada aqui já é
     /// prova de que ele é de time, e essa resposta vale offline — que é a condição normal de campo.
@@ -639,7 +672,14 @@ public sealed class TeamInviteService
     /// (<see cref="TryRestoreTeamKeyAsync"/>) já <b>restaura</b> a chave neste device, que é o que
     /// faz o segundo PC do membro abrir o cofre.</para>
     ///
-    /// <para><b>Não engole falha de rede.</b> Um <c>catch</c> devolvendo <c>false</c> aqui faria o
+    /// <para>⚠️ <b>Esta sonda NUNCA devolve <see cref="WorkspaceKindFact.Personal"/>, e não é
+    /// omissão.</b> A única coisa que ela sabe medir é presença de chave: presença prova TIME,
+    /// ausência não prova nada. Enquanto ela devolvia "pessoal" no 404, o resolvedor de escopo
+    /// gravava o dono do banco com os ~700 equipamentos usando o GUID do TIME — a ausência virando
+    /// afirmação. Quem afirma "é pessoal" é o <c>kind</c> da lista de workspaces do login
+    /// (<see cref="AccountWorkspace.Kind"/>), que é o fato do servidor.</para>
+    ///
+    /// <para><b>Não engole falha de rede.</b> Um <c>catch</c> devolvendo "não é de time" aqui faria o
     /// indicador afirmar "cofre pessoal" com toda a confiança quando o app simplesmente não
     /// perguntou — e o operador cadastraria o cliente sem ver o aviso. A exceção sobe; quem chama
     /// transforma isso em "não confirmado", visível na tela.</para>
@@ -651,7 +691,8 @@ public sealed class TeamInviteService
     /// aviso de que está no workspace do time. O reparo é chamado ao lado, no boot, com o desfecho
     /// dele indo para o log visível do app em vez de sequestrar o indicador.</para>
     /// </summary>
-    public async Task<bool> IsTeamWorkspaceAsync(string workspaceId, CancellationToken ct = default)
+    public async Task<WorkspaceKindFact> ProbeWorkspaceKindAsync(
+        string workspaceId, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
 
@@ -661,11 +702,18 @@ public sealed class TeamInviteService
         {
             if (local is not null)
             {
-                return true;
+                return WorkspaceKindFact.Team;
             }
         }
 
-        return await TryRestoreTeamKeyAsync(workspaceId, ct).ConfigureAwait(false);
+        // ⚠️ 404 é "NÃO SEI", nunca "é pessoal". Ver TeamKeyRestore: o servidor responde 404 quando
+        // ESTA CONTA não guarda embrulho NESTE workspace — o que também acontece num TIME cujo
+        // embrulho do dono nunca subiu —, e um 404 de infraestrutura chega exatamente igual. Quem
+        // AFIRMA a natureza do workspace é o `kind` da lista de workspaces do login.
+        return await TryRestoreTeamKeyAsync(workspaceId, ct).ConfigureAwait(false)
+            is TeamKeyRestore.Restored
+            ? WorkspaceKindFact.Team
+            : WorkspaceKindFact.Unknown;
     }
 
     /// <summary>

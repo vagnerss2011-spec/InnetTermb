@@ -4,6 +4,7 @@ using RemoteOps.Security.Account;
 using RemoteOps.Security.Crypto;
 using RemoteOps.Security.Storage;
 using RemoteOps.Security.Vault;
+using RemoteOps.Sync.Remote;
 
 namespace RemoteOps.Desktop.Account;
 
@@ -74,10 +75,24 @@ internal sealed record SessionVaultScope(
 /// </summary>
 internal sealed class SessionVaultScopeException : Exception
 {
-    internal SessionVaultScopeException(string message, Exception? inner = null)
+    internal SessionVaultScopeException(
+        string message, Exception? inner = null, bool reopenLoginToChooseVault = false)
         : base(message, inner)
-    {
-    }
+        => ReopenLoginToChooseVault = reopenLoginToChooseVault;
+
+    /// <summary>
+    /// ⚠️ <b>Esta recusa é sobre QUAL workspace foi aberto — e sem isto ela não tem volta.</b>
+    ///
+    /// <para>O boot entra pelo cache da AMK, que guarda <b>um</b> workspace: o mesmo da recusa. Sem
+    /// apagar esse cache, toda abertura seguinte repete exatamente a mesma tela e o app encerra —
+    /// o operador não tem por onde escolher outro cofre, porque a escolha mora DENTRO do login e o
+    /// login não é pedido enquanto houver cache. Era o beco sem saída que fechava a cadeia inteira
+    /// deste defeito.</para>
+    ///
+    /// <para><c>false</c> para a recusa TRANSITÓRIA (marcador ilegível): ali o cofre está certo e a
+    /// próxima abertura resolve — apagar o cache cobraria a senha do operador por nada.</para>
+    /// </summary>
+    internal bool ReopenLoginToChooseVault { get; }
 }
 
 /// <summary>
@@ -128,9 +143,12 @@ internal sealed class SessionVaultScopeResolver
         _personalDbPath = personalDbPath;
     }
 
-    /// <param name="probeIsTeamAsync">
-    /// A sonda online (<c>TeamInviteService.IsTeamWorkspaceAsync</c>): disco → rede, e a MESMA ida já
-    /// restaura a chave. Só é chamada quando o disco não sabe responder.
+    /// <param name="probeWorkspaceKindAsync">
+    /// A sonda online (<c>TeamInviteService.ProbeWorkspaceKindAsync</c>): disco → rede, e a MESMA ida
+    /// já restaura a chave. Só é chamada quando o disco não sabe responder.
+    ///
+    /// <para>⚠️ Ela responde <b>tri-estado</b>, e nunca <see cref="WorkspaceKindFact.Personal"/>: a
+    /// única coisa que ela mede é presença de chave, e ausência não prova nada.</para>
     /// </param>
     /// <param name="readPersonalDbWorkspacesAsync">
     /// ⚠️ <b>A evidência autoritativa da regra 5</b> (<see cref="PersonalDbOwnerProbe"/>): com quais
@@ -144,10 +162,25 @@ internal sealed class SessionVaultScopeResolver
     /// <param name="accountWorkspaceCount">
     /// Quantos workspaces esta conta tem (<c>AccountSession.Workspaces</c>), ou <c>null</c> quando
     /// esta sessão não recebeu a lista (relaunch pelo cache da AMK, que não fala com o servidor).
-    /// <para><b>2+ nunca adota offline:</b> quem tem dois workspaces tem um time, e só quem tem um
-    /// time consegue estar abrindo um. É a segunda rede, para o banco pessoal que ainda não
-    /// sincronizou com ninguém e portanto não tem o que dizer sobre si. Ela não tranca ninguém:
-    /// a lista chega pelo LOGIN, e o chooser que oferece o time é do mesmo login.</para>
+    /// <para><b>Só o valor 1 adota</b>, e só quando não há nenhuma evidência melhor: uma conta com um
+    /// workspace só não tem outro dono possível. <c>2+</c> significa "esta conta tem um time" e nunca
+    /// adota offline; <c>null</c> é <b>"NÃO PERGUNTEI"</b> e também não adota — antes ele passava no
+    /// teste <c>is not &gt;= 2</c>, ou seja, tinha o mesmo peso de "medi e é 1".</para>
+    /// </param>
+    /// <param name="declaredKind">
+    /// ⚠️ <b>O FATO AUTORITATIVO: <c>workspaces.kind</c>, que viaja na lista do login</b>
+    /// (<see cref="AccountWorkspace.Kind"/>).
+    ///
+    /// <para><b>Por que ele existe:</b> antes dele, a natureza do workspace era deduzida da AUSÊNCIA
+    /// de embrulho de chave no servidor — um 404, que significa "esta CONTA não guarda embrulho neste
+    /// workspace" e é indistinguível de um 404 de infraestrutura (proxy sem a rota, URL errada,
+    /// cliente novo × backend velho). Lido como "não é de time", ele gravava
+    /// <c>sync-local.owner</c> = GUID do TIME, e o banco com os ~700 equipamentos do operador passava
+    /// a subir para os colegas.</para>
+    ///
+    /// <para><see cref="WorkspaceKindFact.Unknown"/> é o default e é honesto: backend anterior a esta
+    /// versão, relaunch pelo cache, modo local. "Não sei" faz o resolvedor PERGUNTAR ou RECUSAR —
+    /// nunca gravar dono.</para>
     /// </param>
     /// <exception cref="SessionVaultScopeException">
     /// Não deu para decidir com honestidade. Recusar é obrigatório: assumir "pessoal" abriria
@@ -156,13 +189,33 @@ internal sealed class SessionVaultScopeResolver
     /// </exception>
     internal async Task<SessionVaultScope> ResolveAsync(
         string serverWorkspaceId,
-        Func<string, CancellationToken, Task<bool>> probeIsTeamAsync,
+        Func<string, CancellationToken, Task<WorkspaceKindFact>> probeWorkspaceKindAsync,
         Func<CancellationToken, Task<IReadOnlyList<string>?>>? readPersonalDbWorkspacesAsync = null,
         int? accountWorkspaceCount = null,
+        WorkspaceKindFact declaredKind = WorkspaceKindFact.Unknown,
         CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(serverWorkspaceId);
-        ArgumentNullException.ThrowIfNull(probeIsTeamAsync);
+        ArgumentNullException.ThrowIfNull(probeWorkspaceKindAsync);
+
+        string vaultWorkspaceId = AppRuntime.TeamVaultWorkspace(serverWorkspaceId);
+
+        // ⚠️ REGRA 0 — O FATO DO SERVIDOR DIZ "TIME", E ELE VEM ANTES DE TUDO.
+        //
+        // Vem antes até da regra 1 (marcador de dono) de propósito: se `sync-local.owner` disser que
+        // um workspace de TIME é dono do banco pessoal, o marcador está ENVENENADO — os dois não
+        // podem ser verdade ao mesmo tempo, e obedecê-lo abriria `sync-local.db` (os ~700)
+        // sincronizando contra o workspace dos colegas. Aqui o banco pessoal nem é tocado.
+        //
+        // E é OFFLINE: nada de sonda. O fato já é a resposta, e uma falha de rede não pode
+        // transformar "eu sei que é um time" em "não abre". A chave que faltar é buscada logo depois
+        // pelo TeamKeyBootRepair, com o desfecho indo para o painel de Logs.
+        if (declaredKind is WorkspaceKindFact.Team)
+        {
+            return SessionVaultScope.Team(
+                serverWorkspaceId,
+                temChave: await HasTeamKeyAsync(vaultWorkspaceId, ct).ConfigureAwait(false));
+        }
 
         (bool legivel, string? dono) = ReadOwnerMarker();
 
@@ -181,7 +234,9 @@ internal sealed class SessionVaultScopeResolver
         // E as regras de evidência tampouco podem rodar: sem saber o dono, a chave de time em disco
         // não distingue "workspace do time" de "workspace pessoal com o blob que o 1e deixou".
         // "Não sei quem é o dono" recusa alto; a próxima abertura, com o arquivo legível, volta ao
-        // normal — nada é perdido nem regravado.
+        // normal — nada é perdido nem regravado. E ela NÃO pede login de novo: o cofre desta sessão
+        // pode muito bem estar certo, e cobrar a senha do operador por uma falha de leitura passageira
+        // seria atrito por nada.
         if (!legivel)
         {
             throw new SessionVaultScopeException(
@@ -189,8 +244,6 @@ internal sealed class SessionVaultScopeResolver
                 + "neste momento. Nada foi alterado. Feche e abra o RemoteOps de novo; se o aviso "
                 + "continuar, verifique permissões/antivírus na pasta de dados do RemoteOps.");
         }
-
-        string vaultWorkspaceId = AppRuntime.TeamVaultWorkspace(serverWorkspaceId);
 
         // REGRA 3 — a WK está aqui: é cofre de time, e a resposta vale OFFLINE (a condição normal
         // de campo, e o caminho de todo boot depois do primeiro). Ela vem ANTES da adoção do dono
@@ -211,29 +264,28 @@ internal sealed class SessionVaultScopeResolver
             return SessionVaultScope.Team(serverWorkspaceId, temChave: false);
         }
 
+        // ⚠️ A EVIDÊNCIA DO PRÓPRIO BANCO, e não a mera existência do arquivo. O comentário que
+        // morava aqui dizia que `sync-local.db` era o banco pessoal deste workspace "por construção,
+        // porque não existia como criar workspace de time". Isso era verdade ANTES desta fatia e
+        // virou FALSO nela. Quem sabe de quem é o banco é o próprio banco (`sync_cursor`).
+        //
+        // Lida aqui, uma vez, porque as regras 5 e 6 precisam dela — e depois das regras 0 a 4, que
+        // respondem sem abrir banco nenhum (o boot de todo dia não paga por isto).
+        bool temBancoPessoal = File.Exists(_personalDbPath);
+        DonoDoBanco evidencia = temBancoPessoal
+            ? Classificar(
+                await LerWorkspacesDoBancoAsync(readPersonalDbWorkspacesAsync, ct).ConfigureAwait(false),
+                serverWorkspaceId)
+            : DonoDoBanco.NaoSei;
+
         // REGRA 5 — sem dono registrado e sem NENHUMA evidência de time para este workspace.
         if (dono is null)
         {
-            bool temBancoPessoal = File.Exists(_personalDbPath);
-
-            // ⚠️ A EVIDÊNCIA, e não mais a mera existência do arquivo. O comentário que morava aqui
-            // dizia que `sync-local.db` era o banco pessoal deste workspace "por construção, porque
-            // não existia como criar workspace de time". Isso era verdade ANTES desta fatia e virou
-            // FALSO nela: com o operador abrindo o TIME, adotar gravava `sync-local.owner` = GUID do
-            // time e amarrava o banco com os ~700 clientes dele ao workspace dos colegas — offline,
-            // sem sonda e sem uma linha na tela. Quem sabe de quem é o banco é o próprio banco.
-            DonoDoBanco evidencia = temBancoPessoal
-                ? Classificar(
-                    await LerWorkspacesDoBancoAsync(readPersonalDbWorkspacesAsync, ct)
-                        .ConfigureAwait(false),
-                    serverWorkspaceId)
-                : DonoDoBanco.NaoSei;
-
-            // 5a — ADOÇÃO OFFLINE, o caso de TODA a frota no upgrade. Ela sobrevive porque a
-            // evidência do banco do operador é positiva (ele vinha sincronizando com este mesmo
-            // workspace) ou, na pior das hipóteses, ausente numa conta de um workspace só — onde
-            // não existe outro dono possível.
-            if (temBancoPessoal && PodeAdotarSemRede(evidencia, accountWorkspaceCount))
+            // 5a — ADOÇÃO OFFLINE, o caso de TODA a frota no upgrade. Ela sobrevive porque o servidor
+            // DECLAROU que este workspace é o cofre pessoal, ou porque o banco do operador vinha
+            // sincronizando com este mesmo workspace, ou (na pior das hipóteses) porque a conta tem
+            // um workspace só, onde não existe outro dono possível.
+            if (PodeAdotarSemRede(declaredKind, evidencia, accountWorkspaceCount, temBancoPessoal))
             {
                 WriteOwnerMarker(serverWorkspaceId);
                 return SessionVaultScope.Personal;
@@ -244,7 +296,8 @@ internal sealed class SessionVaultScopeResolver
             // workspace, e banco pessoal sem evidência numa conta que já tem time. Nos três, adotar
             // às cegas amarraria o banco pessoal ao workspace errado; e nos três a rede acabou de
             // ser usada para o próprio login, então perguntar não tranca ninguém que já trabalhava.
-            if (await ProbeAsync(serverWorkspaceId, probeIsTeamAsync, ct).ConfigureAwait(false))
+            if (await ProbeAsync(serverWorkspaceId, probeWorkspaceKindAsync, ct).ConfigureAwait(false)
+                is WorkspaceKindFact.Team)
             {
                 // A sonda restaura a chave na mesma ida; se não restaurou, fail-closed e alto.
                 return SessionVaultScope.Team(
@@ -252,34 +305,49 @@ internal sealed class SessionVaultScopeResolver
                     temChave: await HasTeamKeyAsync(vaultWorkspaceId, ct).ConfigureAwait(false));
             }
 
-            // "Não é de time". Com o banco pessoal DIZENDO que é de outro workspace, adotar aqui
-            // seria a mesma mistura de acervos da regra 6 — só que decidida contra evidência, em
-            // vez de na ausência dela.
-            if (evidencia is DonoDoBanco.OutroWorkspace)
-            {
-                throw new SessionVaultScopeException(OutraInstalacaoMsg);
-            }
+            // ⚠️ AQUI MORAVA O BLOQUEANTE. A sonda não disse "é de time" — e isso NÃO É "é pessoal".
+            // Ela só sabe medir presença de chave: presença prova TIME, ausência não prova nada (o
+            // 404 é o mesmo que um proxy sem a rota devolve). Adotar neste ponto gravava
+            // `sync-local.owner` = GUID do TIME, e o acervo do operador passava a subir para os
+            // colegas. Sem o fato do servidor e sem evidência do banco, a única resposta honesta é
+            // recusar — dizendo o quê, sem acusar ninguém de abrir acervo alheio.
+            throw new SessionVaultScopeException(
+                evidencia is DonoDoBanco.OutroWorkspace
+                    ? OutraInstalacaoMsg
+                    : NaoDeuParaIdentificarMsg,
+                reopenLoginToChooseVault: true);
+        }
 
-            // É o cofre pessoal desta conta: adota como dono do banco pessoal.
+        // REGRA 6 — há um dono registrado, e é OUTRO workspace.
+
+        // 6a — o CAMINHO DE VOLTA: o próprio banco desta máquina diz que ESTE workspace é o dono
+        // dele. O `sync_cursor` é medição (quem o grava é o sync que rodou); o marcador é uma
+        // heurística gravada num boot anterior. Quando os dois discordam, quem ganha é a medição —
+        // senão um marcador errado tranca o operador fora do próprio cofre para sempre, e o arquivo
+        // `sync-local.owner` é invisível para ele.
+        if (evidencia is DonoDoBanco.EsteWorkspace)
+        {
             WriteOwnerMarker(serverWorkspaceId);
             return SessionVaultScope.Personal;
         }
 
-        // REGRA 6 — há um dono registrado (outro workspace) e nenhuma evidência local: workspace
-        // que esta máquina nunca viu. UM round-trip, uma vez na vida deste par (máquina,
-        // workspace): a sonda restaura a chave na mesma ida, e a regra 3 responde daqui em diante.
-        //
-        // ⚠️ Esta recusa é certa para o caso que ela descreve — e ELA NÃO PODE ser o que o operador
-        // ouve sobre o PRÓPRIO cofre. Era: a regra 5 adotava o GUID do time como dono do banco
-        // pessoal e, na abertura seguinte do cofre dele, esta linha o acusava de estar abrindo cofre
-        // de outra instalação, sem saída — `sync-local.owner` é invisível para ele. O conserto não
-        // foi suavizar o texto (o caso real precisa dele): foi tirar da regra 5 o poder de gravar um
-        // dono sem evidência. Fixado por teste (DepoisDeAbrirOTIME_OCofrePESSOAL_CONTINUA_Abrindo).
-        if (!await ProbeAsync(serverWorkspaceId, probeIsTeamAsync, ct).ConfigureAwait(false))
+        // 6b — workspace que esta máquina nunca viu. UM round-trip, uma vez na vida deste par
+        // (máquina, workspace): a sonda restaura a chave na mesma ida, e a regra 3 responde daqui em
+        // diante.
+        if (await ProbeAsync(serverWorkspaceId, probeWorkspaceKindAsync, ct).ConfigureAwait(false)
+            is not WorkspaceKindFact.Team)
         {
-            // O servidor respondeu: não há chave de time aqui. Como este workspace TAMBÉM não é o
-            // dono do banco pessoal desta máquina, ele é o cofre pessoal de outra conta/instalação.
-            throw new SessionVaultScopeException(OutraInstalacaoMsg);
+            // ⚠️ A recusa "acervo de outra instalação" é certa para o caso que ela descreve — e ELA
+            // NÃO PODE ser o que o operador ouve quando o app simplesmente não conseguiu descobrir.
+            // Ela exige um FATO: o servidor declarou que este workspace é um cofre PESSOAL e, como
+            // ele também não é o dono do banco desta máquina, é o cofre pessoal de outra conta.
+            // Sem esse fato (backend velho, 404 de infraestrutura), o recado é "não deu para
+            // identificar" — que é a verdade, e não uma acusação sem saída.
+            throw new SessionVaultScopeException(
+                declaredKind is WorkspaceKindFact.Personal
+                    ? OutraInstalacaoMsg
+                    : NaoDeuParaIdentificarMsg,
+                reopenLoginToChooseVault: true);
         }
 
         // A sonda restaurou a chave? Se sim, cofre do time completo. Se não, fail-closed e alto —
@@ -298,6 +366,25 @@ internal sealed class SessionVaultScopeResolver
         "Este workspace é o cofre pessoal de outra instalação do RemoteOps, e abri-lo aqui "
         + "misturaria os dois acervos. Abra o seu cofre pessoal, ou peça um convite para "
         + "entrar num time.";
+
+    /// <summary>
+    /// ⚠️ <b>A recusa de "NÃO SEI", que antes não existia — e é ela que fecha o bloqueante.</b>
+    ///
+    /// <para>O app tinha duas frases para esta situação e as duas mentiam: <i>"conecte-se à
+    /// internet"</i> (mas o servidor respondeu) e <i>"cofre pessoal de outra instalação"</i> (uma
+    /// ACUSAÇÃO, sobre o que pode muito bem ser o cofre do próprio operador). O que aconteceu de
+    /// verdade é que o servidor respondeu 404 — "esta conta não guarda embrulho de chave aqui" — e
+    /// esse 404 não distingue cofre pessoal, time sem embrulho publicado, e proxy sem a rota.</para>
+    ///
+    /// <para><b>Nada é gravado</b> antes desta recusa, e o texto diz isso. O caminho de volta vem
+    /// junto, pela marca <see cref="SessionVaultScopeException.ReopenLoginToChooseVault"/>: um app
+    /// que recusa e não diz o que fazer é o beco sem saída que esta fatia já pagou uma vez.</para>
+    /// </summary>
+    private const string NaoDeuParaIdentificarMsg =
+        "Não foi possível identificar este workspace com segurança: o servidor respondeu, mas não "
+        + "guarda a chave que diria se ele é um time. Nada foi alterado e o seu cofre pessoal está "
+        + "intacto. Tente de novo em instantes; se o aviso continuar, confirme com quem administra o "
+        + "servidor se ele já está atualizado.";
 
     /// <summary>O que o próprio <c>sync-local.db</c> diz sobre o workspace que está sendo aberto.</summary>
     private enum DonoDoBanco
@@ -318,22 +405,56 @@ internal sealed class SessionVaultScopeResolver
     }
 
     /// <summary>
-    /// Adotar sem rede exige evidência positiva — ou ausência de evidência numa conta em que não
-    /// existe outro dono possível.
+    /// ⚠️ <b>Gravar o dono do banco pessoal é irreversível na prática</b> (o operador não enxerga
+    /// <c>sync-local.owner</c>), então isto exige um FATO ou uma MEDIÇÃO — nunca uma ausência.
     ///
-    /// <para><b>Por que <see cref="DonoDoBanco.EsteWorkspace"/> adota mesmo com 2+ workspaces:</b> a
-    /// contagem é heurística e a evidência é medição. Vetar aqui mandaria à rede o boot do operador
-    /// que TEM um time e está abrindo o próprio cofre pessoal — e uma sonda que respondesse "não é
-    /// de time" acabaria recusando o cofre dele. A rede da contagem existe para o "não sei", que é
-    /// onde ela é a única coisa que sobra.</para>
+    /// <para>A ordem é a força da evidência:</para>
+    /// <list type="number">
+    ///   <item><b>Medição CONTRÁRIA veta tudo</b>, inclusive o fato do servidor: as duas perguntas
+    ///   são diferentes. O <c>kind</c> responde "que TIPO de workspace é este"; o <c>sync_cursor</c>
+    ///   responde "de QUEM é este banco". Um workspace pode ser pessoal e ainda assim não ser o dono
+    ///   do <c>sync-local.db</c> desta máquina — aí ele é o cofre pessoal de outra instalação.</item>
+    ///   <item><b>O servidor declarou PESSOAL</b> (<c>workspaces.kind</c>). É o fato, e ele dispensa
+    ///   até o banco existir em disco: responde exatamente a pergunta que a existência de um arquivo
+    ///   nunca respondeu.</item>
+    ///   <item><b>O banco diz que é deste workspace.</b> É medição, e por isso adota mesmo numa conta
+    ///   com 2+ workspaces: vetar aqui mandaria à rede o boot do operador que TEM um time e está
+    ///   abrindo o próprio cofre pessoal — e uma sonda respondendo "não sei" ali recusaria o cofre
+    ///   dele.</item>
+    ///   <item><b>A contagem</b>, e só o valor 1: uma conta com um workspace só não tem outro dono
+    ///   possível. É heurística, e é a última porque é a mais fraca.</item>
+    /// </list>
+    ///
+    /// <para><b><c>null</c> na contagem NÃO adota</b>, e esta é a correção: antes, o teste era
+    /// <c>is not &gt;= 2</c>, então "não perguntei" (relaunch pelo cache da AMK, que não fala com o
+    /// servidor) tinha o mesmo peso de "medi e é 1". Adotar ali é gravar dono com zero evidência —
+    /// exatamente a classe de defeito desta base. Quem sustenta esse caminho na frota real é a
+    /// medição do item 3: o banco com os equipamentos do operador já sincronizou.</para>
     /// </summary>
-    private static bool PodeAdotarSemRede(DonoDoBanco evidencia, int? accountWorkspaceCount)
-        => evidencia switch
+    private static bool PodeAdotarSemRede(
+        WorkspaceKindFact declaredKind,
+        DonoDoBanco evidencia,
+        int? accountWorkspaceCount,
+        bool temBancoPessoal)
+    {
+        if (evidencia is DonoDoBanco.OutroWorkspace)
+        {
+            return false;
+        }
+
+        if (declaredKind is WorkspaceKindFact.Personal)
+        {
+            return true;
+        }
+
+        // Sem o fato, tudo o que sobra fala do BANCO — e sem banco em disco não há do que falar:
+        // uma máquina nova abrindo um workspace desconhecido tem de perguntar (regra 5b).
+        return temBancoPessoal && evidencia switch
         {
             DonoDoBanco.EsteWorkspace => true,
-            DonoDoBanco.OutroWorkspace => false,
-            _ => accountWorkspaceCount is not >= 2,
+            _ => accountWorkspaceCount == 1,
         };
+    }
 
     private static DonoDoBanco Classificar(IReadOnlyList<string>? workspaces, string serverWorkspaceId)
     {
@@ -373,24 +494,39 @@ internal sealed class SessionVaultScopeResolver
     }
 
     /// <summary>
-    /// A sonda online, com a MESMA recusa escrita nos dois pontos em que ela é consultada: falha de
-    /// rede nunca vira resposta — nem "é de time", nem "é pessoal".
+    /// A sonda online, com a MESMA recusa escrita nos dois pontos em que ela é consultada: falha
+    /// nunca vira resposta — nem "é de time", nem "é pessoal".
+    ///
+    /// <para><b>E o recado distingue "não cheguei ao servidor" de "o servidor me negou".</b> Mandar
+    /// <i>"conecte-se à internet"</i> para um 403 (participação removida, sessão de outro tenant) é
+    /// um conselho errado sobre a única coisa em que o operador poderia agir: ele JÁ está conectado,
+    /// e o que falta é acesso. Nada do corpo nem do token entra na mensagem (ADR-013).</para>
     /// </summary>
-    private static async Task<bool> ProbeAsync(
+    private static async Task<WorkspaceKindFact> ProbeAsync(
         string serverWorkspaceId,
-        Func<string, CancellationToken, Task<bool>> probeIsTeamAsync,
+        Func<string, CancellationToken, Task<WorkspaceKindFact>> probeWorkspaceKindAsync,
         CancellationToken ct)
     {
         try
         {
-            return await probeIsTeamAsync(serverWorkspaceId, ct).ConfigureAwait(false);
+            return await probeWorkspaceKindAsync(serverWorkspaceId, ct).ConfigureAwait(false);
+        }
+        catch (CloudSyncException ex)
+        {
+            throw new SessionVaultScopeException(
+                "O servidor recusou identificar este workspace (acesso negado). Isso costuma "
+                + "significar que a sua participação neste cofre foi removida, ou que a sessão "
+                + "precisa ser renovada. Nada foi alterado neste computador.",
+                ex,
+                reopenLoginToChooseVault: true);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             throw new SessionVaultScopeException(
                 "Este computador ainda não conhece o cofre deste workspace. Conecte-se à internet uma "
                 + "vez para o RemoteOps identificá-lo — enquanto isso, abra o seu cofre pessoal.",
-                ex);
+                ex,
+                reopenLoginToChooseVault: true);
         }
     }
 

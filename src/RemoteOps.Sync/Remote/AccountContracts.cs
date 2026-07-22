@@ -21,7 +21,22 @@ namespace RemoteOps.Sync.Remote;
 /// Workspace que a conta enxerga (devolvido no registro/login). Espelha o <c>WorkspaceSummary</c> do
 /// backend — inclusive o <see cref="Role"/> (RBAC), que diz se esta conta é dona do workspace.
 /// </summary>
-public sealed record AccountWorkspace(string Id, string Name, string Role);
+/// <param name="Kind">
+/// ⚠️ <b>O fato AUTORITATIVO sobre a natureza do workspace</b> (<c>"personal"</c> / <c>"team"</c>),
+/// vindo de <c>workspaces.kind</c> no servidor. Leia-o sempre por
+/// <see cref="WorkspaceKindFacts.From"/>, nunca comparando string na mão.
+///
+/// <para><b>Nulável, e o <c>null</c> é significativo:</b> um backend anterior a esta versão não manda
+/// o campo, e ali <c>null</c> quer dizer <b>"não sei"</b> — jamais "é pessoal". É esta a janela real
+/// da ordem de deploy (backend novo × PCs velhos, e o contrário), e é por ela que o app decidia a
+/// natureza do workspace por AUSÊNCIA de chave: um 404 de <c>GET /workspaces/{id}/key</c> virava
+/// "cofre pessoal" e autorizava gravar o dono do banco com os ~700 equipamentos com o GUID do TIME.
+/// Com o fato viajando, quem decide é o servidor; sem ele, o app pergunta ou recusa, nunca afirma.</para>
+///
+/// <para>Cliente velho × backend novo continua funcionando: o campo extra é ignorado na
+/// desserialização (<c>JsonSerializerDefaults.Web</c> pula membros desconhecidos).</para>
+/// </param>
+public sealed record AccountWorkspace(string Id, string Name, string Role, string? Kind = null);
 
 /// <summary>
 /// <c>POST /auth/register</c>. TUDO aqui é público ou opaco (spec §4.2): salt/params do Argon2 são

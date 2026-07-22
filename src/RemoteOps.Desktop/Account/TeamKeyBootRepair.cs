@@ -85,7 +85,8 @@ internal sealed class TeamKeyBootRepair
     {
         try
         {
-            if (await team.Service.TryRestoreTeamKeyAsync(team.WorkspaceId, ct).ConfigureAwait(false))
+            if (await team.Service.TryRestoreTeamKeyAsync(team.WorkspaceId, ct).ConfigureAwait(false)
+                is TeamKeyRestore.Restored)
             {
                 _log?.Emit(
                     "[time] A chave deste time foi recuperada da sua conta: o cofre do time já abre "

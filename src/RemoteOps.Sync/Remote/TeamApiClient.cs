@@ -107,9 +107,19 @@ public sealed class TeamApiClient : ITeamApi
         using HttpResponseMessage resp = await _channel.SendAsync(
             () => new HttpRequestMessage(HttpMethod.Get, $"/workspaces/{workspaceId}/key"), ct);
 
-        // 404 é RESPOSTA, não falha: significa "workspace pessoal, sem chave de time guardada".
-        // Só este status; qualquer outro erro continua estourando, senão um 403 (membership cortada)
-        // viraria "cofre pessoal" e o app abriria a raiz errada em silêncio.
+        // ⚠️ 404 é RESPOSTA, não falha — mas a resposta é ESTREITA: "esta CONTA não guarda embrulho
+        // NESTE workspace" (TeamService.GetWorkspaceKeyAsync: `membership?.WrappedWk is null`).
+        //
+        // Ele NÃO significa "workspace pessoal", e o comentário que dizia isso aqui foi a origem de
+        // um bloqueante: o mesmo 404 sai de um TIME cujo embrulho do dono nunca subiu, e sai
+        // igualzinho de uma INFRAESTRUTURA sem a rota (proxy, URL errada, backend anterior a esta
+        // versão — a janela real da ordem de deploy). Lido como "não é de time", ele fazia o boot
+        // gravar o dono do banco com os ~700 equipamentos do operador usando o GUID do TIME.
+        //
+        // Quem AFIRMA a natureza do workspace é `workspaces.kind`, que viaja na lista do login.
+        // Aqui o `null` quer dizer só isto: não há embrulho para esta conta. Só este status; qualquer
+        // outro erro continua estourando, senão um 403 (participação cortada) viraria "sem chave" e o
+        // app abriria a raiz errada em silêncio.
         if (resp.StatusCode == HttpStatusCode.NotFound)
         {
             return null;

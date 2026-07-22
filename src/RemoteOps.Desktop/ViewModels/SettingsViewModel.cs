@@ -554,7 +554,7 @@ public sealed class SettingsViewModel : BaseViewModel
     public Task RefreshVaultScopeAsync(CancellationToken ct = default) =>
         VaultBadge.RefreshAsync(
             _team is { } team
-                ? probeCt => team.Service.IsTeamWorkspaceAsync(team.WorkspaceId, probeCt)
+                ? probeCt => team.Service.ProbeWorkspaceKindAsync(team.WorkspaceId, probeCt)
                 : null,
             ct);
 

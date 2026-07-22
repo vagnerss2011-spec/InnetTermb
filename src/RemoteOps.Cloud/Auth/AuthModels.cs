@@ -56,7 +56,22 @@ public sealed record LoginResponse(
     int? AmkKeyVersion = null,
     IReadOnlyList<WorkspaceSummary>? Workspaces = null);
 
-public sealed record WorkspaceSummary(string Id, string Name, string Role);
+/// <summary>
+/// Um workspace que a conta enxerga, na resposta de login/registro.
+/// </summary>
+/// <param name="Kind">
+/// ⚠️ <b><c>workspaces.kind</c> (<see cref="Data.Entities.WorkspaceKinds"/>) VIAJANDO até o
+/// cliente.</b> A coluna existe desde o G1 e era usada só aqui dentro; o cliente não a recebia e,
+/// sem ela, classificava o workspace ativo pela AUSÊNCIA de embrulho de chave — um 404 de
+/// <c>GET /workspaces/{id}/key</c>, que significa "esta CONTA não guarda embrulho aqui" e é
+/// indistinguível de um 404 de infraestrutura. Lido como "não é time", ele fazia o banco local com
+/// os equipamentos do operador ser adotado pelo workspace do TIME.
+///
+/// <para><b>Obrigatório de propósito</b> (sem valor default): o servidor SEMPRE sabe. Um default
+/// aqui seria herdado em silêncio por qualquer construção nova, e o valor errado nesta linha é a
+/// decisão de cofre do cliente. Quem constrói tem de DIZER.</para>
+/// </param>
+public sealed record WorkspaceSummary(string Id, string Name, string Role, string Kind);
 
 public sealed record RefreshRequest(string RefreshToken, string DeviceId);
 

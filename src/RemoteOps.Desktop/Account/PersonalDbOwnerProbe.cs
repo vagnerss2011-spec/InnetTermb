@@ -15,9 +15,24 @@ namespace RemoteOps.Desktop.Account;
 /// colegas, offline e sem uma linha na tela.</para>
 ///
 /// <para><b>A evidência autoritativa está DENTRO do banco:</b> <c>sync_cursor.workspace_id</c> é o
-/// workspace de SERVIDOR contra o qual aquele banco vinha sincronizando (quem o grava é o
-/// <c>SqliteSyncMetadataStore</c>, com o id que o <c>SyncOrchestrator</c> recebeu). Um banco que já
-/// sincronizou responde a pergunta sozinho, sem rede e sem palpite.</para>
+/// workspace de SERVIDOR contra o qual aquele banco vinha sincronizando. Um banco que já sincronizou
+/// responde a pergunta sozinho, sem rede e sem palpite.</para>
+///
+/// <para>⚠️ <b>Isso só vale porque UMA linha aqui não pode ser fabricada por uma sessão de time</b>,
+/// e a garantia tem três pernas — dizer "quem grava é o <c>SqliteSyncMetadataStore</c>" sem elas
+/// seria afirmar escritor único sem a restrição que o sustenta:
+/// <list type="number">
+///   <item><b>O banco da sessão é escolhido pelo MESMO escopo.</b> Uma sessão de time abre
+///   <c>team-{W}.db</c> (<c>SessionVaultScope.DbName</c>), nunca <c>sync-local.db</c> — então o
+///   <c>SyncOrchestrator</c> de um time não tem como escrever o id dele AQUI.</item>
+///   <item><b>Um processo por vez</b> (<c>SingleInstanceGuard</c>): não existem duas sessões, com
+///   escopos diferentes, gravando no mesmo arquivo ao mesmo tempo.</item>
+///   <item><b><c>ResetSecretsCursorAsync</c> é <c>UPDATE</c>, nunca <c>INSERT</c></b> — é o único
+///   caminho que toca <c>sync_cursor</c> com o id de um TIME estando dentro da sessão PESSOAL (o
+///   aceite de convite). Um <c>INSERT</c> ali fabricaria a linha "este banco sincronizava com o
+///   time", e evidência positiva adota o dono sem rede. Está fixado no doc daquele método.</item>
+/// </list>
+/// </para>
 ///
 /// <para><b>Nada é criado e nada é escrito</b> — mesma disciplina do
 /// <see cref="OtherVaultOutboxProbe"/>, e aqui ela é ainda mais crítica: esta sondagem roda ANTES de

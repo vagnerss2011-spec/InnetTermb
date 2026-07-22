@@ -114,6 +114,33 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   um cofre diferente **nunca** é adotado como dono. Se o banco ainda não tem o que dizer (nunca
   sincronizou) e a sua conta já tem um time, o aplicativo **pergunta** em vez de chutar. Para quem só
   tem o cofre pessoal nada muda: continua abrindo direto, sem internet e sem uma pergunta a mais.
+- **"O servidor não tem a chave" deixou de significar "não é um time".** Era a última porta pela qual
+  o banco com os seus equipamentos podia mudar de dono. Ao abrir, o aplicativo perguntava ao servidor
+  pela chave do time; quando a resposta era **"não tenho"**, ele concluía *"então é o cofre pessoal"*
+  — e registrava o **time** como dono do banco com **todos os seus clientes**. Só que "não tenho"
+  também é a resposta quando a chave do time ainda não foi registrada na sua conta, e é
+  **exatamente** a mesma resposta que um servidor desatualizado, um endereço errado ou um proxy sem
+  aquela rota devolvem. Ou seja: um problema de infraestrutura era lido como um fato sobre o **seu**
+  cofre — bem na janela em que o servidor é atualizado antes dos computadores.
+  - **Agora o próprio servidor DIZ o que cada cofre é** (pessoal ou time) já na entrada, junto com a
+    lista de cofres. É esse fato que decide — e não a falta de uma chave.
+  - **E quando ele não diz, o aplicativo NÃO CHUTA.** Servidor mais antigo (que ainda não manda essa
+    informação), resposta ambígua, acesso negado, internet fora: em todos, o RemoteOps **recusa
+    abrir**, **não altera nada** e explica o que aconteceu. Antes, dois desses caminhos terminavam
+    numa acusação errada — *"este é o cofre pessoal de outra instalação"* — sobre o cofre do próprio
+    operador.
+  - **A recusa passou a ter volta.** Quando o RemoteOps não consegue identificar com segurança o
+    cofre que você abriu, ele **sai da conta antes de fechar**, para que a próxima abertura peça a
+    sua senha e mostre a lista de cofres. Antes, a mesma tela reaparecia em toda abertura e o
+    aplicativo encerrava — sem caminho nenhum na interface, porque a escolha de cofre só existe
+    dentro da entrada na conta. Nada de cofre, banco ou equipamento é tocado: o que se apaga é o
+    atalho que dispensa a senha.
+  - **O indicador de cofre também parou de afirmar o que não sabe.** Quando essa mesma pergunta fica
+    sem resposta, a barra diz **"não confirmado"** em vez de "cofre pessoal" — que é justamente o
+    aviso que o operador precisa ver antes de cadastrar um cliente.
+  - **Nada disso cobra internet de quem já trabalhava.** O boot de todo dia continua sendo decidido
+    no disco, sem uma pergunta a mais, e o cofre pessoal com os seus ~700 equipamentos abre offline
+    como sempre abriu.
 - **Cofre de time sem a chave RECUSA em voz alta, e não sorteia chave nenhuma.** Antes isso dependia
   de uma opção de configuração que alguém poderia ligar por engano; agora é impossível por
   construção — o cofre simplesmente não tem como criar chave de time. Sortear "só desta vez"

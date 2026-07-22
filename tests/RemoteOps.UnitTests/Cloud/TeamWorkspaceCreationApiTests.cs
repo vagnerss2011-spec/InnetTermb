@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -146,6 +147,55 @@ public sealed class TeamWorkspaceCreationApiTests
         Assert.Empty(body.GetProperty("changes").EnumerateArray());
     }
 
+    /// <summary>
+    /// ⚠️ <b>O <c>kind</c> VIAJA na lista de workspaces do login</b> — o fato autoritativo saindo do
+    /// servidor para o cliente, que é o que substitui o palpite por AUSÊNCIA de chave.
+    ///
+    /// <para><b>O que existia antes:</b> a coluna <c>workspaces.kind</c> já era gravada (G1) e o
+    /// cliente <b>não recebia</b>. Sem ela, o app classificava o workspace ativo pelo 404 de
+    /// <c>GET /workspaces/{id}/key</c> — que significa "a SUA CONTA não guarda embrulho aqui" e é
+    /// indistinguível de um 404 de infraestrutura. Lido como "não é time", ele fazia o banco com os
+    /// ~700 equipamentos do operador virar "o banco pessoal do TIME".</para>
+    /// </summary>
+    [Fact]
+    public async Task Login_DEVOLVE_OKindDeCadaWorkspace_PessoalETime()
+    {
+        using var factory = new CloudApiFactory();
+        using var http = factory.CreateClient();
+        Account dono = await RegisterAsync(http, "dono@test.local");
+        Auth(http, dono.Token, dono.DeviceId);
+
+        string time = Guid.NewGuid().ToString();
+        var criado = await http.PostAsJsonAsync("/workspaces", new
+        {
+            id = time,
+            name = "Clientes do ISP",
+            wrappedWk = Convert.ToBase64String(Rand(60)),
+            wkVersion = 1,
+        });
+        Assert.Equal(HttpStatusCode.OK, criado.StatusCode);
+
+        // O login é o caminho REAL: é dele que a lista sai para o boot do cliente.
+        var login = await http.PostAsJsonAsync("/auth/login", new
+        {
+            email = "dono@test.local",
+            deviceId = dono.DeviceId,
+            deviceName = "Device",
+            authHash = dono.AuthHash,
+        });
+        Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+
+        var body = await login.Content.ReadFromJsonAsync<JsonElement>();
+        var workspaces = body.GetProperty("workspaces").EnumerateArray().ToList();
+        Assert.Equal(2, workspaces.Count);
+
+        JsonElement doTime = workspaces.Single(w => w.GetProperty("id").GetString() == time);
+        JsonElement pessoal = workspaces.Single(w => w.GetProperty("id").GetString() == dono.WorkspaceId);
+
+        Assert.Equal("team", doTime.GetProperty("kind").GetString());
+        Assert.Equal("personal", pessoal.GetProperty("kind").GetString());
+    }
+
     // ── Helpers (espelhos dos de TeamWorkspaceKeyApiTests) ────────────────────
 
     private static void Auth(HttpClient client, string token, string deviceId)
@@ -155,17 +205,19 @@ public sealed class TeamWorkspaceCreationApiTests
         client.DefaultRequestHeaders.Add("X-Device-Id", deviceId);
     }
 
-    private sealed record Account(string Token, string RefreshToken, string WorkspaceId, string DeviceId);
+    private sealed record Account(
+        string Token, string RefreshToken, string WorkspaceId, string DeviceId, string AuthHash);
 
     private static async Task<Account> RegisterAsync(HttpClient client, string email)
     {
         var deviceId = Guid.NewGuid().ToString();
+        var authHash = Convert.ToBase64String(Rand(32));
         var resp = await client.PostAsJsonAsync("/auth/register", new
         {
             email,
             argon2Salt = Convert.ToBase64String(Rand(16)),
             argon2Params = new { memoryKib = 65536, iterations = 3, parallelism = 1, outputBytes = 32 },
-            authHash = Convert.ToBase64String(Rand(32)),
+            authHash,
             wrappedAmkPwd = Convert.ToBase64String(Rand(60)),
             wrappedAmkRec = Convert.ToBase64String(Rand(60)),
             amkKeyVersion = 1,
@@ -180,6 +232,7 @@ public sealed class TeamWorkspaceCreationApiTests
             json.GetProperty("accessToken").GetString()!,
             json.GetProperty("refreshToken").GetString()!,
             json.GetProperty("workspaceId").GetString()!,
-            deviceId);
+            deviceId,
+            authHash);
     }
 }

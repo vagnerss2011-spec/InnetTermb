@@ -2,6 +2,8 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 
+using RemoteOps.Sync.Remote;
+
 namespace RemoteOps.Desktop.ViewModels;
 
 /// <summary>Em qual cofre o operador está trabalhando AGORA.</summary>
@@ -172,14 +174,15 @@ public sealed class VaultBadgeViewModel : BaseViewModel
     /// Configurações, que se reavalia depois de gerar o primeiro convite — ali o escopo do boot é
     /// anterior ao ato que fez a WK nascer.
     /// </summary>
-    /// <param name="isTeamWorkspace">
-    /// A sondagem (na prática, <c>TeamInviteService.IsTeamWorkspaceAsync</c>). <c>null</c> = não há
+    /// <param name="probeWorkspaceKind">
+    /// A sondagem (na prática, <c>TeamInviteService.ProbeWorkspaceKindAsync</c>). <c>null</c> = não há
     /// conta na nuvem, e o estado continua sendo o local — nada muda para quem nunca terá time.
     /// </param>
     public async Task RefreshAsync(
-        Func<CancellationToken, Task<bool>>? isTeamWorkspace, CancellationToken ct = default)
+        Func<CancellationToken, Task<WorkspaceKindFact>>? probeWorkspaceKind,
+        CancellationToken ct = default)
     {
-        if (isTeamWorkspace is null)
+        if (probeWorkspaceKind is null)
         {
             Apply(VaultScope.LocalOnly);
             return;
@@ -201,9 +204,18 @@ public sealed class VaultBadgeViewModel : BaseViewModel
             // Sem a chave em mãos aqui, o melhor que esta sondagem sabe dizer é "é de time". Quem
             // distingue TIME de TIME-SEM-CHAVE é o escopo do boot (ApplyFromSession), que olhou o
             // disco: por isso este caminho é o de reavaliação, não o de produção.
-            Apply(await isTeamWorkspace(ct).ConfigureAwait(false)
-                ? VaultScope.TeamPending
-                : VaultScope.Personal);
+            //
+            // ⚠️ E "não sei" tem estado PRÓPRIO na barra. A sondagem responde por 404 do
+            // GET /workspaces/{id}/key, que significa "a SUA CONTA não guarda embrulho aqui" — e é
+            // indistinguível de um 404 de infraestrutura (proxy sem a rota, backend velho). Escrever
+            // "cofre pessoal" com essa dúvida é a mesma mentira que o catch abaixo existe para não
+            // contar, só que sem exceção nenhuma para justificá-la.
+            Apply(await probeWorkspaceKind(ct).ConfigureAwait(false) switch
+            {
+                WorkspaceKindFact.Team => VaultScope.TeamPending,
+                WorkspaceKindFact.Personal => VaultScope.Personal,
+                _ => VaultScope.Unconfirmed,
+            });
         }
         catch (OperationCanceledException)
         {

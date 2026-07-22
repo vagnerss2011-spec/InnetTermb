@@ -46,6 +46,17 @@ public partial class App : Application
     /// perguntei" e "tem um só" são fatos diferentes, e colapsá-los é como um erro vira estado.
     /// </summary>
     private int? _accountWorkspaceCount;
+
+    /// <summary>
+    /// ⚠️ <b>O que o SERVIDOR declarou sobre o workspace que esta sessão abriu</b>
+    /// (<c>workspaces.kind</c>, que viaja na lista do login). É o fato autoritativo da regra 0 do
+    /// <see cref="SessionVaultScopeResolver"/>.
+    ///
+    /// <para><see cref="WorkspaceKindFact.Unknown"/> no relaunch pelo cache da AMK (não há lista) e
+    /// contra um backend anterior a esta versão (o campo não vem). "Não sei" nunca autoriza gravar
+    /// dono do banco pessoal — é essa a janela da ordem de deploy.</para>
+    /// </summary>
+    private WorkspaceKindFact _activeWorkspaceKind = WorkspaceKindFact.Unknown;
     private SyncStartContext? _syncContext;
     private AccountConfig? _accountConfig;
     private IntegrityReport? _integrityReport;
@@ -192,8 +203,34 @@ public partial class App : Application
                 // ws-local sincronizando contra um workspace de servidor que NÃO é dono deles: os
                 // ~700 equipamentos do operador subiriam para o cofre de outra pessoa. "Não sei"
                 // nunca pode virar "escreve no banco pessoal".
+                //
+                // ⚠️ E A RECUSA PRECISA TER VOLTA. O boot entra pelo cache da AMK, que guarda UM
+                // workspace: o mesmo que acabou de ser recusado. Sem apagar esse cache, toda
+                // abertura seguinte mostra exatamente esta tela e encerra — e a escolha de cofre
+                // mora DENTRO do login, que não é pedido enquanto houver cache. Sair da conta é o
+                // mesmo caminho do botão "Trocar de cofre…", só que decidido aqui porque o operador
+                // ainda não tem tela nenhuma para clicar. Nada de cofre, banco ou equipamento é
+                // tocado: o que se apaga é o cache da AMK e os tokens, e a senha os traz de volta.
+                string recado = ex.Message;
+                if (ex.ReopenLoginToChooseVault && _coordinator is { } coordinator)
+                {
+                    try
+                    {
+                        await coordinator.LogoutAsync();
+                        recado += "\n\nNa próxima abertura o RemoteOps vai pedir a sua senha e deixar "
+                            + "você escolher em qual cofre entrar.";
+                    }
+                    catch (Exception logoutEx) when (logoutEx is not OperationCanceledException)
+                    {
+                        // Sem detalhe da exceção (ADR-013) e sem prometer o que não aconteceu: se o
+                        // cache não pôde ser apagado, o recado NÃO ganha a frase acima — dizer que a
+                        // próxima abertura vai perguntar, quando ela não vai, é a mentira que este
+                        // estágio inteiro existe para tirar do app.
+                    }
+                }
+
                 MessageBox.Show(
-                    ex.Message,
+                    recado,
                     "RemoteOps — Não foi possível identificar o cofre",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
@@ -790,6 +827,10 @@ public partial class App : Application
             // isso para nunca adotar um dono sem evidência.
             _accountWorkspaceCount = entry.WorkspaceCount;
 
+            // O fato autoritativo do workspace ESCOLHIDO. Sem ele, o boot classificava o workspace
+            // por AUSÊNCIA de chave no servidor (404) — e um 404 de infraestrutura é igualzinho.
+            _activeWorkspaceKind = entry.DeclaredKind;
+
             return activator.Vault;
         }
         catch (Exception ex) when (activator.Vault is not null)
@@ -870,9 +911,11 @@ public partial class App : Application
     /// <para><b>Sem conta ativa, é sempre o pessoal.</b> Não há workspace de servidor para
     /// classificar, e o app em modo local é exatamente o de hoje (ADR-002: nuvem é opt-in).</para>
     ///
-    /// <para>A sonda online é o <c>IsTeamWorkspaceAsync</c>, que consulta o DISCO primeiro e só vai à
-    /// rede quando não há chave local — e essa mesma ida <b>restaura</b> a chave. Sem contexto de
-    /// time (modo local), a sonda nunca é chamada, porque a regra 1 ou 2 já respondeu.</para>
+    /// <para>A sonda online é o <c>ProbeWorkspaceKindAsync</c>, que consulta o DISCO primeiro e só
+    /// vai à rede quando não há chave local — e essa mesma ida <b>restaura</b> a chave. Ela responde
+    /// TRI-ESTADO: presença de chave prova TIME, ausência (404) é "não sei", nunca "é pessoal". Sem
+    /// contexto de time (modo local), a sonda nunca é chamada, porque a regra 1 ou 2 já respondeu —
+    /// e com o <c>kind</c> do login dizendo TIME ela nem precisa existir (regra 0).</para>
     /// </summary>
     private async Task<SessionVaultScope> ResolveSessionScopeAsync(
         string dataDir, FileVaultStore fileStore, LocalSyncClientFactory syncFactory)
@@ -895,10 +938,10 @@ public partial class App : Application
         return await resolver.ResolveAsync(
             workspaceId,
             (ws, ct) => TryCreateTeamContext() is { } team
-                ? team.Service.IsTeamWorkspaceAsync(ws, ct)
+                ? team.Service.ProbeWorkspaceKindAsync(ws, ct)
                 // Sem transporte de time não há como perguntar. Recusar é o certo: o resolvedor só
-                // chega aqui quando o disco NÃO sabe responder, e inventar "false" traria de volta o
-                // cenário de abrir o banco pessoal contra o workspace de outra pessoa.
+                // chega aqui quando o disco NÃO sabe responder, e inventar "não é de time" traria de
+                // volta o cenário de abrir o banco pessoal contra o workspace de outra pessoa.
                 : throw new InvalidOperationException(
                     "Não há conexão configurada com o servidor para identificar este workspace."),
 
@@ -909,7 +952,13 @@ public partial class App : Application
 
             // A segunda rede, para o banco que ainda não tem o que dizer sobre si. Vem do login
             // (null no relaunch pelo cache) — e é do login que sai o chooser que oferece o time.
-            _accountWorkspaceCount);
+            _accountWorkspaceCount,
+
+            // ⚠️ O FATO AUTORITATIVO. `workspaces.kind` viaja na lista do login e é ele que diz se
+            // este workspace é um TIME — em vez de o app deduzir isso da ausência de uma chave no
+            // servidor. `Unknown` (backend velho, relaunch pelo cache) volta ao caminho de
+            // evidência/sonda, e lá "não sei" recusa em vez de adotar.
+            _activeWorkspaceKind);
     }
 
     /// <summary>
@@ -966,7 +1015,7 @@ public partial class App : Application
         //
         // Durante a RESOLUÇÃO do escopo esta fábrica também é chamada (a sonda online), e ali
         // `_sessionScope` ainda é o pessoal — o que está certo: naquele momento só se usa o
-        // IsTeamWorkspaceAsync, que não convida ninguém e não depende da marca.
+        // ProbeWorkspaceKindAsync, que não convida ninguém e não depende da marca.
         return new TeamContext(
             new TeamInviteService(api, teamKeyRing, _sessionScope.Kind, metadata),
             api,

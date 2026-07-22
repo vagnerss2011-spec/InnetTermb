@@ -46,7 +46,7 @@ public sealed class AccountContractsWireTests
 
     private sealed record ServerMfaDisableRequest(string Code);
 
-    private sealed record ServerWorkspaceSummary(string Id, string Name, string Role);
+    private sealed record ServerWorkspaceSummary(string Id, string Name, string Role, string? Kind = null);
 
     private sealed record ServerLoginResponse(
         string AccessToken,
@@ -78,6 +78,13 @@ public sealed class AccountContractsWireTests
         IReadOnlyList<ServerWorkspaceSummary>? Workspaces = null);
 
     private sealed record ServerKdfResponse(string Argon2Salt, ServerArgon2Params Argon2Params);
+
+    /// <summary>
+    /// ⚠️ <b>O cliente ANTERIOR a esta versão</b>, campo a campo: o <c>AccountWorkspace</c> sem
+    /// <c>Kind</c>. Existe para provar a outra metade da janela de deploy — backend novo × PC velho —
+    /// sem depender de "System.Text.Json ignora membro desconhecido" como folclore.
+    /// </summary>
+    private sealed record ClienteVelhoWorkspace(string Id, string Name, string Role);
 
     // Recuperação de senha (Fase 4) — espelho de Auth/AuthModels.cs deste branch.
     private sealed record ServerForgotPasswordRequest(string Email);
@@ -400,4 +407,93 @@ public sealed class AccountContractsWireTests
         Assert.Equal(65536, server.NewArgon2Params.MemoryKib);
         Assert.Equal(32, server.NewArgon2Params.OutputBytes);
     }
+
+    // ── workspaces[].kind — o FATO que substitui o palpite por ausência de chave ──────────
+    //
+    // O app classificava o workspace ativo por um 404 de GET /workspaces/{id}/key. Esse 404 quer
+    // dizer "a SUA CONTA não guarda embrulho neste workspace" — e é indistinguível de um 404 de
+    // infraestrutura. A coluna `workspaces.kind` já existia no servidor e simplesmente não viajava.
+
+    /// <summary>O <c>kind</c> do servidor chega ao cliente e vira FATO, não string solta.</summary>
+    [Theory]
+    [InlineData("team", WorkspaceKindFact.Team)]
+    [InlineData("personal", WorkspaceKindFact.Personal)]
+    public void WorkspaceKind_TravelsFromServer_AndBecomesFact(string kind, WorkspaceKindFact esperado)
+    {
+        var server = new ServerLoginResponse(
+            "access", "refresh", DateTimeOffset.Parse("2030-01-01T00:00:00+00:00"),
+            WrappedAmkPwd: Convert.ToBase64String([7]),
+            AmkKeyVersion: 1,
+            Workspaces: [new ServerWorkspaceSummary("ws-guid", "Equipe", "owner", kind)]);
+
+        E2eeLoginResponse? client = JsonSerializer.Deserialize<E2eeLoginResponse>(
+            JsonSerializer.Serialize(server, s_web), s_web);
+
+        AccountWorkspace ws = Assert.Single(client!.Workspaces!);
+        Assert.Equal(kind, ws.Kind);
+        Assert.Equal(esperado, WorkspaceKindFacts.From(ws.Kind));
+    }
+
+    /// <summary>
+    /// ⚠️ <b>Backend VELHO (campo ausente) = NÃO SEI.</b> Nunca "é pessoal" — é exatamente essa
+    /// tradução que autorizava gravar o dono do banco dos ~700 com o GUID do time.
+    /// </summary>
+    [Fact]
+    public void BackendVelho_SemOCampoKind_ViraNaoSei_ENaoPessoal()
+    {
+        var server = new ServerLoginResponse(
+            "access", "refresh", DateTimeOffset.Parse("2030-01-01T00:00:00+00:00"),
+            WrappedAmkPwd: Convert.ToBase64String([7]),
+            AmkKeyVersion: 1,
+            Workspaces: [new ServerWorkspaceSummary("ws-guid", "NOC", "owner")]);
+
+        string wire = JsonSerializer.Serialize(server, s_web);
+        E2eeLoginResponse? client = JsonSerializer.Deserialize<E2eeLoginResponse>(wire, s_web);
+
+        AccountWorkspace ws = Assert.Single(client!.Workspaces!);
+        Assert.Null(ws.Kind);
+        Assert.Equal(WorkspaceKindFact.Unknown, WorkspaceKindFacts.From(ws.Kind));
+    }
+
+    /// <summary>
+    /// A outra metade da janela de deploy: <b>cliente VELHO × backend NOVO</b>. O campo extra não
+    /// pode quebrar a desserialização de quem ainda não atualizou — e o resto do login continua
+    /// chegando inteiro.
+    /// </summary>
+    [Fact]
+    public void ClienteVelho_ComOCampoNovo_NaoQuebra()
+    {
+        var server = new ServerLoginResponse(
+            "access", "refresh", DateTimeOffset.Parse("2030-01-01T00:00:00+00:00"),
+            WrappedAmkPwd: Convert.ToBase64String([7]),
+            AmkKeyVersion: 1,
+            Workspaces: [new ServerWorkspaceSummary("ws-guid", "Equipe", "owner", "team")]);
+
+        string wire = JsonSerializer.Serialize(server, s_web);
+        var velho = JsonSerializer.Deserialize<IReadOnlyList<ClienteVelhoWorkspace>>(
+            JsonSerializer.Deserialize<JsonElement>(wire, s_web)
+                .GetProperty("workspaces").GetRawText(),
+            s_web);
+
+        ClienteVelhoWorkspace ws = Assert.Single(velho!);
+        Assert.Equal("ws-guid", ws.Id);
+        Assert.Equal("Equipe", ws.Name);
+        Assert.Equal("owner", ws.Role);
+    }
+
+    /// <summary>
+    /// ⚠️ <b>Lista de RECONHECIMENTO, não de negação.</b> Um valor que este binário não conhece
+    /// (versão futura do servidor), vazio ou lixo é "não sei" — não "pessoal". Escrito ao contrário
+    /// (<c>!= "team" ⇒ pessoal</c>), o primeiro valor novo do servidor autorizaria adotar o cofre
+    /// pessoal do operador para um workspace que ninguém classificou.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    [InlineData("Team")]
+    [InlineData("PERSONAL")]
+    [InlineData("shared")]
+    public void KindDesconhecido_ViraNaoSei(string? kind)
+        => Assert.Equal(WorkspaceKindFact.Unknown, WorkspaceKindFacts.From(kind));
 }

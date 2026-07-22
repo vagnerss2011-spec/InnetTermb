@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 
 using RemoteOps.Desktop.ViewModels;
+using RemoteOps.Sync.Remote;
 
 using Xunit;
 
@@ -103,7 +104,7 @@ public sealed class VaultBadgeViewModelTests
     {
         VaultBadgeViewModel badge = New();
 
-        await badge.RefreshAsync(_ => Task.FromResult(true));
+        await badge.RefreshAsync(_ => Task.FromResult(WorkspaceKindFact.Team));
 
         Assert.Equal(VaultScope.TeamPending, badge.Scope);
         Assert.True(badge.IsWarning);
@@ -114,9 +115,28 @@ public sealed class VaultBadgeViewModelTests
     {
         VaultBadgeViewModel badge = New();
 
-        await badge.RefreshAsync(_ => Task.FromResult(false));
+        await badge.RefreshAsync(_ => Task.FromResult(WorkspaceKindFact.Personal));
 
         Assert.Equal(VaultScope.Personal, badge.Scope);
+    }
+
+    /// <summary>
+    /// ⚠️ <b>"Não sei" tem estado PRÓPRIO na barra.</b> A sondagem responde por um 404 de
+    /// <c>GET /workspaces/{id}/key</c>, que significa "a SUA CONTA não guarda embrulho aqui" — e é
+    /// indistinguível de um 404 de infraestrutura (proxy sem a rota, backend velho). Escrever "cofre
+    /// pessoal" com essa dúvida é a MESMA mentira que o caminho de exceção abaixo já não conta, só
+    /// que sem nem uma exceção para justificá-la: o operador cadastraria o cliente sem ver o aviso.
+    /// </summary>
+    [Fact]
+    public async Task Sondagem_QueNaoSABE_NaoVira_CofrePessoal_EFica_NaoConfirmado()
+    {
+        VaultBadgeViewModel badge = New();
+
+        await badge.RefreshAsync(_ => Task.FromResult(WorkspaceKindFact.Unknown));
+
+        Assert.Equal(VaultScope.Unconfirmed, badge.Scope);
+        Assert.True(badge.IsUnconfirmed);
+        Assert.NotEqual(VaultScope.Personal, badge.Scope);
     }
 
     /// <summary>
@@ -151,7 +171,7 @@ public sealed class VaultBadgeViewModelTests
         VaultBadgeViewModel badge = New();
         badge.ApplyFromSession(RemoteOps.Desktop.Account.SessionVaultKind.Team);
 
-        await badge.RefreshAsync(_ => Task.FromResult(true));
+        await badge.RefreshAsync(_ => Task.FromResult(WorkspaceKindFact.Team));
 
         Assert.Equal(VaultScope.Team, badge.Scope);
         Assert.False(badge.IsWarning);
@@ -180,7 +200,7 @@ public sealed class VaultBadgeViewModelTests
     {
         VaultBadgeViewModel badge = New();
 
-        await badge.RefreshAsync(isTeamWorkspace: null);
+        await badge.RefreshAsync(probeWorkspaceKind: null);
 
         Assert.Equal(VaultScope.LocalOnly, badge.Scope);
     }
@@ -203,7 +223,7 @@ public sealed class VaultBadgeViewModelTests
                 ct =>
                 {
                     ct.ThrowIfCancellationRequested();
-                    return Task.FromResult(true);
+                    return Task.FromResult(WorkspaceKindFact.Team);
                 },
                 cts.Token));
 

@@ -82,7 +82,12 @@ public sealed class E2eeAccountAuthenticator : IAccountAuthenticator
             response.WorkspaceId,
             enrollment.Amk,
             new TokenSet(response.AccessToken, response.RefreshToken, response.ExpiresAt),
-            response.Workspaces ?? [new AccountWorkspace(response.WorkspaceId, workspaceName, OwnerRole)],
+            // O fallback é para um servidor que não devolveu a lista. `PersonalKind` aqui NÃO é
+            // palpite: é a definição de `/auth/register` — o workspace que ele acabou de criar nasce
+            // `personal` (AccountService), e não existe caminho em que o registro produza um time.
+            response.Workspaces
+                ?? [new AccountWorkspace(
+                    response.WorkspaceId, workspaceName, OwnerRole, WorkspaceKindFacts.PersonalKind)],
             enrollment.RecoveryKey);
     }
 

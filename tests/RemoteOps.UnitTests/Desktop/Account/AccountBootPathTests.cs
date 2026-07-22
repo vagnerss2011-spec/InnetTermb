@@ -119,6 +119,12 @@ public sealed class AccountBootPathTests
         private readonly AccountKeyService _keys = new();
         private AccountEnrollment? _enrollment;
 
+        /// <summary>
+        /// <c>false</c> = backend ANTERIOR a esta versão: a lista vem sem o campo <c>kind</c>. É a
+        /// metade "cliente novo × backend velho" da janela da ordem de deploy.
+        /// </summary>
+        internal bool DeclaraKind { get; init; } = true;
+
         public Task<KdfResponse> GetKdfAsync(string email, CancellationToken ct = default)
         {
             _enrollment ??= _keys.Enroll(Password.ToCharArray());
@@ -137,8 +143,12 @@ public sealed class AccountBootPathTests
                 _enrollment.WrappedAmkPwd,
                 1,
                 [
-                    new AccountWorkspace(Pessoal, "Meu cofre", "Owner"),
-                    new AccountWorkspace(Time, "Equipe de campo", "Owner"),
+                    new AccountWorkspace(
+                        Pessoal, "Meu cofre", "Owner",
+                        DeclaraKind ? WorkspaceKindFacts.PersonalKind : null),
+                    new AccountWorkspace(
+                        Time, "Equipe de campo", "Owner",
+                        DeclaraKind ? WorkspaceKindFacts.TeamKind : null),
                 ]));
         }
 
@@ -193,13 +203,17 @@ public sealed class AccountBootPathTests
         /// <c>DialogWorkspaceChooser</c> é o <c>App.ShowAccountWindow</c>, e ele só é chamado deste
         /// ponto — daí contar as chamadas AQUI ser a mesma medida que "a janela apareceu".
         /// </summary>
-        internal AccountBootPath NewBootPath() => new(Coordinator, async ct =>
-        {
-            LoginCalls++;
-            var auth = new E2eeAccountAuthenticator(
-                new TwoWorkspaceServer(), Device, "PC-DO-OPERADOR", Chooser);
-            return await auth.LoginAsync(Email, Password.ToCharArray(), ct: ct);
-        });
+        internal AccountBootPath NewBootPath(bool backendDeclaraKind = true) =>
+            new(Coordinator, async ct =>
+            {
+                LoginCalls++;
+                var auth = new E2eeAccountAuthenticator(
+                    new TwoWorkspaceServer { DeclaraKind = backendDeclaraKind },
+                    Device,
+                    "PC-DO-OPERADOR",
+                    Chooser);
+                return await auth.LoginAsync(Email, Password.ToCharArray(), ct: ct);
+            });
     }
 
     // ── A metade que estava quebrada ─────────────────────────────────────────────────────────
@@ -225,6 +239,10 @@ public sealed class AccountBootPathTests
         // Sem lista de cofres neste caminho: o cache guarda UM workspace. "Não perguntei" é o valor
         // mais fraco, e é o que a regra 5 do resolvedor de escopo espera receber daqui.
         Assert.Null(entry.WorkspaceCount);
+
+        // E o mesmo vale para a NATUREZA do workspace: o relaunch pelo cache não fala com o servidor,
+        // então não há `kind` nenhum. "Não sei" — e o resolvedor não grava dono com "não sei".
+        Assert.Equal(WorkspaceKindFact.Unknown, entry.DeclaredKind);
     }
 
     /// <summary>
@@ -244,6 +262,32 @@ public sealed class AccountBootPathTests
         Assert.Equal(Time, entry!.Activation.WorkspaceId);
         Assert.Equal(Time, Assert.Single(cenario.Activator.TokenScopes));
         Assert.Equal(2, entry.WorkspaceCount);
+
+        // ⚠️ E o FATO do workspace ESCOLHIDO viaja junto — não o do primeiro da lista. É ele que
+        // impede o resolvedor de escopo de classificar o cofre pela AUSÊNCIA de uma chave no
+        // servidor (um 404 que também é o que um proxy sem a rota devolve).
+        Assert.Equal(WorkspaceKindFact.Team, entry.DeclaredKind);
+    }
+
+    /// <summary>
+    /// ⚠️ <b>Backend ANTERIOR a esta versão: o campo <c>kind</c> não vem.</b> O boot não pode quebrar
+    /// e não pode inventar: campo ausente é <see cref="WorkspaceKindFact.Unknown"/>, e é o resolvedor
+    /// de escopo que trata "não sei" como motivo para perguntar/recusar — nunca para gravar dono.
+    ///
+    /// <para>Esta é a janela REAL da ordem de deploy: entre subir o backend e atualizar os PCs, e
+    /// entre atualizar os PCs e subir o backend.</para>
+    /// </summary>
+    [Fact]
+    public async Task BackendVELHO_SemOCampoKind_ViraNAO_SEI_ENaoQuebraOLogin()
+    {
+        var cenario = new Cenario();
+
+        AccountBootEntry? entry = await cenario.NewBootPath(backendDeclaraKind: false).EnterAsync();
+
+        Assert.NotNull(entry);
+        Assert.Equal(Time, entry!.Activation.WorkspaceId);
+        Assert.Equal(2, entry.WorkspaceCount);
+        Assert.Equal(WorkspaceKindFact.Unknown, entry.DeclaredKind);
     }
 
     /// <summary>

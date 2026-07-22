@@ -131,8 +131,11 @@ public sealed class TokenService(
         => await db.Memberships
             .AsNoTracking()
             .Where(m => m.UserId == userId && m.Workspace.Status == "active")
+            // O `Kind` vai junto: é o fato AUTORITATIVO que o cliente usa para escolher o cofre da
+            // sessão. Sem ele, o app deduzia a natureza do workspace de um 404 — e 404 também é o
+            // que um proxy sem a rota responde.
             .Select(m => new WorkspaceSummary(
-                m.WorkspaceId.ToString(), m.Workspace.Name, m.Role))
+                m.WorkspaceId.ToString(), m.Workspace.Name, m.Role, m.Workspace.Kind))
             .ToListAsync(ct);
 
     /// <summary>

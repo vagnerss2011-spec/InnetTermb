@@ -123,8 +123,9 @@ public sealed class SettingsViewModelTeamTests
     }
 
     /// <summary>
-    /// <b>O teste que fecha a janela.</b> Antes do primeiro convite o workspace é pessoal; depois do
-    /// convite ele é de time — e o indicador acompanha, sem reiniciar o app.
+    /// <b>O teste que fecha a janela.</b> Antes do primeiro convite esta sondagem não consegue
+    /// afirmar nada; depois do convite o workspace é de time — e o indicador acompanha, sem
+    /// reiniciar o app.
     /// </summary>
     [Fact]
     public async Task DepoisDoPrimeiroConvite_OIndicadorPassaAAvisar_SemReiniciar()
@@ -132,8 +133,13 @@ public sealed class SettingsViewModelTeamTests
         var (vm, service, ring, _) = New();
         using (ring)
         {
+            // ⚠️ Este assert dizia `Personal`, e era a mesma ausência virando afirmação que gravava
+            // o dono do banco dos ~700 com o GUID do time. Sem chave local, a sondagem só tem o 404
+            // do servidor — que significa "esta conta não guarda embrulho aqui", e não "é cofre
+            // pessoal". A barra diz NÃO CONFIRMADO, que é a verdade; quem AFIRMA "é pessoal" é o
+            // `kind` que vem no login, e a reavaliação de Configurações não o tem em mãos.
             await vm.RefreshVaultScopeAsync();
-            Assert.Equal(VaultScope.Personal, vm.VaultBadge.Scope);
+            Assert.Equal(VaultScope.Unconfirmed, vm.VaultBadge.Scope);
             Assert.False(vm.VaultBadge.IsWarning);
 
             // Convidar é o ato que faz a chave do time nascer neste PC.

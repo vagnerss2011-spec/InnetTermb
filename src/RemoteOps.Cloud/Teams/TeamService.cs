@@ -286,8 +286,11 @@ public sealed class TeamService(
     /// no disco de quem aceitou o convite. Sem isto o colega loga no PC de casa, sincroniza e não
     /// abre nada — falha muda, exatamente o que não pode acontecer.
     ///
-    /// <para><c>null</c> = a membership não tem WK (cofre pessoal, que deriva a chave da AMK em vez
-    /// de guardá-la).</para>
+    /// <para>⚠️ <c>null</c> (→ 404) diz UMA coisa só: <b>esta membership não tem WK guardada</b>.
+    /// Não diz que o workspace é pessoal, e o doc que dizia isso alimentou um bloqueante no cliente
+    /// — o mesmo 404 sai de um TIME cujo dono nunca publicou o embrulho dele. Quem afirma a natureza
+    /// do workspace é <c>workspaces.kind</c>, que viaja na lista do login
+    /// (<c>TokenService.LoadWorkspacesAsync</c>).</para>
     /// </summary>
     public async Task<WorkspaceKeyResponse?> GetWorkspaceKeyAsync(
         Guid workspaceId, PermissionContext permCtx, CancellationToken ct)
