@@ -68,6 +68,21 @@ public sealed class InviteService(
             throw new RbacDeniedException(check.Reason);
         }
 
+        // ⚠️ DEPOIS do RBAC, sempre. Este é o convite para o cofre PESSOAL — o vazamento que a Fatia
+        // 1 existe para fechar: o /sync é escopado por workspace + membership, então quem aceitar
+        // baixa o acervo INTEIRO do dono (nomes de cliente, endereços, grupos, fabricantes) na
+        // máquina dele. Não é vazamento de senha, é de cadastro, e nenhum indicador de cofre fala
+        // sobre isso. A interface já não oferece esse caminho; esta linha é o que sobra em pé quando
+        // o cliente está com bug ou foi adulterado.
+        await TeamWorkspaceGuard.RequireTeamAsync(
+            db,
+            workspaceId,
+            "invite.create",
+            "Convidar alguém para cá daria a essa pessoa acesso a TODOS os equipamentos já "
+            + "cadastrados neste cofre.",
+            logger,
+            ct);
+
         var inviteeEmail = EmailNormalizer.Normalize(req.Email ?? string.Empty);
         if (string.IsNullOrEmpty(inviteeEmail) || !inviteeEmail.Contains('@'))
             throw new ArgumentException("E-mail do convidado inválido.");
@@ -319,6 +334,13 @@ public sealed class InviteService(
         // workspace inativo; sem esta linha o convite seria a única porta que continuaria aberta.
         if (invite.Workspace.Status != "active")
             return Refuse(inviteId, callerUserId, "workspace.inactive");
+
+        // Convite que aponta para um cofre PESSOAL não vale, mesmo que a linha exista no banco: é o
+        // que sobra de um convite gerado antes desta guarda. A criação já recusa (alto, com motivo),
+        // e aqui a recusa é a GENÉRICA de sempre — quem aceita é o convidado, e diferenciar a
+        // resposta para ele transformaria o endpoint num oráculo sobre o workspace de outra pessoa.
+        if (!WorkspaceKinds.IsTeam(invite.Workspace.Kind))
+            return Refuse(inviteId, callerUserId, "workspace.personal");
 
         if (invite.AcceptedAt is not null)
             return Refuse(inviteId, callerUserId, "invite.used");

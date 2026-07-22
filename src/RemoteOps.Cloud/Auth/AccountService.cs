@@ -68,6 +68,10 @@ public sealed class AccountService(
             TenantId = tenant.Id,
             Name = req.WorkspaceName,
             Status = "active",
+            // O workspace que nasce com a conta é o cofre PESSOAL — explícito, e não herdado do
+            // default da coluna: quem lê este bloco precisa ver de onde vem a marca que faz o
+            // servidor recusar convite aqui. Time é outro caminho (POST /workspaces).
+            Kind = WorkspaceKinds.Personal,
             CreatedAt = now,
         };
         var user = new UserEntity

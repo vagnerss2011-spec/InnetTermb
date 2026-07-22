@@ -35,11 +35,17 @@ public sealed class TeamInviteTests
     /// <summary>
     /// Time montado: dono (Owner, com membership e WK) + a conta do convidado, ainda de fora.
     /// Devolve também o contexto de permissão do dono, que é o que os endpoints passam ao serviço.
+    ///
+    /// <para>O <c>Kind = Team</c> é obrigatório e não é detalhe de arrumação: desde a marca de
+    /// nascimento, o servidor recusa convite e publicação de chave em workspace PESSOAL. Um seed sem
+    /// esta linha estaria encenando o cofre pessoal do operador — que é justamente o que a guarda
+    /// existe para barrar.</para>
     /// </summary>
     private static async Task<(WorkspaceEntity Ws, UserEntity Owner, UserEntity Invitee, PermissionContext OwnerCtx)>
         SeedTeamAsync(CloudTestContext ctx, string ownerRole = Roles.Owner)
     {
         var (_, ws, owner, membership) = await ctx.SeedActiveUserAsync(ownerRole);
+        ws.Kind = WorkspaceKinds.Team;
         membership.WrappedWk = Rand(60);
         membership.WkVersion = 1;
         await ctx.Db.SaveChangesAsync();

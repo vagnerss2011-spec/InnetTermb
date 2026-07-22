@@ -36,6 +36,18 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ### Segurança
 
+- **O SERVIDOR passou a recusar sozinho compartilhar o seu cofre pessoal.** Cada workspace agora
+  guarda como nasceu — cofre **pessoal** (o que vem junto com a conta) ou **time** (criado de
+  propósito, vazio). Convidar alguém, ou registrar uma chave de time, só é aceito num workspace de
+  **time**: no cofre pessoal o servidor recusa e **diz por quê**, em português, na tela. Antes, a
+  única coisa que impedia um convite para o cofre pessoal era o aplicativo pedir a coisa certa — e
+  quem aceitasse esse convite baixaria **os ~700 clientes do operador inteiros** (nomes, endereços,
+  grupos, fabricantes) no computador dele, sem senha nenhuma vazar e sem um único aviso na tela.
+  Agora a proteção mora onde nenhum aplicativo alcança.
+  - **Nada do que já existe muda de lugar.** Todo workspace criado antes desta versão é tratado como
+    **pessoal** — que é o lado seguro e também o correto (até aqui, o único jeito de criar workspace
+    era cadastrar a conta). Os equipamentos, senhas e grupos do cofre pessoal continuam exatamente
+    onde estavam: a recusa é na porta, não no conteúdo.
 - **O convite de time agora é amarrado ao próprio time — o servidor não consegue redirecioná-lo.**
   O pacote cifrado que carrega a chave do time dentro do convite passou a ser preso, na criptografia,
   ao workspace para o qual o convite foi criado. Antes, um servidor comprometido poderia responder ao

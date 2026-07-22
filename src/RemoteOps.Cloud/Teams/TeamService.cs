@@ -141,6 +141,10 @@ public sealed class TeamService(
             TenantId = tenantId,
             Name = req.Name.Trim(),
             Status = "active",
+            // A ÚNICA porta que produz um workspace de time. Tudo o mais — inclusive cada linha que
+            // já existia antes desta coluna — fica pessoal, e é isso que faz o convite e o PUT /key
+            // serem recusados fora daqui.
+            Kind = WorkspaceKinds.Team,
             CreatedAt = now,
         });
         db.Memberships.Add(new MembershipEntity
@@ -328,6 +332,20 @@ public sealed class TeamService(
     {
         ArgumentNullException.ThrowIfNull(req);
         await RequireAsync(permCtx, Permissions.SyncPull, workspaceId, "workspace key publish", ct);
+
+        // ⚠️ DEPOIS do RBAC, sempre (ver TeamWorkspaceGuard). Chave de time num cofre PESSOAL não é
+        // só inútil: o blob guardado aqui é o que o aplicativo lê para decidir "este workspace é de
+        // time", então plantá-lo faria o app passar a tratar o cofre pessoal do operador — com os
+        // ~700 clientes dele — como cofre compartilhado. Nenhum fluxo legítimo chega aqui: quem só
+        // tem cofre pessoal não tem chave de time em disco e o cliente sequer sai para a rede.
+        await TeamWorkspaceGuard.RequireTeamAsync(
+            db,
+            workspaceId,
+            "workspace.key-publish",
+            "Guardar uma chave de time nele faria este computador passar a tratar o seu cofre "
+            + "pessoal como cofre compartilhado.",
+            logger,
+            ct);
 
         var wrapped = WrappedKeyBlob.Decode(req.WrappedWk, nameof(req.WrappedWk));
 

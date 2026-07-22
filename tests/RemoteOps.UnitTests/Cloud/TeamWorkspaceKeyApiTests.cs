@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
+using Microsoft.EntityFrameworkCore;
 using RemoteOps.Cloud.Rbac;
 using RemoteOps.Security.Account;
 using RemoteOps.Sync.Remote;
@@ -32,6 +33,12 @@ namespace RemoteOps.UnitTests.Cloud;
 /// por <b>presença e igualdade de bytes</b>, nunca por comparação de chave: quem compara chave é o
 /// cliente, que tem a AMK. Qualquer verificação mais esperta aqui exigiria o servidor conhecer a
 /// chave, que é exatamente o que o E2EE proíbe.</para>
+///
+/// <para><b>Todo teste daqui usa um workspace de TIME</b>, e não o cofre pessoal do dono. Não é
+/// arrumação: desde a marca de nascimento, publicar chave de time num workspace pessoal é recusado
+/// com 422 — o blob guardado ali é o que faz o aplicativo tratar aquele cofre como compartilhado, e
+/// plantá-lo no cofre pessoal do operador colocaria os ~700 clientes dele sob o regime do time. Essa
+/// recusa tem casa própria (<c>PersonalWorkspaceGuardTests</c>).</para>
 /// </summary>
 public sealed class TeamWorkspaceKeyApiTests
 {
@@ -44,6 +51,11 @@ public sealed class TeamWorkspaceKeyApiTests
     /// <b>O achado, em uma frase:</b> o dono publica o próprio embrulho <b>sem convidar ninguém</b> e
     /// o <c>GET</c> passa a devolvê-lo. É isto que faz o SEGUNDO computador dele restaurar em vez de
     /// sortear outra chave.
+    ///
+    /// <para>O ponto de partida — time SEM embrulho guardado — é o que sobrou dos times criados por
+    /// versões anteriores do cliente; hoje o <c>POST /workspaces</c> grava workspace e embrulho na
+    /// MESMA transação, então ele não é mais alcançável por endpoint nenhum e precisa ser encenado.
+    /// Encená-lo é justamente o ponto: é a máquina que este endpoint existe para consertar.</para>
     /// </summary>
     [Fact]
     public async Task Dono_PublicaOProprioEmbrulho_SemConviteNenhum()
@@ -53,21 +65,22 @@ public sealed class TeamWorkspaceKeyApiTests
         Account dono = await RegisterAsync(http, "dono@test.local");
         Auth(http, dono.Token, dono.DeviceId);
 
-        // Antes: o dono do time recém-criado não tem embrulho no servidor — é a exposição.
-        Assert.Equal(
-            HttpStatusCode.NotFound,
-            (await http.GetAsync($"/workspaces/{dono.WorkspaceId}/key")).StatusCode);
+        string time = await CreateTeamAsync(http, "Clientes do ISP");
+        await ClearStoredWrapAsync(factory, time);
+
+        // Antes: o dono do time não tem embrulho no servidor — é a exposição.
+        Assert.Equal(HttpStatusCode.NotFound, (await http.GetAsync($"/workspaces/{time}/key")).StatusCode);
 
         string wrapped = Convert.ToBase64String(Rand(60));
         var put = await http.PutAsJsonAsync(
-            $"/workspaces/{dono.WorkspaceId}/key", new { wrappedWk = wrapped, wkVersion = 1 });
+            $"/workspaces/{time}/key", new { wrappedWk = wrapped, wkVersion = 1 });
 
         Assert.Equal(HttpStatusCode.OK, put.StatusCode);
         var body = await put.Content.ReadFromJsonAsync<JsonElement>();
         Assert.True(body.GetProperty("stored").GetBoolean());
         Assert.Equal(1, body.GetProperty("wkVersion").GetInt32());
 
-        var get = await http.GetAsync($"/workspaces/{dono.WorkspaceId}/key");
+        var get = await http.GetAsync($"/workspaces/{time}/key");
         Assert.Equal(HttpStatusCode.OK, get.StatusCode);
         var keyBody = await get.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(wrapped, keyBody.GetProperty("wrappedWk").GetString());
@@ -85,18 +98,21 @@ public sealed class TeamWorkspaceKeyApiTests
         Account dono = await RegisterAsync(http, "dono@test.local");
         Auth(http, dono.Token, dono.DeviceId);
 
+        string time = await CreateTeamAsync(http, "Clientes do ISP");
+        await ClearStoredWrapAsync(factory, time);
+
         string wrapped = Convert.ToBase64String(Rand(60));
         var primeiro = await http.PutAsJsonAsync(
-            $"/workspaces/{dono.WorkspaceId}/key", new { wrappedWk = wrapped, wkVersion = 1 });
+            $"/workspaces/{time}/key", new { wrappedWk = wrapped, wkVersion = 1 });
         Assert.Equal(HttpStatusCode.OK, primeiro.StatusCode);
         Assert.True((await primeiro.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("stored").GetBoolean());
 
         var segundo = await http.PutAsJsonAsync(
-            $"/workspaces/{dono.WorkspaceId}/key", new { wrappedWk = wrapped, wkVersion = 1 });
+            $"/workspaces/{time}/key", new { wrappedWk = wrapped, wkVersion = 1 });
         Assert.Equal(HttpStatusCode.OK, segundo.StatusCode);
         Assert.False((await segundo.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("stored").GetBoolean());
 
-        var get = await http.GetAsync($"/workspaces/{dono.WorkspaceId}/key");
+        var get = await http.GetAsync($"/workspaces/{time}/key");
         var keyBody = await get.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(wrapped, keyBody.GetProperty("wrappedWk").GetString());
     }
@@ -116,18 +132,17 @@ public sealed class TeamWorkspaceKeyApiTests
         Account dono = await RegisterAsync(http, "dono@test.local");
         Auth(http, dono.Token, dono.DeviceId);
 
+        // O embrulho original entra JUNTO com o time — é assim que ele nasce hoje.
         string original = Convert.ToBase64String(Rand(60));
-        (await http.PutAsJsonAsync(
-            $"/workspaces/{dono.WorkspaceId}/key", new { wrappedWk = original, wkVersion = 1 }))
-            .EnsureSuccessStatusCode();
+        string time = await CreateTeamAsync(http, "Clientes do ISP", original);
 
         var divergente = await http.PutAsJsonAsync(
-            $"/workspaces/{dono.WorkspaceId}/key",
+            $"/workspaces/{time}/key",
             new { wrappedWk = Convert.ToBase64String(Rand(60)), wkVersion = 1 });
 
         Assert.Equal(HttpStatusCode.Conflict, divergente.StatusCode);
 
-        var get = await http.GetAsync($"/workspaces/{dono.WorkspaceId}/key");
+        var get = await http.GetAsync($"/workspaces/{time}/key");
         var keyBody = await get.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(original, keyBody.GetProperty("wrappedWk").GetString());
     }
@@ -150,13 +165,11 @@ public sealed class TeamWorkspaceKeyApiTests
         Auth(inviteeHttp, colega.Token, colega.DeviceId);
 
         string doDono = Convert.ToBase64String(Rand(60));
-        (await ownerHttp.PutAsJsonAsync(
-            $"/workspaces/{dono.WorkspaceId}/key", new { wrappedWk = doDono, wkVersion = 1 }))
-            .EnsureSuccessStatusCode();
+        string time = await CreateTeamAsync(ownerHttp, "Clientes do ISP", doDono);
 
         // O colega entra no time pelo convite (é o único jeito de virar membro).
         string code = RecoveryKeyCodec.Generate();
-        var create = await ownerHttp.PostAsJsonAsync($"/workspaces/{dono.WorkspaceId}/invites", new
+        var create = await ownerHttp.PostAsJsonAsync($"/workspaces/{time}/invites", new
         {
             email = "colega@test.local",
             role = Roles.Operator,
@@ -179,17 +192,17 @@ public sealed class TeamWorkspaceKeyApiTests
 
         // Republicar o próprio blob é no-op para ele...
         var doColegaDeNovo = await inviteeHttp.PutAsJsonAsync(
-            $"/workspaces/{dono.WorkspaceId}/key", new { wrappedWk = doColega, wkVersion = 1 });
+            $"/workspaces/{time}/key", new { wrappedWk = doColega, wkVersion = 1 });
         Assert.Equal(HttpStatusCode.OK, doColegaDeNovo.StatusCode);
         Assert.False((await doColegaDeNovo.Content.ReadFromJsonAsync<JsonElement>())
             .GetProperty("stored").GetBoolean());
 
         // ...e não encostou no embrulho do DONO, que continua o dele.
-        var getDono = await ownerHttp.GetAsync($"/workspaces/{dono.WorkspaceId}/key");
+        var getDono = await ownerHttp.GetAsync($"/workspaces/{time}/key");
         Assert.Equal(doDono, (await getDono.Content.ReadFromJsonAsync<JsonElement>())
             .GetProperty("wrappedWk").GetString());
 
-        var getColega = await inviteeHttp.GetAsync($"/workspaces/{dono.WorkspaceId}/key");
+        var getColega = await inviteeHttp.GetAsync($"/workspaces/{time}/key");
         Assert.Equal(doColega, (await getColega.Content.ReadFromJsonAsync<JsonElement>())
             .GetProperty("wrappedWk").GetString());
     }
@@ -197,6 +210,10 @@ public sealed class TeamWorkspaceKeyApiTests
     /// <summary>
     /// Quem não é do time não publica nada — 403, como o GET e como todo o resto do workspace. Um
     /// estranho conseguindo gravar aqui plantaria a chave dele na membership alheia.
+    ///
+    /// <para><b>403, e não 422:</b> o RBAC roda ANTES da marca de nascimento, de propósito. Na ordem
+    /// inversa, a recusa por "cofre pessoal" viraria um oráculo — qualquer conta autenticada
+    /// descobriria, um GUID por vez, se um workspace alheio existe e de que tipo ele é.</para>
     /// </summary>
     [Fact]
     public async Task NaoMembro_NaoPublica()
@@ -207,19 +224,22 @@ public sealed class TeamWorkspaceKeyApiTests
 
         Account dono = await RegisterAsync(donoHttp, "dono@test.local");
         Account estranho = await RegisterAsync(estranhoHttp, "estranho@test.local");
+        Auth(donoHttp, dono.Token, dono.DeviceId);
         Auth(estranhoHttp, estranho.Token, estranho.DeviceId);
 
+        string doDono = Convert.ToBase64String(Rand(60));
+        string time = await CreateTeamAsync(donoHttp, "Clientes do ISP", doDono);
+
         var put = await estranhoHttp.PutAsJsonAsync(
-            $"/workspaces/{dono.WorkspaceId}/key",
+            $"/workspaces/{time}/key",
             new { wrappedWk = Convert.ToBase64String(Rand(60)), wkVersion = 1 });
 
         Assert.Equal(HttpStatusCode.Forbidden, put.StatusCode);
 
-        // E nada foi plantado: o dono continua sem embrulho (ele ainda não publicou o dele).
-        Auth(donoHttp, dono.Token, dono.DeviceId);
-        Assert.Equal(
-            HttpStatusCode.NotFound,
-            (await donoHttp.GetAsync($"/workspaces/{dono.WorkspaceId}/key")).StatusCode);
+        // E nada foi plantado: o embrulho do dono continua o dele, byte a byte.
+        var get = await donoHttp.GetAsync($"/workspaces/{time}/key");
+        Assert.Equal(doDono, (await get.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("wrappedWk").GetString());
     }
 
     /// <summary>
@@ -235,9 +255,10 @@ public sealed class TeamWorkspaceKeyApiTests
         using var http = factory.CreateClient();
         Account dono = await RegisterAsync(http, "dono@test.local");
         Auth(http, dono.Token, dono.DeviceId);
+        string time = await CreateTeamAsync(http, "Clientes do ISP");
 
         var put = await http.PutAsJsonAsync(
-            $"/workspaces/{dono.WorkspaceId}/key", new { wrappedWk = wrapped, wkVersion = 1 });
+            $"/workspaces/{time}/key", new { wrappedWk = wrapped, wkVersion = 1 });
 
         Assert.Equal(HttpStatusCode.BadRequest, put.StatusCode);
     }
@@ -253,9 +274,10 @@ public sealed class TeamWorkspaceKeyApiTests
         using var http = factory.CreateClient();
         Account dono = await RegisterAsync(http, "dono@test.local");
         Auth(http, dono.Token, dono.DeviceId);
+        string time = await CreateTeamAsync(http, "Clientes do ISP");
 
         var put = await http.PutAsJsonAsync(
-            $"/workspaces/{dono.WorkspaceId}/key",
+            $"/workspaces/{time}/key",
             new { wrappedWk = Convert.ToBase64String(Rand(60)), wkVersion = 0 });
 
         Assert.Equal(HttpStatusCode.BadRequest, put.StatusCode);
@@ -274,28 +296,29 @@ public sealed class TeamWorkspaceKeyApiTests
         using var factory = new CloudApiFactory();
         using var http = factory.CreateClient();
         Account dono = await RegisterAsync(http, "dono@test.local");
+        Auth(http, dono.Token, dono.DeviceId);
+
+        string time = await CreateTeamAsync(http, "Clientes do ISP");
+        await ClearStoredWrapAsync(factory, time);
 
         TeamApiClient api = ClientFor(http, dono);
         string wrapped = Convert.ToBase64String(Rand(60));
 
         Assert.Equal(
             TeamKeyPublication.Stored,
-            await api.PublishWorkspaceKeyAsync(
-                dono.WorkspaceId, new PublishTeamWorkspaceKeyRequest(wrapped, 1)));
+            await api.PublishWorkspaceKeyAsync(time, new PublishTeamWorkspaceKeyRequest(wrapped, 1)));
 
         Assert.Equal(
             TeamKeyPublication.AlreadyPublished,
-            await api.PublishWorkspaceKeyAsync(
-                dono.WorkspaceId, new PublishTeamWorkspaceKeyRequest(wrapped, 1)));
+            await api.PublishWorkspaceKeyAsync(time, new PublishTeamWorkspaceKeyRequest(wrapped, 1)));
 
         Assert.Equal(
             TeamKeyPublication.Divergent,
             await api.PublishWorkspaceKeyAsync(
-                dono.WorkspaceId,
-                new PublishTeamWorkspaceKeyRequest(Convert.ToBase64String(Rand(60)), 1)));
+                time, new PublishTeamWorkspaceKeyRequest(Convert.ToBase64String(Rand(60)), 1)));
 
         // E o cliente lê de volta EXATAMENTE o que publicou primeiro.
-        TeamWorkspaceKeyResponse? guardada = await api.GetWorkspaceKeyAsync(dono.WorkspaceId);
+        TeamWorkspaceKeyResponse? guardada = await api.GetWorkspaceKeyAsync(time);
         Assert.Equal(wrapped, guardada!.WrappedWk);
     }
 
@@ -312,13 +335,14 @@ public sealed class TeamWorkspaceKeyApiTests
 
         Account dono = await RegisterAsync(donoHttp, "dono@test.local");
         Account estranho = await RegisterAsync(estranhoHttp, "estranho@test.local");
+        Auth(donoHttp, dono.Token, dono.DeviceId);
 
+        string time = await CreateTeamAsync(donoHttp, "Clientes do ISP");
         TeamApiClient api = ClientFor(estranhoHttp, estranho);
 
         var ex = await Assert.ThrowsAsync<CloudSyncException>(
             () => api.PublishWorkspaceKeyAsync(
-                dono.WorkspaceId,
-                new PublishTeamWorkspaceKeyRequest(Convert.ToBase64String(Rand(60)), 1)));
+                time, new PublishTeamWorkspaceKeyRequest(Convert.ToBase64String(Rand(60)), 1)));
         Assert.Equal(HttpStatusCode.Forbidden, ex.StatusCode);
     }
 
@@ -327,6 +351,41 @@ public sealed class TeamWorkspaceKeyApiTests
             new FakeTokenStore(new TokenSet(account.Token, account.RefreshToken, DateTimeOffset.UtcNow.AddHours(1))));
 
     // ── Helpers (espelhos dos de TeamApiTests) ────────────────────────────────
+
+    /// <summary>Cria um workspace de TIME pelo endpoint real e devolve o id sorteado no cliente.</summary>
+    private static async Task<string> CreateTeamAsync(HttpClient client, string name, string? wrappedWk = null)
+    {
+        var id = Guid.NewGuid().ToString();
+        var resp = await client.PostAsJsonAsync("/workspaces", new
+        {
+            id,
+            name,
+            wrappedWk = wrappedWk ?? Convert.ToBase64String(Rand(60)),
+            wkVersion = 1,
+        });
+        resp.EnsureSuccessStatusCode();
+        return id;
+    }
+
+    /// <summary>
+    /// Apaga o embrulho guardado das memberships do workspace, encenando o time criado por uma
+    /// versão do cliente ANTERIOR ao <c>POST /workspaces</c> — quando workspace e embrulho não
+    /// nasciam juntos. É o estado que o <c>PUT /key</c> existe para consertar e que, justamente por
+    /// isso, nenhum endpoint de hoje consegue produzir.
+    /// </summary>
+    private static Task ClearStoredWrapAsync(CloudApiFactory factory, string workspaceId) =>
+        factory.WithDbAsync(async db =>
+        {
+            var id = Guid.Parse(workspaceId);
+            var memberships = await db.Memberships.Where(m => m.WorkspaceId == id).ToListAsync();
+            foreach (var m in memberships)
+            {
+                m.WrappedWk = null;
+                m.WkVersion = 0;
+            }
+
+            await db.SaveChangesAsync();
+        });
 
     private static void Auth(HttpClient client, string token, string deviceId)
     {
@@ -351,7 +410,7 @@ public sealed class TeamWorkspaceKeyApiTests
             amkKeyVersion = 1,
             deviceId,
             deviceName = "Device",
-            workspaceName = "Time do ISP",
+            workspaceName = "Cofre pessoal",
         });
         resp.EnsureSuccessStatusCode();
 

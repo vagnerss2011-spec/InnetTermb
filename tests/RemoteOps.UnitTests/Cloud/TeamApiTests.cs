@@ -31,8 +31,11 @@ public sealed class TeamApiTests
         using var invitee = factory.CreateClient();
 
         var dono = await RegisterAsync(owner, "dono@test.local");
-        var workspaceId = dono.WorkspaceId;
         Auth(owner, dono.Token, dono.DeviceId);
+
+        // O convite é para o TIME, nunca para o workspace pessoal do dono — o servidor recusa esse
+        // segundo caso desde a marca de nascimento, porque quem aceitasse baixaria o acervo inteiro.
+        var workspaceId = await CreateTeamAsync(owner, "Clientes do ISP");
 
         // O convidado precisa de conta antes de aceitar (é o fluxo do estágio 1d).
         var colega = await RegisterAsync(invitee, "colega@test.local");
@@ -100,8 +103,8 @@ public sealed class TeamApiTests
         using var invitee = factory.CreateClient();
 
         var dono = await RegisterAsync(owner, "dono@test.local");
-        var workspaceId = dono.WorkspaceId;
         Auth(owner, dono.Token, dono.DeviceId);
+        var workspaceId = await CreateTeamAsync(owner, "Clientes do ISP");
         var colega = await RegisterAsync(invitee, "colega@test.local");
         Auth(invitee, colega.Token, colega.DeviceId);
 
@@ -166,6 +169,24 @@ public sealed class TeamApiTests
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Cria um workspace de TIME pelo endpoint real. O id sai do cliente (o AAD do embrulho da WK é
+    /// <c>wk|time:{id}</c>), e o embrulho do dono entra na mesma gravação.
+    /// </summary>
+    private static async Task<string> CreateTeamAsync(HttpClient client, string name)
+    {
+        var id = Guid.NewGuid().ToString();
+        var resp = await client.PostAsJsonAsync("/workspaces", new
+        {
+            id,
+            name,
+            wrappedWk = Convert.ToBase64String(Rand(60)),
+            wkVersion = 1,
+        });
+        resp.EnsureSuccessStatusCode();
+        return id;
+    }
+
     private static void Auth(HttpClient client, string token, string deviceId)
     {
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -197,7 +218,7 @@ public sealed class TeamApiTests
             amkKeyVersion = 1,
             deviceId,
             deviceName = "Device",
-            workspaceName = "Time do ISP",
+            workspaceName = "Cofre pessoal",
         });
         resp.EnsureSuccessStatusCode();
 

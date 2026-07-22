@@ -36,7 +36,12 @@ public sealed class TeamMembersApiTests
         new(http, Guid.Parse(account.DeviceId),
             new FakeTokenStore(new TokenSet(account.Token, account.RefreshToken, DateTimeOffset.UtcNow.AddHours(1))));
 
-    /// <summary>Time recém-criado: o dono se enxerga na lista, com papel e e-mail.</summary>
+    /// <summary>
+    /// A lista de membros vale em QUALQUER workspace, inclusive no cofre pessoal — a tela de Equipe
+    /// abre com o cofre pessoal ativo e precisa mostrar algo verdadeiro em vez de erro. Aqui é o
+    /// pessoal de propósito: ele nunca tem chave de time, e o <c>hasWk: false</c> é o bit que impede
+    /// a tela de prometer cofre compartilhado a quem não tem chave nenhuma.
+    /// </summary>
     [Fact]
     public async Task ListarMembros_SobreHttp_TrazODono()
     {
@@ -51,8 +56,8 @@ public sealed class TeamMembersApiTests
         Assert.Equal("dono@test.local", only.Email);
         Assert.Equal(Roles.Owner, only.Role);
 
-        // Dono de time recém-criado ainda não tem WK: ele só ganha uma ao convidar alguém. A tela
-        // precisa desse bit para não prometer cofre compartilhado a quem ainda não tem chave.
+        // Cofre pessoal não tem chave de time — e o servidor agora recusa qualquer tentativa de
+        // plantar uma aqui (PUT /key devolve 422). A tela precisa desse bit.
         Assert.False(only.HasWk);
     }
 
@@ -72,8 +77,12 @@ public sealed class TeamMembersApiTests
         Auth(ownerHttp, dono.Token, dono.DeviceId);
         Auth(inviteeHttp, colega.Token, colega.DeviceId);
 
+        // Convite só existe para TIME: o servidor recusa convite no cofre pessoal do dono — e é bom
+        // que recuse, porque quem aceitasse baixaria o acervo inteiro dele.
+        string time = await CreateTeamAsync(ownerHttp, "Clientes do ISP");
+
         string code = RecoveryKeyCodec.Generate();
-        var create = await ownerHttp.PostAsJsonAsync($"/workspaces/{dono.WorkspaceId}/invites", new
+        var create = await ownerHttp.PostAsJsonAsync($"/workspaces/{time}/invites", new
         {
             email = "colega@test.local",
             role = Roles.Operator,
@@ -93,15 +102,15 @@ public sealed class TeamMembersApiTests
         accept.EnsureSuccessStatusCode();
 
         TeamApiClient api = ClientFor(ownerHttp, dono);
-        TeamMembersResponse antes = await api.GetMembersAsync(dono.WorkspaceId);
+        TeamMembersResponse antes = await api.GetMembersAsync(time);
         TeamMemberDto entrante = Assert.Single(antes.Members, m => m.Email == "colega@test.local");
         Assert.True(entrante.HasWk);
 
         Assert.Equal(
             TeamMemberRemoval.Removed,
-            await api.RemoveMemberAsync(dono.WorkspaceId, entrante.UserId));
+            await api.RemoveMemberAsync(time, entrante.UserId));
 
-        TeamMembersResponse depois = await api.GetMembersAsync(dono.WorkspaceId);
+        TeamMembersResponse depois = await api.GetMembersAsync(time);
         Assert.DoesNotContain(depois.Members, m => m.Email == "colega@test.local");
     }
 
@@ -171,6 +180,21 @@ public sealed class TeamMembersApiTests
 
     // ── Helpers (espelhos dos de TeamApiTests) ────────────────────────────────
 
+    /// <summary>Cria um workspace de TIME pelo endpoint real e devolve o id sorteado no cliente.</summary>
+    private static async Task<string> CreateTeamAsync(HttpClient client, string name)
+    {
+        var id = Guid.NewGuid().ToString();
+        var resp = await client.PostAsJsonAsync("/workspaces", new
+        {
+            id,
+            name,
+            wrappedWk = Convert.ToBase64String(Rand(60)),
+            wkVersion = 1,
+        });
+        resp.EnsureSuccessStatusCode();
+        return id;
+    }
+
     private static void Auth(HttpClient client, string token, string deviceId)
     {
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -194,7 +218,7 @@ public sealed class TeamMembersApiTests
             amkKeyVersion = 1,
             deviceId,
             deviceName = "Device",
-            workspaceName = "Time do ISP",
+            workspaceName = "Cofre pessoal",
         });
         resp.EnsureSuccessStatusCode();
 

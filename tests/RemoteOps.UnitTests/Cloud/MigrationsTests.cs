@@ -153,6 +153,32 @@ public sealed class MigrationsTests
     }
 
     /// <summary>
+    /// <b>A linha de SQL que decide o destino do acervo do operador.</b> A marca de nascimento entra
+    /// como coluna ADITIVA e — o que importa aqui — com <c>DEFAULT 'personal'</c>: é esse default que
+    /// preenche TODA linha que já está no banco, inclusive o workspace do operador com os ~700
+    /// clientes dele.
+    ///
+    /// <para>Trocar este default por <c>'team'</c> faria, num único deploy, todo workspace existente
+    /// virar compartilhável — e o convite passaria a ser aceito exatamente onde ele nunca pode ser.
+    /// A asserção existe porque essa troca é uma palavra de diferença no arquivo de migração e não
+    /// quebraria nenhum outro teste: os testes de comportamento montam o modelo pelo C#, onde o valor
+    /// vem do inicializador da propriedade, e não do banco.</para>
+    /// </summary>
+    [Fact]
+    public void MigracaoDaMarca_AdicionaKindComDefaultPESSOAL()
+    {
+        using var db = OfflineNpgsqlContext();
+        var sql = db.GetService<IMigrator>().GenerateScript();
+
+        Assert.Matches(
+            "ALTER TABLE workspaces\\s+ADD \"Kind\" character varying\\(20\\) NOT NULL DEFAULT 'personal'",
+            sql);
+
+        // E é ADITIVA: nada de renomear, mover ou apagar coluna de workspace nesta migração.
+        Assert.DoesNotContain("DROP COLUMN", sql, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Espelha o guarda do <c>SecretEnvelope</c>: token de concorrência é comportamento de MODELO, e
     /// a suíte roda no InMemory. Esta asserção garante que o provider de PRODUÇÃO monta o mesmo
     /// modelo — senão alguém removeria a marcação e veria a suíte verde por acidente.

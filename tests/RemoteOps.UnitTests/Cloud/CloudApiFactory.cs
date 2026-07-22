@@ -27,6 +27,21 @@ internal sealed class CloudApiFactory : WebApplicationFactory<cloud::Program>
     /// </summary>
     public FakeEmailSender Email { get; } = new();
 
+    /// <summary>
+    /// Roda uma ação sobre o MESMO banco que a API está usando.
+    ///
+    /// <para>Existe para encenar estados que <b>nenhum endpoint produz</b> — e o caso concreto é o
+    /// time criado por uma versão anterior do cliente, cuja membership do dono ficou sem o embrulho
+    /// da chave. Desde o <c>POST /workspaces</c>, workspace e embrulho nascem na mesma gravação,
+    /// então esse estado é inalcançável por HTTP; sem este acesso, o desfecho <c>stored: true</c> do
+    /// <c>PUT /key</c> ficaria sem cobertura justamente no estado que ele existe para consertar.</para>
+    /// </summary>
+    public async Task WithDbAsync(Func<AppDbContext, Task> action)
+    {
+        using var scope = Services.CreateScope();
+        await action(scope.ServiceProvider.GetRequiredService<AppDbContext>());
+    }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(Environments.Development);

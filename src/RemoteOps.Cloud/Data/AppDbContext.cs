@@ -37,6 +37,18 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.HasKey(x => x.Id);
             e.Property(x => x.Name).HasMaxLength(200).IsRequired();
             e.Property(x => x.Status).HasMaxLength(50).IsRequired();
+
+            // ── A marca de nascimento (pessoal × time) ──
+            // O DEFAULT decide o destino de toda linha que já existe: sem valor gravado, o Postgres
+            // preenche `personal`. É o lado seguro E o lado correto — até esta versão o único
+            // caminho que criava workspace era o /auth/register, então todo workspace existente é
+            // mesmo o cofre pessoal de alguém. Classificar um deles como "time" por engano
+            // autorizaria convite no acervo do operador; o inverso só produz uma recusa explicada.
+            e.Property(x => x.Kind)
+                .HasMaxLength(20)
+                .IsRequired()
+                .HasDefaultValue(WorkspaceKinds.Personal);
+
             e.HasIndex(x => x.TenantId);
             e.HasOne(x => x.Tenant).WithMany(x => x.Workspaces).HasForeignKey(x => x.TenantId);
         });
