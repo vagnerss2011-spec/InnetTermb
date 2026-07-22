@@ -210,4 +210,53 @@ public sealed class SqliteSyncMetadataStoreTests
         Assert.Equal(2, (await reopened.GetPushedSecretsAsync("ws-sec-restart"))["env-1"]);
         Assert.Equal(8, await reopened.GetSecretsCursorAsync("ws-sec-restart"));
     }
+
+    /// <summary>
+    /// ⚠️ <b>O reset não pode FABRICAR uma linha de cursor para um workspace com que este banco
+    /// nunca sincronizou.</b>
+    ///
+    /// <para>O cenário real: o aceite de convite roda na sessão PESSOAL (a única sessão possível
+    /// para um convidado novo — antes do aceite a conta tem um workspace só e o chooser nem
+    /// aparece), e o <c>TeamInviteService.ResetSecretsCursorAsync</c> zera o cursor do workspace do
+    /// TIME contra o metadata store DESTA sessão — o <c>sync-local.db</c> com os ~700 equipamentos
+    /// do operador.</para>
+    ///
+    /// <para><c>sync_cursor.workspace_id</c> não é detalhe interno: é a EVIDÊNCIA que o
+    /// <c>PersonalDbOwnerProbe</c> lê para decidir de quem é o banco pessoal (regra 5 do resolvedor
+    /// de escopo). Uma linha fabricada pelo reset diria "este banco sincronizava com o TIME" — e
+    /// evidência positiva adota SEM rede e POR CIMA da contagem de workspaces. Cursor que não existe
+    /// já está em zero: não há o que regredir, e nada é gravado.</para>
+    /// </summary>
+    [Fact]
+    public async Task Reset_NumWorkspaceQueEsteBancoNuncaSincronizou_NaoFabricaEvidenciaDeDono()
+    {
+        using var ctx = await SyncTestContext.CreateAsync("ws-md-reset-alheio");
+        var store = new SqliteSyncMetadataStore(ctx.Workspace);
+        await store.SaveServerCursorAsync("workspace-pessoal", 4210); // o dono de verdade
+
+        await store.ResetSecretsCursorAsync("workspace-do-time");
+
+        using SqliteConnection conn = await ctx.Workspace.OpenConnectionAsync();
+        using SqliteCommand cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM sync_cursor WHERE workspace_id = $ws;";
+        cmd.Parameters.AddWithValue("$ws", "workspace-do-time");
+        Assert.Equal(0, Convert.ToInt32(await cmd.ExecuteScalarAsync()));
+    }
+
+    /// <summary>
+    /// A metade que impede "não gravar nada": quando a linha EXISTE — o caso para o qual o reset
+    /// nasceu (o cursor avançou por cima de envelopes pulados antes de a WK aterrissar) — ele
+    /// continua regredindo a zero.
+    /// </summary>
+    [Fact]
+    public async Task Reset_ComCursorAvancado_ContinuaRegredindoParaZero()
+    {
+        using var ctx = await SyncTestContext.CreateAsync("ws-md-reset-real");
+        var store = new SqliteSyncMetadataStore(ctx.Workspace);
+        await store.SaveSecretsCursorAsync("ws-md-reset-real", 77);
+
+        await store.ResetSecretsCursorAsync("ws-md-reset-real");
+
+        Assert.Equal(0, await store.GetSecretsCursorAsync("ws-md-reset-real"));
+    }
 }

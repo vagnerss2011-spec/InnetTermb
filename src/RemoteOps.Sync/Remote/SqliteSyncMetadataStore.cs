@@ -201,6 +201,14 @@ public sealed class SqliteSyncMetadataStore : ISyncMetadataStore
     /// <summary>
     /// Reset EXPLÍCITO (sem <c>MAX</c>): é a única gravação que pode fazer o cursor regredir, e por
     /// isso ela tem nome próprio. Ver <see cref="ISyncMetadataStore.ResetSecretsCursorAsync"/>.
+    ///
+    /// <para>⚠️ <b><c>UPDATE</c>, nunca <c>INSERT</c>:</b> cursor que não existe já está em zero —
+    /// não há o que regredir, e gravar uma linha aqui não é inofensivo. <c>sync_cursor.workspace_id</c>
+    /// é a evidência que o <c>PersonalDbOwnerProbe</c> lê para decidir de QUEM é o banco pessoal
+    /// (regra 5 do resolvedor de escopo), e este método roda no aceite de convite DENTRO da sessão
+    /// pessoal — o metadata store ali é o <c>sync-local.db</c> com o acervo do operador. Um
+    /// <c>INSERT</c> fabricaria a linha "este banco sincronizava com o TIME", e evidência positiva
+    /// adota o dono SEM rede e por cima da contagem de workspaces.</para>
     /// </summary>
     public async Task ResetSecretsCursorAsync(string workspaceId, CancellationToken ct = default)
     {
@@ -208,11 +216,7 @@ public sealed class SqliteSyncMetadataStore : ISyncMetadataStore
         await EnsureSchemaAsync(conn, ct);
 
         using SqliteCommand cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            INSERT INTO sync_cursor (workspace_id, cursor, outbox_cursor, secrets_cursor)
-            VALUES ($ws, 0, 0, 0)
-            ON CONFLICT (workspace_id) DO UPDATE SET secrets_cursor = 0;
-            """;
+        cmd.CommandText = "UPDATE sync_cursor SET secrets_cursor = 0 WHERE workspace_id = $ws;";
         cmd.Parameters.AddWithValue("$ws", workspaceId);
         await cmd.ExecuteNonQueryAsync(ct);
     }

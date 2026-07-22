@@ -224,6 +224,17 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ### Corrigido
 
+- **A pasta de dados restaurada de backup deixava o RemoteOps sem abrir NUNCA MAIS — e sem oferecer o
+  login.** O arquivo que guarda a sua conta para você não digitar a senha toda vez é preso ao
+  **usuário e ao computador** onde foi criado. Copiado para outra máquina (ou depois de o perfil do
+  Windows ser recriado), ele existe, está íntegro e **não abre**. Em vez de tratar isso como "não há
+  conta guardada aqui" — que é o que o próprio arquivo já fazia quando estava corrompido —, o
+  aplicativo mostrava *"Não foi possível ativar a conta"*, em seguida *"abra o RemoteOps de novo e
+  entre na conta"*, e **encerrava**. Reabrir relia o mesmo arquivo e repetia tudo, para sempre: o
+  operador ficava sem aplicativo, com os equipamentos e senhas intactos no disco e **inalcançáveis**,
+  sem nenhum caminho dentro do programa. Agora um arquivo que não abre vale como **ausente** e o
+  RemoteOps **pede a senha** — que é tudo de que ele precisa, porque a chave da sua conta é portável
+  e não depende daquele arquivo.
 - **Mais duas telas mandavam "fechar e abrir" para trocar de cofre — e isso continua não trocando
   nada.** O aviso de *"alterações paradas no outro cofre"* aconselhava *"feche o RemoteOps e abra de
   novo escolhendo o cofre"*, e a recusa de convite no cofre pessoal mandava *"ao abrir o RemoteOps de

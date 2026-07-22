@@ -186,6 +186,41 @@ public sealed class DpapiAmkCacheTests : IDisposable
         Assert.Null(await NewCache().LoadAsync());
     }
 
+    /// <summary>
+    /// ⚠️ <b>Blob DPAPI de outro usuário/máquina vira "sem cache", nunca uma exceção.</b>
+    ///
+    /// <para>É a pasta <c>%APPDATA%\RemoteOps</c> restaurada de backup noutro computador (o operador
+    /// tem dois), ou o perfil do Windows recriado: o JSON está perfeito e o blob não abre. O contrato
+    /// do <c>ILocalKeyProtector</c> diz que <c>Unprotect</c> LANÇA nesse caso.</para>
+    ///
+    /// <para>Enquanto essa exceção escapava do <c>LoadAsync</c>, ela subia até o <c>App</c>, que a
+    /// tratava como falha de ativação e ENCERRAVA o processo dizendo "abra o RemoteOps de novo e
+    /// entre na conta" — e reabrir relê o mesmo blob e repete tudo. Beco sem saída, com o acervo
+    /// intacto e inalcançável. A AMK é portável (o escrow está no servidor): pedir login RESOLVE.</para>
+    /// </summary>
+    [Fact]
+    public async Task LoadAsync_QuandoOBlobNaoAbre_DevolveNULL_EmVezDeDerrubarOBoot()
+    {
+        using (var entry = new CachedAccount("op@innet.tec.br", "ws-1", 1, SampleAmk()))
+        {
+            await NewCache().SaveAsync(entry);
+        }
+
+        var deOutraMaquina = new DpapiAmkCache(CachePath, new ProtectorQueRecusa());
+
+        Assert.Null(await deOutraMaquina.LoadAsync());
+    }
+
+    /// <summary>DPAPI de outro usuário/máquina, como o contrato do <c>ILocalKeyProtector</c> manda.</summary>
+    private sealed class ProtectorQueRecusa : ILocalKeyProtector
+    {
+        public byte[] Protect(ReadOnlySpan<byte> plaintext, ReadOnlySpan<byte> entropy)
+            => plaintext.ToArray();
+
+        public byte[] Unprotect(ReadOnlySpan<byte> protectedBlob, ReadOnlySpan<byte> entropy)
+            => throw new CryptographicException("blob protegido por outro usuário/máquina");
+    }
+
     /// <summary>A AMK é 32B: um cache com tamanho errado é lixo, não raiz de cofre.</summary>
     [Fact]
     public void CachedAccount_RejectsWrongSizedAmk()

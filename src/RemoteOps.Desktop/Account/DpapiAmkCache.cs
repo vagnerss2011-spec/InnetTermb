@@ -71,7 +71,32 @@ public sealed class DpapiAmkCache : IAmkCache
             return null;
         }
 
-        byte[] amk = _protector.Unprotect(file.ProtectedAmk, Entropy(file.Email, file.WorkspaceId));
+        // ⚠️ O UNPROTECT FICA DENTRO DO FAIL-OPEN, e não fora dele. O contrato do
+        // ILocalKeyProtector é explícito: ele LANÇA quando o blob foi protegido por outro
+        // usuário/máquina — a pasta %APPDATA%\RemoteOps restaurada de backup noutro computador, o
+        // perfil do Windows recriado, o arquivo editado à mão. Enquanto esta linha ficava de fora do
+        // try, essa exceção subia por TryActivateFromCacheAsync → AccountBootPath.EnterAsync até o
+        // App, que a tratava como "não foi possível ativar a conta", caía no
+        // IsVaultAmkRootedAsync (o cofre É AMK-rooted) e ENCERRAVA o processo mandando "abra o
+        // RemoteOps de novo e entre na conta" — só que reabrir relê o mesmo blob e repete tudo. O
+        // operador ficava sem app e sem caminho de volta, com os ~700 equipamentos intactos e
+        // inalcançáveis.
+        //
+        // Cair para "sem cache" é a resposta certa e não afrouxa nada: a AMK é PORTÁVEL (o escrow
+        // vive no servidor), então o login pede a senha e o cofre abre. O que se perde é pular a
+        // senha uma vez — o que já é o desfecho do cache ausente ou ilegível, logo acima.
+        byte[] amk;
+        try
+        {
+            amk = _protector.Unprotect(file.ProtectedAmk, Entropy(file.Email, file.WorkspaceId));
+        }
+        catch (CryptographicException)
+        {
+            // Sem detalhe da exceção (ADR-013) e sem inventar sessão: "este blob não é meu" é
+            // resposta, e a resposta é pedir login.
+            return null;
+        }
+
         return new CachedAccount(file.Email, file.WorkspaceId, file.AmkKeyVersion, amk);
     }
 

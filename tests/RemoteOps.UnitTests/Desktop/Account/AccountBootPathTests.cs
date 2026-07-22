@@ -1,12 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 
 using RemoteOps.Desktop.Account;
 using RemoteOps.Security.Account;
+using RemoteOps.Security.Crypto;
 using RemoteOps.Sync.Remote;
 
 using Xunit;
@@ -260,6 +263,77 @@ public sealed class AccountBootPathTests
         Assert.Equal(1, cenario.Cache.ClearCount);
         Assert.Equal(1, cenario.Chooser.Asked);
         Assert.Equal(Time, entry!.Activation.WorkspaceId);
+    }
+
+    /// <summary>
+    /// ⚠️ <b>Cache que NÃO ABRE não é cache: é "sem cache", e o boot tem de PERGUNTAR.</b>
+    ///
+    /// <para>É a pasta <c>%APPDATA%\RemoteOps</c> restaurada de backup no segundo computador do
+    /// operador, ou o perfil do Windows recriado: o <c>account.amk</c> está lá, íntegro, e o DPAPI
+    /// se recusa a abri-lo (o contrato do <c>ILocalKeyProtector</c> manda LANÇAR nesse caso).</para>
+    ///
+    /// <para>Enquanto essa exceção subia daqui, o <c>App</c> a tratava como falha de ativação,
+    /// encontrava o cofre já AMK-rooted e ENCERRAVA o processo com "abra o RemoteOps de novo e entre
+    /// na conta" — e reabrir relia o mesmo blob. Beco sem saída, com os ~700 equipamentos intactos e
+    /// inalcançáveis. A AMK é portável: a senha resolve, e é ela que o login pede.</para>
+    /// </summary>
+    [Fact]
+    public async Task ComCacheQueNAOABRE_OBoot_PERGUNTA_EmVezDeEstourar()
+    {
+        // O cache é o DE PRODUÇÃO (DpapiAmkCache em arquivo): o que muda entre as duas máquinas é só
+        // o protetor. Um dublê de IAmkCache aqui não provaria nada — quem tem de traduzir "o blob
+        // não abre" em "sem cache" é ele.
+        string dir = Path.Combine(Path.GetTempPath(), "remoteops-boot-dpapi-" + Guid.NewGuid().ToString("n"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            string amkPath = Path.Combine(dir, "account.amk");
+            using (var entry = new CachedAccount(Email, Pessoal, 1, SampleAmk()))
+            {
+                await new DpapiAmkCache(amkPath, new ProtectorTransparente()).SaveAsync(entry);
+            }
+
+            var coordinator = new AccountSyncCoordinator(
+                new DpapiAmkCache(amkPath, new ProtectorQueRecusa()),
+                new FakeVaultActivator(),
+                new NoSyncStarter(),
+                VaultWorkspaces);
+
+            int logins = 0;
+            var path = new AccountBootPath(coordinator, _ =>
+            {
+                logins++;
+                return Task.FromResult<AccountSession?>(null);
+            });
+
+            Assert.Null(await path.EnterAsync());
+            Assert.Equal(1, logins); // PERGUNTOU — em vez de estourar e o App encerrar
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); }
+            catch (IOException) { /* limpeza best-effort */ }
+        }
+    }
+
+    /// <summary>Grava o cache como o login de produção grava (o DPAPI real não roda em teste).</summary>
+    private sealed class ProtectorTransparente : ILocalKeyProtector
+    {
+        public byte[] Protect(ReadOnlySpan<byte> plaintext, ReadOnlySpan<byte> entropy)
+            => plaintext.ToArray();
+
+        public byte[] Unprotect(ReadOnlySpan<byte> protectedBlob, ReadOnlySpan<byte> entropy)
+            => protectedBlob.ToArray();
+    }
+
+    /// <summary>O DPAPI da OUTRA máquina/perfil, como o contrato do <c>ILocalKeyProtector</c> manda.</summary>
+    private sealed class ProtectorQueRecusa : ILocalKeyProtector
+    {
+        public byte[] Protect(ReadOnlySpan<byte> plaintext, ReadOnlySpan<byte> entropy)
+            => plaintext.ToArray();
+
+        public byte[] Unprotect(ReadOnlySpan<byte> protectedBlob, ReadOnlySpan<byte> entropy)
+            => throw new CryptographicException("blob protegido por outro usuário/máquina");
     }
 
     /// <summary>
