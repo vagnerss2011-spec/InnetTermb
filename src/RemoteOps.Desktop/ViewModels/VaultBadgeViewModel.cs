@@ -52,12 +52,25 @@ public sealed class VaultBadgeViewModel : BaseViewModel
     /// <summary>
     /// O aviso do estado incômodo. Constante (e não texto solto no XAML) porque é afirmado por teste
     /// de render: um refactor que o apague tem de ficar vermelho.
+    ///
+    /// <para><b>O que este texto dizia antes, e por que era mentira:</b> ele mandava <i>"conecte-se à
+    /// internet uma vez para o RemoteOps buscar a chave"</i> — só que o único reparo do boot
+    /// (<c>PublishOwnWrappedKeyAsync</c>) apenas <b>PUBLICA</b>, e sem chave local ele sai antes de
+    /// tocar a rede. Nada buscava nada: o operador conectava, esperava, e o aviso continuava lá. Um
+    /// conselho que não funciona é pior que nenhum, porque troca a ação certa por espera.</para>
+    ///
+    /// <para>Agora o <c>TeamKeyBootRepair</c> busca de verdade — mas <b>na abertura</b>, porque o
+    /// cofre da sessão é decidido uma vez, no boot (1i). Daí as três coisas que o texto precisa
+    /// dizer: o app tenta a cada abertura, <b>reabrir</b> é o que dá nova chance, e o desfecho de
+    /// cada tentativa fica escrito no painel de Logs.</para>
     /// </summary>
     public const string TeamVaultNotActiveWarning =
         "A chave deste time ainda não chegou neste computador. Os equipamentos aparecem, mas "
-        + "nenhuma senha do time abre ou é gravada aqui. Conecte-se à internet uma vez para o "
-        + "RemoteOps buscar a chave — ou, se você acabou de ser convidado, aceite o convite "
-        + "(identificador + código recebido por outro canal).";
+        + "nenhuma senha do time abre ou é gravada aqui. A cada abertura o RemoteOps tenta buscar "
+        + "essa chave na sua conta: se você estava sem internet, conecte e abra o RemoteOps de novo. "
+        + "Se o aviso continuar, é porque a sua conta ainda não tem a chave deste time — aceite o "
+        + "convite (identificador + código recebido por outro canal) ou peça um convite novo a quem "
+        + "administra o time. O painel de Logs mostra o que aconteceu na última tentativa.";
 
     /// <summary>
     /// O texto do cofre do time ATIVO. Constante pelo mesmo motivo do de cima: é afirmado por teste

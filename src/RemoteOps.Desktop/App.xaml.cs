@@ -270,6 +270,13 @@ public partial class App : Application
             // pessoal" — que é a verdade — e se corrige por binding quando a resposta chega.
             RefreshVaultBadge();
 
+            // ⚠️ O QUE FICOU PARADO NO OUTRO COFRE. Um banco por escopo (1j) significa que o sync
+            // desta sessão drena o banco DESTA sessão e mais nenhum: o que o operador editou no outro
+            // cofre continua esperando lá, com a barra dizendo "Sincronizado" — e é assim que ele
+            // conclui que subiu. Também depois da janela abrir, e sem ser aguardado: são leituras de
+            // SQLCipher em disco, e o boot não espera I/O de aviso nenhum.
+            _ = RefreshOtherVaultOutboxAsync(syncFactory, dataDir);
+
             // A partir daqui, uma 2ª instância que tentar abrir vai só trazer esta janela pra frente.
             _singleInstance.ListenForActivation(() => Dispatcher.Invoke(BringMainWindowToFront));
 
@@ -932,51 +939,85 @@ public partial class App : Application
         // sondagem sozinha não sabe fazer.
         workspace.Browser.Vault.ApplyFromSession(_sessionScope.Kind);
 
-        _ = PublishTeamKeyAsync(team);
+        _ = RepairTeamKeyAsync(team, workspace);
     }
 
     /// <summary>
-    /// ⚠️ <b>Reparo do embrulho da chave do time, no boot.</b> Se esta máquina tem a chave do time e
-    /// o servidor ainda não guarda o embrulho desta conta, ele sobe agora.
+    /// ⚠️ <b>Conta o que ficou parado na fila do cofre que esta sessão NÃO abriu</b> e leva o número
+    /// para a barra do shell (regra e textos no <see cref="OtherVaultOutboxProbe"/> e no
+    /// <see cref="OtherVaultOutboxViewModel"/>).
     ///
-    /// <para><b>Quem isso conserta:</b> o dono que criou o time numa versão anterior a esta. Ali,
-    /// só o ACEITE do convite gravava embrulho, então quem CRIAVA o time nunca tinha chave guardada
-    /// — o segundo computador dele não achava nada para restaurar, o chaveiro sorteava outra WK e o
-    /// cofre do time bifurcava em silêncio. Sem este reparo, a única saída para ele seria convidar
-    /// mais alguém, que é uma instrução absurda de dar a um operador.</para>
+    /// <para><b>Fora da UI thread (<c>Task.Run</c>):</b> a sondagem abre bancos SQLCipher e roda
+    /// consultas — I/O de disco que, na thread da janela, apareceria como travada logo depois de
+    /// abrir. O <c>await</c> devolve a continuação para o Dispatcher, então o <c>Apply</c> acontece
+    /// na thread certa (a VM notifica bindings).</para>
+    ///
+    /// <para><b>Nunca derruba o boot.</b> A sonda já devolve "não verificado" em vez de estourar;
+    /// este try/catch é a cinta extra. E o <c>catch</c> não é vazio de propósito: falha aqui vira o
+    /// MESMO aviso de "não deu para conferir" que a sonda produz — engolir calado devolveria uma
+    /// barra que diz "tudo certo" sobre um cofre que ninguém olhou.</para>
+    /// </summary>
+    private async Task RefreshOtherVaultOutboxAsync(LocalSyncClientFactory syncFactory, string dataDir)
+    {
+        if (_workspaceViewModel is not { } workspace)
+        {
+            return;
+        }
+
+        var probe = new OtherVaultOutboxProbe(syncFactory, dataDir);
+        string dbName = _sessionScope.DbName;
+
+        OtherVaultOutboxReport report;
+        try
+        {
+            report = await Task.Run(() => probe.ScanAsync(dbName));
+        }
+        catch (Exception)
+        {
+            // Sem detalhe da exceção (ADR-013): o texto é para o operador, e ele é o mesmo do
+            // "não deu para conferir" — visível, nunca silencioso.
+            report = new OtherVaultOutboxReport(0, 0, CheckFailed: true);
+        }
+
+        workspace.Browser.OtherVaultOutbox.Apply(
+            report.PendingPersonal, report.PendingTeam, report.CheckFailed);
+    }
+
+    /// <summary>
+    /// ⚠️ <b>Reparo da chave do time, no boot</b> (regra e textos no <see cref="TeamKeyBootRepair"/>):
+    /// numa sessão de time SEM a chave ele vai BUSCÁ-LA na conta; numa sessão COM a chave ele PUBLICA
+    /// o embrulho desta conta (o reparo do 1e′). O desfecho — sucesso e falha — vai para o painel de
+    /// Logs.
     ///
     /// <para><b>Por que separado do indicador de cofre:</b> a pergunta "é workspace de time?" é
     /// respondida pelo DISCO quando há chave local, e vale offline — que é a condição normal de
     /// campo. Se o reparo morasse dentro dela, uma falha de rede derrubaria uma resposta que não
     /// depende de rede, e o operador sem sinal perderia justo o aviso de que está no workspace do
-    /// time. Aqui o desfecho vai para o painel de Logs: sem chave local ou já publicado, silêncio
-    /// (é o caso de todo boot); publicou ou falhou, fica ESCRITO. Nada some.</para>
+    /// time.</para>
     ///
-    /// <para>Não é aguardado pelo mesmo motivo do indicador (ADR-002, boot não espera rede), e é
-    /// opportunista de propósito: o caminho que NÃO pode depender dele — gerar convite — publica o
-    /// embrulho por conta própria, antes do POST, e falha alto se não conseguir.</para>
+    /// <para><b>E por que o indicador é corrigido aqui quando a chave chega:</b> o chaveiro do time é
+    /// o MESMO objeto que o cofre consulta (<c>VaultRootActivator.TeamKeyRing</c>), então a chave que
+    /// aterrissa agora faz as senhas do time abrirem <b>nesta sessão</b>. Deixar a barra dizendo "a
+    /// chave ainda não chegou" seria um aviso falso — e é justamente aviso falso que ensina o
+    /// operador a ignorar o único aviso que importa. O <c>_sessionScope.Kind</c> NÃO é reescrito: ele
+    /// é a decisão do boot (qual banco abrir, qual raiz selar) e é imutável de propósito; o indicador
+    /// responde outra pergunta — "o cofre do time abre AGORA?" — e essa mudou de resposta.</para>
+    ///
+    /// <para>Não é aguardado (ADR-002, boot não espera rede), e é opportunista de propósito: o
+    /// caminho que NÃO pode depender dele — gerar convite — publica o embrulho por conta própria,
+    /// antes do POST, e falha alto se não conseguir.</para>
     /// </summary>
-    private async Task PublishTeamKeyAsync(TeamContext team)
+    private async Task RepairTeamKeyAsync(TeamContext team, WorkspaceViewModel workspace)
     {
-        IUiLogSink? log = _serviceProvider?.GetService<IUiLogSink>();
-        try
+        TeamVaultReadiness readiness = await new TeamKeyBootRepair(
+            _serviceProvider?.GetService<IUiLogSink>()).RunAsync(team);
+
+        if (readiness == TeamVaultReadiness.KeyHere)
         {
-            if (await team.Service.PublishOwnWrappedKeyAsync(team.WorkspaceId) == TeamKeyUpload.Published)
-            {
-                log?.Emit(
-                    "[time] A chave deste time foi registrada na sua conta. Agora ela pode ser "
-                    + "recuperada nos seus outros computadores.");
-            }
-        }
-        catch (Exception ex)
-        {
-            // Sem detalhe técnico e sem blob (ADR-013): o texto é para o operador. Engolir calado
-            // seria pior — este é o aviso de que o segundo computador dele pode não abrir o cofre
-            // do time, ou de que a chave daqui não é a mesma da conta.
-            log?.Emit(
-                "[time] Não foi possível registrar a chave deste time na sua conta agora"
-                + (ex is TeamInviteException ? $": {ex.Message}" : " (servidor fora de alcance).")
-                + " O RemoteOps tenta de novo na próxima abertura.");
+            // Idempotente: numa sessão de time que já tinha a chave, o indicador JÁ está em Team e o
+            // Apply sai na primeira linha. Quem muda de estado aqui é só o boot que acabou de
+            // recuperar a chave.
+            workspace.Browser.Vault.Apply(VaultScope.Team);
         }
     }
 

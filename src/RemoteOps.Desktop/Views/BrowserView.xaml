@@ -223,6 +223,37 @@
                                VerticalAlignment="Center"/>
                 </StackPanel>
 
+                <!-- ⚠️ A FILA PARADA NO OUTRO COFRE. Desde o 1j existe um banco por escopo, e o sync
+                     de uma sessão drena o banco DAQUELA sessão. Editar no cofre pessoal e depois
+                     abrir no time deixa aquelas edições esperando — enquanto esta mesma barra diz
+                     "Sincronizado" com toda a razão, porque o ciclo desta sessão terminou mesmo. Sem
+                     este aviso o operador conclui que subiu; é a queixa que ele já abriu duas vezes.
+
+                     ATENÇÃO ao DataContext: este Border está com DataContext="{Binding Sync}", então
+                     "OtherVaultOutbox.X" resolveria como Sync.OtherVaultOutbox.X — propriedade
+                     inexistente, que falharia EM SILÊNCIO (o WPF não lança em binding quebrado) e
+                     deixaria o aviso VISÍVEL e vazio, porque o padrão de Visibility é Visible. Daí o
+                     RelativeSource subir até o UserControl, como no indicador de cofre. -->
+                <StackPanel x:Name="OtherVaultOutboxIndicator"
+                            DockPanel.Dock="Left"
+                            Orientation="Horizontal"
+                            Margin="10,0,0,0"
+                            VerticalAlignment="Center"
+                            ToolTip="{Binding DataContext.OtherVaultOutbox.Detail, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                            Visibility="{Binding DataContext.OtherVaultOutbox.HasNotice, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Text="·"
+                               Style="{DynamicResource Text.Caption}"
+                               Foreground="{DynamicResource Brush.Text.Tertiary}"
+                               Margin="0,0,10,0"
+                               VerticalAlignment="Center"/>
+                    <TextBlock x:Name="OtherVaultOutboxText"
+                               Text="{Binding DataContext.OtherVaultOutbox.Text, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                               Style="{DynamicResource Text.Caption}"
+                               Foreground="{DynamicResource Brush.Status.Pending}"
+                               FontWeight="SemiBold"
+                               VerticalAlignment="Center"/>
+                </StackPanel>
+
                 <!-- ATENÇÃO ao DataContext: este Border inteiro está com DataContext="{Binding Sync}"
                      (linha 49). Um binding simples "Update.X" aqui resolveria como Sync.Update.X —
                      propriedade que não existe no SyncStatusViewModel — e falharia EM SILÊNCIO (o WPF

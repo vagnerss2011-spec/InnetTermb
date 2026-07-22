@@ -60,6 +60,16 @@ public sealed class BrowserViewModel : BaseViewModel
     /// </summary>
     public VaultBadgeViewModel Vault { get; } = new();
 
+    /// <summary>
+    /// O que ficou parado na fila do cofre que esta sessão NÃO abriu (um banco por escopo, 1j).
+    /// Nunca null: sem outro cofre na máquina ele fica calado, que é a verdade para quem tem um só.
+    ///
+    /// <para>Mora ao lado do <see cref="Vault"/>, e pelo mesmo motivo: a barra do shell é o único
+    /// lugar visível o tempo todo. Um aviso de "isto não subiu" que só aparecesse ao abrir a tela de
+    /// sincronização chegaria depois de o operador já ter concluído que estava tudo certo.</para>
+    /// </summary>
+    public OtherVaultOutboxViewModel OtherVaultOutbox { get; } = new();
+
     public BrowserSection ActiveSection
     {
         get => _activeSection;

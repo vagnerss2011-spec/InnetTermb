@@ -24,6 +24,29 @@
                     Style="{DynamicResource Button.Primary}" MinWidth="88" Padding="10,4"/>
         </StackPanel>
 
+        <!-- ⚠️ A RECUSA DO COFRE, ESCRITA AQUI, JUNTO DO BOTÃO QUE FALHOU. O SaveCommand faz
+             `_ = SaveAsync()`: a VaultException do fail-closed (cofre de time sem a chave) ficava
+             dentro de uma Task que ninguém observa — nem o tratador global a via. O operador clicava
+             em "Salvar" e NADA acontecia: o diálogo não fechava, o host não era cadastrado e não
+             havia uma linha na tela. Trabalho sumindo sem erro é a classe de defeito nº 1 daqui.
+
+             Fica no Bottom, logo acima dos botões, porque é onde o olho está no instante do clique.
+             Invisível sem erro — painel de erro permanente é painel que ninguém lê. -->
+        <Border DockPanel.Dock="Bottom"
+                Background="{DynamicResource Brush.Status.CriticalSurface}"
+                BorderBrush="{DynamicResource Brush.Status.CriticalBase}"
+                BorderThickness="1"
+                CornerRadius="{DynamicResource Radius.Control}"
+                Margin="0,12,0,0"
+                Padding="10,8"
+                Visibility="{Binding HasError, Converter={StaticResource BoolToVis}}">
+            <TextBlock x:Name="VaultRefusalText"
+                       Text="{Binding ErrorMessage}"
+                       Style="{DynamicResource Text.Caption}"
+                       Foreground="{DynamicResource Brush.Text.Primary}"
+                       TextWrapping="Wrap"/>
+        </Border>
+
         <!-- Nome do host -->
         <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
             <TextBlock Text="Nome" Style="{DynamicResource Text.BodyStrong}" Margin="0,0,0,4"/>

@@ -76,6 +76,44 @@ public sealed class LocalSyncClientFactory
         return new WorkspaceContext(syncClient, connFactory);
     }
 
+    /// <summary>
+    /// Abre um banco que <b>já existe</b>, sem criar nada — nem banco, nem chave, nem
+    /// <c>.keyref</c>. Devolve <c>null</c> quando o banco, o <c>.keyref</c> ou o envelope da chave
+    /// não estão lá.
+    ///
+    /// <para><b>Por que não dá para usar o <see cref="OpenWorkspaceAsync(string, string,
+    /// CancellationToken)"/> para só ESPIAR:</b> ele passa pelo <c>VaultDbKeyProvider</c>, que é um
+    /// <c>GetOrCreate</c> — quando o envelope apontado pelo <c>.keyref</c> não pode ser lido, ele
+    /// sorteia outra chave e <b>sobrescreve o <c>.keyref</c></b>. Isso é o certo para o banco que a
+    /// sessão vai usar (primeira abertura), e é destruição de dado quando o alvo é o banco de OUTRO
+    /// escopo: o arquivo continuaria lá, cifrado com a chave que acabou de ser jogada fora. Um método
+    /// que cria e um método que só olha — nunca o mesmo.</para>
+    /// </summary>
+    public async Task<WorkspaceContext?> TryOpenExistingWorkspaceAsync(
+        string dbName, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(dbName);
+        if (dbName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            throw new ArgumentException("dbName contains invalid path characters.", nameof(dbName));
+
+        string dbPath = DbPath(dbName);
+        string keyRefPath = KeyRefPath(dbName);
+        if (!File.Exists(dbPath) || !File.Exists(keyRefPath))
+        {
+            return null;
+        }
+
+        string envelopeId = (await File.ReadAllTextAsync(keyRefPath, ct)).Trim();
+        string? hexKey = await _vault.RetrieveSecretAsync(envelopeId, ct);
+        if (hexKey is null)
+        {
+            return null;
+        }
+
+        var connFactory = new SqliteConnectionFactory(dbPath, hexKey);
+        return new WorkspaceContext(new LocalSyncClient(connFactory), connFactory);
+    }
+
     /// <summary>Caminho do banco para <paramref name="workspaceId"/> (útil em testes).</summary>
     public string DbPath(string workspaceId) =>
         Path.Combine(_dbDirectory, $"sync-{workspaceId}.db");

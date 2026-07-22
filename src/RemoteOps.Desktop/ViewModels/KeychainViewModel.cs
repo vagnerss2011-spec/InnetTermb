@@ -20,6 +20,7 @@ public sealed class KeychainViewModel : BaseViewModel
     private readonly string _storeWorkspaceId;
     private readonly string _vaultWorkspaceId;
     private CredentialRef? _selected;
+    private string _errorMessage = string.Empty;
 
     /// <param name="storeWorkspaceId">
     /// Escopo das ENTIDADES (<c>assets.workspace_id</c>): fica <c>"ws-local"</c> nos dois bancos,
@@ -47,6 +48,26 @@ public sealed class KeychainViewModel : BaseViewModel
         set => Set(ref _selected, value);
     }
 
+    /// <summary>
+    /// ⚠️ <b>A recusa do cofre, em pt-BR, ONDE o operador está.</b>
+    ///
+    /// <para>Num cofre de time sem a chave o chaveiro recusa ALTO — de propósito — com uma
+    /// <see cref="VaultException"/> cuja mensagem já é acionável ("aceite o convite … antes de
+    /// cadastrar ou abrir senhas do time"). Sem esta propriedade ela subia até o
+    /// <c>DispatcherUnhandledException</c> do <c>App</c> e virava uma caixa intitulada <i>"Erro
+    /// inesperado"</i>: a frase útil continuava lá dentro, mas emoldurada como defeito do programa.
+    /// O operador então repete a operação, ou liga para o suporte — em vez de aceitar o convite.</para>
+    ///
+    /// <para>A guarda não muda em nada: o que muda é o lugar onde a recusa aparece.</para>
+    /// </summary>
+    public string ErrorMessage
+    {
+        get => _errorMessage;
+        private set { Set(ref _errorMessage, value); RaisePropertyChanged(nameof(HasError)); }
+    }
+
+    public bool HasError => !string.IsNullOrEmpty(ErrorMessage);
+
     public async Task LoadAsync()
     {
         Credentials.Clear();
@@ -54,96 +75,127 @@ public sealed class KeychainViewModel : BaseViewModel
             Credentials.Add(c);
     }
 
-    public async Task CreateAsync(string name, string username, char[] password)
-    {
-        string credId = Guid.NewGuid().ToString("n");
-        SecretEnvelope env = await _vault.StoreAsync(
-            new VaultStoreRequest { WorkspaceId = _vaultWorkspaceId, CredentialId = credId, Type = CredentialTypes.Password, ActorUserId = Actor },
-            password);
-        Array.Clear(password);
-        await _store.AddCredentialRefAsync(new CredentialRef
+    public Task CreateAsync(string name, string username, char[] password) => GuardAsync(
+        NotStored,
+        async () =>
         {
-            Id = credId,
-            Name = name.Trim(),
-            Type = CredentialTypes.Password,
-            Metadata = new CredentialMetadata { Username = username.Trim() },
-            SecretEnvelopeId = env.EnvelopeId,
+            string credId = Guid.NewGuid().ToString("n");
+            try
+            {
+                SecretEnvelope env = await _vault.StoreAsync(
+                    new VaultStoreRequest { WorkspaceId = _vaultWorkspaceId, CredentialId = credId, Type = CredentialTypes.Password, ActorUserId = Actor },
+                    password);
+                await _store.AddCredentialRefAsync(new CredentialRef
+                {
+                    Id = credId,
+                    Name = name.Trim(),
+                    Type = CredentialTypes.Password,
+                    Metadata = new CredentialMetadata { Username = username.Trim() },
+                    SecretEnvelopeId = env.EnvelopeId,
+                });
+            }
+            finally
+            {
+                // No finally, e não depois da chamada: com o cofre recusando (fail-closed do time),
+                // a linha de baixo nunca era alcançada e a senha em claro ficava na heap esperando o
+                // GC. Zerar é obrigação do caminho de ERRO tanto quanto do de sucesso.
+                Array.Clear(password);
+            }
         });
-        await LoadAsync();
-    }
 
     /// <summary>Cria credencial de chave privada: envelope da chave + (opcional) envelope da passphrase.</summary>
-    public async Task CreateKeyAsync(string name, string username, char[] privateKey, char[]? passphrase)
-    {
-        string credId = Guid.NewGuid().ToString("n");
-        SecretEnvelope keyEnv = await _vault.StoreAsync(
-            new VaultStoreRequest { WorkspaceId = _vaultWorkspaceId, CredentialId = credId, Type = CredentialTypes.PrivateKey, ActorUserId = Actor },
-            privateKey);
-        Array.Clear(privateKey);
+    public Task CreateKeyAsync(string name, string username, char[] privateKey, char[]? passphrase) => GuardAsync(
+        NotStored,
+        async () =>
+        {
+            string credId = Guid.NewGuid().ToString("n");
+            try
+            {
+                SecretEnvelope keyEnv = await _vault.StoreAsync(
+                    new VaultStoreRequest { WorkspaceId = _vaultWorkspaceId, CredentialId = credId, Type = CredentialTypes.PrivateKey, ActorUserId = Actor },
+                    privateKey);
 
-        string? passphraseEnvelopeId = null;
-        if (passphrase is { Length: > 0 })
-        {
-            SecretEnvelope ppEnv = await _vault.StoreAsync(
-                new VaultStoreRequest { WorkspaceId = _vaultWorkspaceId, CredentialId = credId + "-pp", Type = CredentialTypes.PrivateKeyPassphrase, ActorUserId = Actor },
-                passphrase);
-            passphraseEnvelopeId = ppEnv.EnvelopeId;
-        }
-        if (passphrase is not null)
-        {
-            Array.Clear(passphrase);
-        }
+                string? passphraseEnvelopeId = null;
+                if (passphrase is { Length: > 0 })
+                {
+                    SecretEnvelope ppEnv = await _vault.StoreAsync(
+                        new VaultStoreRequest { WorkspaceId = _vaultWorkspaceId, CredentialId = credId + "-pp", Type = CredentialTypes.PrivateKeyPassphrase, ActorUserId = Actor },
+                        passphrase);
+                    passphraseEnvelopeId = ppEnv.EnvelopeId;
+                }
 
-        await _store.AddCredentialRefAsync(new CredentialRef
-        {
-            Id = credId,
-            Name = name.Trim(),
-            Type = CredentialTypes.PrivateKey,
-            Metadata = new CredentialMetadata { Username = username.Trim(), HasPrivateKey = true, PassphraseEnvelopeId = passphraseEnvelopeId },
-            SecretEnvelopeId = keyEnv.EnvelopeId,
+                await _store.AddCredentialRefAsync(new CredentialRef
+                {
+                    Id = credId,
+                    Name = name.Trim(),
+                    Type = CredentialTypes.PrivateKey,
+                    Metadata = new CredentialMetadata { Username = username.Trim(), HasPrivateKey = true, PassphraseEnvelopeId = passphraseEnvelopeId },
+                    SecretEnvelopeId = keyEnv.EnvelopeId,
+                });
+            }
+            finally
+            {
+                Array.Clear(privateKey);
+                if (passphrase is not null)
+                {
+                    Array.Clear(passphrase);
+                }
+            }
         });
-        await LoadAsync();
-    }
 
     /// <summary>Substitui a chave privada (rotaciona o envelope da chave).</summary>
-    public async Task ReplaceKeyAsync(CredentialRef cred, char[] newKey)
-    {
-        if (cred.SecretEnvelopeId is { } envId)
+    public Task ReplaceKeyAsync(CredentialRef cred, char[] newKey) => GuardAsync(
+        NotStored,
+        async () =>
         {
-            SecretEnvelope rotated = await _vault.RotateAsync(envId, newKey, new VaultAccessContext { ActorUserId = Actor });
-            await _store.UpdateCredentialRefAsync(Repoint(cred, rotated.EnvelopeId, cred.Metadata?.PassphraseEnvelopeId));
-        }
-        Array.Clear(newKey);
-        await LoadAsync();
-    }
+            try
+            {
+                if (cred.SecretEnvelopeId is { } envId)
+                {
+                    SecretEnvelope rotated = await _vault.RotateAsync(envId, newKey, new VaultAccessContext { ActorUserId = Actor });
+                    await _store.UpdateCredentialRefAsync(Repoint(cred, rotated.EnvelopeId, cred.Metadata?.PassphraseEnvelopeId));
+                }
+            }
+            finally
+            {
+                Array.Clear(newKey);
+            }
+        });
 
     /// <summary>Troca a passphrase da chave: rotaciona o envelope se já existir, senão cria um novo.</summary>
-    public async Task ChangePassphraseAsync(CredentialRef cred, char[] newPassphrase)
-    {
-        if (cred.Metadata?.PassphraseEnvelopeId is { } ppId)
+    public Task ChangePassphraseAsync(CredentialRef cred, char[] newPassphrase) => GuardAsync(
+        NotStored,
+        async () =>
         {
-            SecretEnvelope rotated = await _vault.RotateAsync(ppId, newPassphrase, new VaultAccessContext { ActorUserId = Actor });
-            await _store.UpdateCredentialRefAsync(Repoint(cred, cred.SecretEnvelopeId, rotated.EnvelopeId));
-        }
-        else
-        {
-            SecretEnvelope ppEnv = await _vault.StoreAsync(
-                new VaultStoreRequest { WorkspaceId = _vaultWorkspaceId, CredentialId = cred.Id + "-pp", Type = CredentialTypes.PrivateKeyPassphrase, ActorUserId = Actor },
-                newPassphrase);
-            await _store.UpdateCredentialRefAsync(new CredentialRef
+            try
             {
-                Id = cred.Id,
-                Name = cred.Name,
-                Type = cred.Type,
-                Scope = cred.Scope,
-                Metadata = new CredentialMetadata { Username = cred.Metadata?.Username, HasPrivateKey = true, PassphraseEnvelopeId = ppEnv.EnvelopeId },
-                SecretEnvelopeId = cred.SecretEnvelopeId,
-                Version = cred.Version,
-            });
-        }
-        Array.Clear(newPassphrase);
-        await LoadAsync();
-    }
+                if (cred.Metadata?.PassphraseEnvelopeId is { } ppId)
+                {
+                    SecretEnvelope rotated = await _vault.RotateAsync(ppId, newPassphrase, new VaultAccessContext { ActorUserId = Actor });
+                    await _store.UpdateCredentialRefAsync(Repoint(cred, cred.SecretEnvelopeId, rotated.EnvelopeId));
+                }
+                else
+                {
+                    SecretEnvelope ppEnv = await _vault.StoreAsync(
+                        new VaultStoreRequest { WorkspaceId = _vaultWorkspaceId, CredentialId = cred.Id + "-pp", Type = CredentialTypes.PrivateKeyPassphrase, ActorUserId = Actor },
+                        newPassphrase);
+                    await _store.UpdateCredentialRefAsync(new CredentialRef
+                    {
+                        Id = cred.Id,
+                        Name = cred.Name,
+                        Type = cred.Type,
+                        Scope = cred.Scope,
+                        Metadata = new CredentialMetadata { Username = cred.Metadata?.Username, HasPrivateKey = true, PassphraseEnvelopeId = ppEnv.EnvelopeId },
+                        SecretEnvelopeId = cred.SecretEnvelopeId,
+                        Version = cred.Version,
+                    });
+                }
+            }
+            finally
+            {
+                Array.Clear(newPassphrase);
+            }
+        });
 
     public async Task UpdateAsync(CredentialRef cred, string name, string username)
     {
@@ -160,26 +212,70 @@ public sealed class KeychainViewModel : BaseViewModel
         await LoadAsync();
     }
 
-    public async Task ChangePasswordAsync(CredentialRef cred, char[] newPassword)
-    {
-        // Só credencial de senha rotaciona por aqui — chave usa ReplaceKey/ChangePassphrase.
-        if (cred.Type == CredentialTypes.Password && cred.SecretEnvelopeId is { } envId)
+    public Task ChangePasswordAsync(CredentialRef cred, char[] newPassword) => GuardAsync(
+        NotStored,
+        async () =>
         {
-            SecretEnvelope rotated = await _vault.RotateAsync(envId, newPassword, new VaultAccessContext { ActorUserId = Actor });
-            await _store.UpdateCredentialRefAsync(Repoint(cred, rotated.EnvelopeId, cred.Metadata?.PassphraseEnvelopeId));
+            try
+            {
+                // Só credencial de senha rotaciona por aqui — chave usa ReplaceKey/ChangePassphrase.
+                if (cred.Type == CredentialTypes.Password && cred.SecretEnvelopeId is { } envId)
+                {
+                    SecretEnvelope rotated = await _vault.RotateAsync(envId, newPassword, new VaultAccessContext { ActorUserId = Actor });
+                    await _store.UpdateCredentialRefAsync(Repoint(cred, rotated.EnvelopeId, cred.Metadata?.PassphraseEnvelopeId));
+                }
+            }
+            finally
+            {
+                Array.Clear(newPassword);
+            }
+        });
+
+    public Task DeleteAsync(CredentialRef cred) => GuardAsync(
+        NotDeleted,
+        async () =>
+        {
+            if (cred.SecretEnvelopeId is { } envId)
+                await _vault.RevokeAsync(envId, new VaultAccessContext { ActorUserId = Actor });
+            if (cred.Metadata?.PassphraseEnvelopeId is { } ppId)
+                await _vault.RevokeAsync(ppId, new VaultAccessContext { ActorUserId = Actor });
+            await _store.DeleteCredentialRefAsync(cred.Id);
+        });
+
+    /// <summary>Lead-in de quando a GRAVAÇÃO no cofre não aconteceu.</summary>
+    private const string NotStored = "A senha não foi gravada e nada mudou no cofre.";
+
+    /// <summary>Lead-in de quando a EXCLUSÃO não aconteceu (a credencial continua na lista).</summary>
+    private const string NotDeleted = "A credencial não foi excluída e nada mudou no cofre.";
+
+    /// <summary>
+    /// Roda a operação, recarrega a lista e — o ponto deste método — transforma a recusa do cofre em
+    /// TEXTO na tela em vez de deixá-la subir.
+    ///
+    /// <para><b>Só <see cref="VaultException"/> é capturada.</b> Ela é a recusa DELIBERADA do cofre,
+    /// com frase escrita para o operador. Qualquer outra exceção (banco, disco, bug) continua subindo
+    /// para o tratador global: engolir tudo aqui trocaria uma caixa de erro por um app que não faz
+    /// nada e não diz nada, que é o defeito que esta fatia inteira combate.</para>
+    ///
+    /// <para>O sucesso LIMPA o recado anterior: erro que não some é indistinguível de erro novo, e é
+    /// assim que o operador aprende a ignorá-los.</para>
+    /// </summary>
+    private async Task GuardAsync(string leadIn, Func<Task> operacao)
+    {
+        try
+        {
+            await operacao();
+        }
+        catch (VaultException ex)
+        {
+            // A mensagem do cofre é PRESERVADA inteira: é ela que diz o que fazer ("aceite o convite
+            // … antes de cadastrar ou abrir senhas do time"). O lead-in só acrescenta o que o
+            // operador não tem como deduzir — se sobrou alguma coisa meio-feita.
+            ErrorMessage = $"{leadIn} {ex.Message}";
+            return;
         }
 
-        Array.Clear(newPassword);
-        await LoadAsync();
-    }
-
-    public async Task DeleteAsync(CredentialRef cred)
-    {
-        if (cred.SecretEnvelopeId is { } envId)
-            await _vault.RevokeAsync(envId, new VaultAccessContext { ActorUserId = Actor });
-        if (cred.Metadata?.PassphraseEnvelopeId is { } ppId)
-            await _vault.RevokeAsync(ppId, new VaultAccessContext { ActorUserId = Actor });
-        await _store.DeleteCredentialRefAsync(cred.Id);
+        ErrorMessage = string.Empty;
         await LoadAsync();
     }
 

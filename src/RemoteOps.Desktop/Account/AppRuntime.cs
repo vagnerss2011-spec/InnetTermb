@@ -56,8 +56,19 @@ internal static class AppRuntime
     internal static string TeamDbName(string serverWorkspaceId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(serverWorkspaceId);
-        return "team-" + serverWorkspaceId;
+        return TeamDbPrefix + serverWorkspaceId;
     }
+
+    /// <summary>Prefixo do nome de ARQUIVO do banco de um time (ver <see cref="TeamDbName"/>).</summary>
+    internal const string TeamDbPrefix = "team-";
+
+    /// <summary>
+    /// Este nome de banco é o de um TIME? Mora aqui, ao lado de quem MONTA o nome, para as duas
+    /// pontas nunca divergirem: um prefixo escrito à mão noutro arquivo é o tipo de duplicata que
+    /// envelhece torto e só aparece como rótulo errado na tela do operador.
+    /// </summary>
+    internal static bool IsTeamDbName(string dbName)
+        => dbName.StartsWith(TeamDbPrefix, StringComparison.Ordinal);
 
     /// <summary>
     /// ⚠️ <b>Boot.</b> A lista que a ativação da conta percorre. Um workspace de fora dela não

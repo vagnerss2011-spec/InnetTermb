@@ -6,6 +6,7 @@ using RemoteOps.Contracts.Assets;
 using RemoteOps.Desktop.Credentials;
 using RemoteOps.Desktop.Domain;
 using RemoteOps.Desktop.Infrastructure;
+using RemoteOps.Security.Vault;
 
 namespace RemoteOps.Desktop.ViewModels;
 
@@ -34,6 +35,7 @@ public sealed class HostEditorViewModel : BaseViewModel
     private string? _vendor;
     private string? _model;
     private string? _deviceRole;
+    private string _errorMessage = string.Empty;
     // O operador mexeu no "Tipo" à mão? Se sim, a auto-sugestão para de sobrescrever.
     private bool _roleTouched;
 
@@ -75,6 +77,24 @@ public sealed class HostEditorViewModel : BaseViewModel
 
     /// <summary>Credenciais do Keychain (metadados) disponíveis para anexar ao endpoint em edição.</summary>
     public ObservableCollection<CredentialRef> AvailableCredentials { get; } = [];
+
+    /// <summary>
+    /// ⚠️ <b>A recusa do cofre, em pt-BR, DENTRO do diálogo.</b>
+    ///
+    /// <para>Este era o caso mais mudo dos dois: o <c>SaveCommand</c> descarta a Task
+    /// (<c>_ = SaveAsync()</c>), então a <see cref="RemoteOps.Security.Vault.VaultException"/> do
+    /// fail-closed ficava dentro de uma Task que ninguém observa — nem o
+    /// <c>DispatcherUnhandledException</c> a via. O operador clicava em "Salvar" e <b>nada
+    /// acontecia</b>: o diálogo não fechava, o host não era cadastrado e não havia uma linha na tela.
+    /// Trabalho sumindo sem erro é a classe de defeito nº 1 desta base.</para>
+    /// </summary>
+    public string ErrorMessage
+    {
+        get => _errorMessage;
+        private set { Set(ref _errorMessage, value); RaisePropertyChanged(nameof(HasError)); }
+    }
+
+    public bool HasError => !string.IsNullOrEmpty(ErrorMessage);
 
     public string Name { get => _name; set { Set(ref _name, value); SaveCommand.RaiseCanExecuteChanged(); } }
     public string NewEndpointProtocol { get => _newEndpointProtocol; set { Set(ref _newEndpointProtocol, value); NewEndpointPort = DefaultPortFor(value); AutoSuggestRole(); } }
@@ -301,7 +321,46 @@ public sealed class HostEditorViewModel : BaseViewModel
             AvailableCredentials.Add(c);
     }
 
+    /// <summary>
+    /// Salva o host. A recusa do cofre (fail-closed do cofre de time sem chave) vira TEXTO no
+    /// diálogo, e o <see cref="Saved"/> NÃO dispara — fechar a janela por cima de um cadastro que não
+    /// aconteceu seria afirmar sucesso com uma janela se fechando, o sinal mais convincente que
+    /// existe.
+    ///
+    /// <para><b>Só <c>VaultException</c> é capturada</b>, pelo mesmo motivo do Keychain: é a recusa
+    /// deliberada, com frase escrita para o operador. Falha de banco/disco continua subindo.</para>
+    /// </summary>
     public async Task SaveAsync()
+    {
+        // Nome em branco continua sendo um no-op silencioso, como antes: o botão "Salvar" já fica
+        // desabilitado (CanExecute do SaveCommand), então este caminho só existe para quem chama a
+        // API direto. Fica ANTES do try para o `Saved` também não disparar — era assim ontem.
+        if (string.IsNullOrWhiteSpace(Name))
+        {
+            return;
+        }
+
+        try
+        {
+            await SaveCoreAsync();
+        }
+        catch (VaultException ex)
+        {
+            // A mensagem do cofre vai inteira: é ela que diz o que fazer. O lead-in conta o que o
+            // operador não tem como deduzir — que o endereço saiu da lista porque a senha dele foi
+            // zerada (ver AddEndpointWithCredentialAsync).
+            ErrorMessage =
+                "Não foi possível guardar a senha deste equipamento, então o endereço não foi "
+                + "cadastrado e saiu da lista. Cadastre-o de novo, com a senha, depois de resolver. "
+                + ex.Message;
+            return;
+        }
+
+        ErrorMessage = string.Empty;
+        Saved?.Invoke(this, EventArgs.Empty);
+    }
+
+    private async Task SaveCoreAsync()
     {
         if (string.IsNullOrWhiteSpace(Name)) return;
         if (_existing is null)
@@ -341,7 +400,6 @@ public sealed class HostEditorViewModel : BaseViewModel
                 }
             }
         }
-        Saved?.Invoke(this, EventArgs.Empty);
     }
 
     // Persiste um endpoint no store, materializando a senha inline no cofre (se houver rascunho).
@@ -353,10 +411,23 @@ public sealed class HostEditorViewModel : BaseViewModel
             // Cria a credencial cifrada presa a este endpoint (escondida do Keychain). Zera a senha.
             if (_inlineCreds is not null)
             {
-                // Sem workspace: o cofre é o da SESSÃO, e quem o conhece é o serviço. O editor não
-                // escolhe cofre — escolher errado aqui gravaria a senha do cliente do time no cofre
-                // pessoal do operador, e nada na tela denunciaria.
-                credentialRefId = await _inlineCreds.CreateForEndpointAsync(ep.Id, draft.Username, draft.Password);
+                try
+                {
+                    // Sem workspace: o cofre é o da SESSÃO, e quem o conhece é o serviço. O editor não
+                    // escolhe cofre — escolher errado aqui gravaria a senha do cliente do time no cofre
+                    // pessoal do operador, e nada na tela denunciaria.
+                    credentialRefId = await _inlineCreds.CreateForEndpointAsync(ep.Id, draft.Username, draft.Password);
+                }
+                catch (VaultException)
+                {
+                    // ⚠️ O endereço SAI DA LISTA, e a exceção segue subindo. O rascunho já foi
+                    // consumido e o serviço zerou a senha no `finally` dele (o certo — senha em claro
+                    // não fica esperando o GC). Deixar o endereço na lista faria um SEGUNDO clique em
+                    // "Salvar" gravá-lo sem credencial nenhuma, em silêncio: a recusa alta do cofre
+                    // viraria um equipamento cadastrado sem senha, que é o pior desfecho possível.
+                    Endpoints.Remove(ep);
+                    throw;
+                }
             }
             else
             {

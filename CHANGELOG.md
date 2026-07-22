@@ -192,6 +192,57 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
 
 ### Corrigido
 
+- **"Conecte-se à internet" não resolvia nada — agora o aplicativo realmente busca a chave do time ao
+  abrir.** Quando o cofre do time está aberto mas a **chave ainda não chegou neste computador**, o
+  aviso da barra mandava conectar à internet "para o RemoteOps buscar a chave". Só que nada na
+  abertura buscava chave nenhuma: o único conserto que rodava ali sabia apenas **registrar** a chave
+  que já existisse na máquina, e sem chave ele nem chegava a falar com o servidor. O operador
+  conectava, esperava, e o aviso continuava exatamente igual — um conselho que não funciona é pior
+  que nenhum, porque troca a ação certa por espera. Agora:
+  - Ao abrir o RemoteOps num cofre de time sem a chave, ele **pede à sua conta a chave guardada**. Se
+    ela vier, o cofre do time passa a abrir **na mesma hora**, e a barra deixa de dizer que a chave
+    não chegou.
+  - **O desfecho fica escrito no painel de Logs — deu certo e deu errado.** "A chave foi recuperada",
+    "a sua conta ainda não guarda a chave deste time (aceite o convite, ou abra o RemoteOps no
+    computador em que o cofre do time funciona)" e "o servidor não respondeu; tentamos de novo na
+    próxima abertura" são três situações diferentes, com ações diferentes — e nenhuma delas pode
+    virar silêncio.
+  - **O texto do aviso foi reescrito** para dizer o que de fato resolve: que a busca acontece **a
+    cada abertura**, que reabrir é o que dá nova chance, e que o painel de Logs mostra o resultado da
+    última tentativa.
+  - Quem só tem cofre pessoal continua sem pagar nada: nenhuma ida ao servidor, nenhuma linha no log.
+- **Aviso do que ficou parado no OUTRO cofre.** Cada cofre tem o seu banco local, e a sincronização
+  de uma sessão envia a fila **daquele** cofre e mais nenhuma. Então editar um cliente no cofre
+  pessoal e depois abrir o RemoteOps no time deixava aquelas edições **paradas**, esperando você
+  reabrir no cofre pessoal — enquanto a barra continuava dizendo "Sincronizado", com toda a razão,
+  porque a sincronização desta sessão realmente tinha terminado. Não havia como perceber; era a
+  queixa de "as credenciais não sincronizaram" chegando de novo. Agora, ao abrir, o aplicativo
+  **confere a fila do cofre que não está aberto** e escreve na barra **quantos** itens estão parados
+  e **em qual cofre**, com a instrução completa no detalhe: feche o RemoteOps e abra de novo
+  escolhendo aquele cofre. **Nada foi perdido** — está tudo na fila, esperando.
+  - **"Não deu para conferir" também aparece**, e não vira "está tudo certo": se um cofre não puder
+    ser lido, a barra diz isso com todas as letras.
+  - A conferência **não escreve nada** no banco do outro cofre e **não cria chave nenhuma** — só
+    olha. Um aviso não pode custar o acesso ao banco que ele veio proteger.
+- **A recusa do cofre aparece onde você está, em vez de virar "Erro inesperado".** Num cofre de time
+  sem a chave, o RemoteOps **recusa** guardar ou abrir senhas — de propósito, e com uma frase que já
+  diz o que fazer ("aceite o convite… antes de cadastrar ou abrir senhas do time"). Só que essa frase
+  chegava dentro de uma caixa intitulada **"Erro inesperado"**, como se fosse defeito do programa: o
+  operador tentava de novo, ou ligava para o suporte, em vez de aceitar o convite. Pior ainda no
+  cadastro de equipamento — ali o clique em **"Salvar" simplesmente não fazia nada**: o diálogo não
+  fechava, o host não era cadastrado e **não havia uma linha na tela**. Agora a recusa é desenhada no
+  próprio Keychain e no próprio diálogo de cadastro, com a frase inteira, e o diálogo **continua
+  aberto** para você resolver ou cancelar.
+  - **O endereço com senha sai da lista quando a senha não pôde ser guardada**, e a tela avisa que
+    ele precisa ser cadastrado de novo com a senha. Deixá-lo ali faria um segundo clique em "Salvar"
+    gravá-lo **sem credencial nenhuma**, em silêncio — trocar a recusa por um equipamento cadastrado
+    sem senha.
+  - A senha digitada é **zerada da memória também quando o cofre recusa** (antes só era zerada no
+    caminho de sucesso).
+  - Só a recusa do cofre é tratada assim. Falha de disco ou de banco continua indo para o tratamento
+    global — engolir tudo aqui trocaria uma caixa de erro por um aplicativo que não faz nada e não
+    diz nada.
+
 - **Reenvio infinito de uma senha revogada.** Quando o servidor recusava um envelope porque ele **já
   está revogado lá**, o aplicativo não anotava nada e mandava **o mesmo pedido a cada ciclo, para
   sempre** — bateria, tráfego e log poluído sem nenhuma chance de desfecho diferente, já que
