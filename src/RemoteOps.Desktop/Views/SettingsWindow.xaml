@@ -107,6 +107,27 @@
                         <Separator Margin="0,12,0,12"/>
                     </StackPanel>
 
+                    <!-- Equipe (Fatia 1). Some inteira sem nuvem ativa: sem servidor não há convite
+                         nem membro, e um botão que só sabe dizer "indisponível" é ruído. -->
+                    <StackPanel x:Name="TeamSection"
+                                Visibility="{Binding CanManageTeam, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Text="Equipe" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                        <TextBlock Text="Um cofre compartilhado: clientes e equipamentos cadastrados por várias pessoas e sincronizados entre todas. O convite tem duas metades — o link vai por e-mail, o código vai por outro canal."
+                                   Foreground="{DynamicResource Brush.Text.Secondary}"
+                                   FontSize="{DynamicResource Font.Size.Caption}"
+                                   TextWrapping="Wrap" Margin="0,0,0,10"/>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <Button x:Name="InviteToTeamButton" Content="Convidar alguém para o time…"
+                                    Command="{Binding InviteToTeamCommand}" Padding="10,4" Margin="0,0,8,0"/>
+                            <Button x:Name="JoinTeamButton" Content="Tenho um convite…"
+                                    Command="{Binding JoinTeamCommand}" Padding="10,4"/>
+                        </StackPanel>
+
+                        <!-- Separador DENTRO da seção, pelo mesmo motivo do bloco de reenvio acima. -->
+                        <Separator Margin="0,12,0,12"/>
+                    </StackPanel>
+
                     <TextBlock Text="Verificação em duas etapas (2FA)" FontWeight="SemiBold" Margin="0,0,0,4"/>
                     <TextBlock Text="Exige um código do seu aplicativo autenticador ao entrar na conta da nuvem. Protege o acesso ao servidor; não altera a senha do cofre."
                                Foreground="{DynamicResource Brush.Text.Secondary}"

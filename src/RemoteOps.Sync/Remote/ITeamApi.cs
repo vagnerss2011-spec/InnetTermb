@@ -1,0 +1,32 @@
+namespace RemoteOps.Sync.Remote;
+
+/// <summary>
+/// Endpoints de TIME (Fatia 1). Todos AUTENTICADOS — inclusive os de convite: o convidado já criou
+/// a conta dele antes de aceitar, e é o e-mail dessa conta que o convite tem de bater.
+///
+/// <para>Separado do <see cref="ICloudSyncApi"/> pelo mesmo motivo do <see cref="IMfaApi"/>: ciclo
+/// de vida diferente (roda em ações pontuais do operador, não no laço de sync) e superfície
+/// diferente. Implementações nunca recebem o CÓDIGO do convite — só o hash e blobs opacos.</para>
+/// </summary>
+public interface ITeamApi
+{
+    /// <summary>Cria o convite. O blob e o hash já vêm prontos do cliente.</summary>
+    Task<CreateTeamInviteResponse> CreateInviteAsync(
+        string workspaceId, CreateTeamInviteRequest request, CancellationToken ct = default);
+
+    /// <summary>Troca a prova do código pelo blob da WK. Não consome o convite.</summary>
+    Task<TeamInviteContextResponse> GetInviteContextAsync(
+        string inviteId, string codeHash, CancellationToken ct = default);
+
+    /// <summary>Conclui o aceite gravando a WK re-embrulhada sob a AMK do convidado.</summary>
+    Task<AcceptTeamInviteResponse> AcceptInviteAsync(
+        string inviteId, AcceptTeamInviteRequest request, CancellationToken ct = default);
+
+    /// <summary>
+    /// A WK do workspace embrulhada sob a AMK de quem pergunta, ou <c>null</c> quando o servidor
+    /// responde 404 — que aqui NÃO é erro: é a resposta "este workspace é pessoal, a chave se
+    /// deriva da AMK". Traduzir isso em exceção faria o cliente tratar o cofre pessoal como falha.
+    /// </summary>
+    Task<TeamWorkspaceKeyResponse?> GetWorkspaceKeyAsync(
+        string workspaceId, CancellationToken ct = default);
+}

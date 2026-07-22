@@ -202,6 +202,10 @@ public partial class App : Application
             // sync só sobe no fim deste método, ou depois, quando a conta é ativada.
             _workspaceViewModel.CloudResyncFactory = () => TryCreateCloudResync(store);
 
+            // Equipe (Fatia 1): convidar alguém e aceitar convite. Lazy pelo mesmo motivo dos dois
+            // acima — quando este VM é resolvido, a conta (e o chaveiro do time) ainda não existem.
+            _workspaceViewModel.TeamInviteFactory = TryCreateTeamInviteService;
+
             // Recarga da lista de hosts quando o sync baixa dados novos (Fase 2). Sem isto, o device B
             // abre com a lista VAZIA: o LoadAsync roda uma vez no Loaded, e nada recarrega quando o
             // primeiro pull materializa os hosts segundos depois. Debounced (300ms) porque um pull
@@ -765,12 +769,44 @@ public partial class App : Application
         return new MfaApiClient(http, config.DeviceId, tokens);
     }
 
-    /// <summary>Abre a janela de conta (modal) e devolve a sessão autenticada, ou null se cancelou.</summary>
+    /// <summary>
+    /// O serviço de convite do time, ou <c>null</c> em modo local (sem conta ativa). Reusa o token
+    /// store do coordenador — mesmo cache do sync, logo um refresh coerente — e o chaveiro de time
+    /// do ativador, que é quem guarda a WK embrulhada sob a AMK.
+    ///
+    /// <para>Lazy pelo mesmo motivo do 2FA: quando este factory é montado, a conta ainda não existe.</para>
+    /// </summary>
+    private TeamInviteContext? TryCreateTeamInviteService()
+    {
+        if (_coordinator?.ActiveTokenStore is not { } tokens
+            || _coordinator.ActiveWorkspaceId is not { } workspaceId
+            || _accountConfig is not { } config
+            || _accountActivator is not VaultRootActivator { TeamKeyRing: { } teamKeyRing })
+        {
+            return null;
+        }
+
+        var http = new HttpClient { BaseAddress = config.CloudUrl };
+        return new TeamInviteContext(
+            new TeamInviteService(new TeamApiClient(http, config.DeviceId, tokens), teamKeyRing),
+            workspaceId);
+    }
+
+    /// <summary>
+    /// Abre a janela de conta (modal) e devolve a sessão autenticada, ou null se cancelou.
+    ///
+    /// <para>O <see cref="DialogWorkspaceChooser"/> entra aqui: com 2+ cofres (o pessoal e o do
+    /// time), o login PERGUNTA em qual entrar, em vez de pegar o primeiro da lista. Com um só ele
+    /// nem é consultado — quem nunca vai ter time não ganha uma tela a mais no boot diário.</para>
+    /// </summary>
     private static AccountSession? ShowAccountWindow(Uri cloudUrl, Guid deviceId)
     {
         var http = new HttpClient { BaseAddress = cloudUrl };
         var authenticator = new E2eeAccountAuthenticator(
-            new AccountApiClient(http), deviceId, Environment.MachineName);
+            new AccountApiClient(http),
+            deviceId,
+            Environment.MachineName,
+            new DialogWorkspaceChooser(Current.Dispatcher));
         var viewModel = new AccountViewModel(authenticator);
         var window = new AccountWindow(viewModel);
 

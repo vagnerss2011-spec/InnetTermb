@@ -47,6 +47,13 @@ public sealed class AccountSyncCoordinator
     /// </summary>
     public ITokenStore? ActiveTokenStore => _tokens;
 
+    /// <summary>
+    /// Workspace ATIVO no servidor (GUID), ou <c>null</c> sem conta. Exposto porque o convite do
+    /// time é sempre PARA um workspace: sem ele a tela de Equipe teria de adivinhar qual, e adivinhar
+    /// o cofre é o erro que a escolha ao abrir veio impedir.
+    /// </summary>
+    public string? ActiveWorkspaceId => _activeWorkspaceId;
+
     /// <param name="vaultWorkspaceIds">
     /// Workspaces do COFRE LOCAL (ex.: <c>ws-local</c>, <c>local</c>) — as identidades sob as quais
     /// os segredos deste device estão selados. Não confundir com o workspace do SERVIDOR (GUID), que

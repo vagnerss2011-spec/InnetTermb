@@ -44,6 +44,45 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
     mão fica desatualizado.
 - Migração de banco `AddTeamInvites` (tabela de convites + duas colunas na membership). **Aditiva**:
   o cofre pessoal e os ~700 equipamentos não mudam em nada.
+- **Convite de time no aplicativo (lado cliente).** Em *Configurações → Conta → Equipe*:
+  - **Convidar alguém:** o app sorteia o código de 160 bits **no seu computador**, no mesmo formato
+    da chave de recuperação (grupos de quatro letras/números, fácil de ditar ao telefone). A tela
+    mostra o código com o aviso em destaque: **"O CÓDIGO NÃO VAI NO E-MAIL — mande por outro canal"**.
+    Para o servidor sobem apenas o embrulho da chave do time e o resumo (hash) do código.
+  - **Tenho um convite:** identificador (do e-mail) + código (do outro canal). O app abre a chave do
+    time, **guarda-a neste computador** e só então confirma a entrada no servidor, já com a chave
+    re-embrulhada sob a chave da própria conta de quem entrou.
+  - Convite vencido, código errado ou digitado torto viram **um recado que diz o que fazer** — nunca
+    "Não foi possível concluir a operação". Código com espaço, minúscula ou sem hífen funciona igual.
+- **Escolher o cofre ao abrir o app.** Com mais de um cofre (o pessoal e o do time), o RemoteOps
+  **pergunta em qual entrar** e avisa que o que for cadastrado fica no cofre escolhido — cadastrar o
+  equipamento do cliente no cofre pessoal por engano é o incidente que isso evita. **Com um cofre só,
+  nada muda:** entra direto, sem nenhuma tela a mais. Fechar a tela de escolha volta ao login, em vez
+  de abrir um cofre no chute.
+
+### Segurança (cliente)
+
+- **O cofre do time recusa em vez de improvisar chave.** O cofre pede a chave do workspace em *toda*
+  operação, e a chave do time **não é derivada — ela vem do convite**. Se algo tocasse o cofre do time
+  antes de o convite ser aceito, o caminho ingênuo sortearia uma chave nova e o cofre **bifurcaria em
+  silêncio**: a pessoa passaria semanas cadastrando senhas que ninguém da equipe consegue abrir, sem
+  um único erro na tela. Agora esse caminho **falha alto**, dizendo para aceitar o convite primeiro.
+  O aceite também importa a chave **antes** de confirmar a entrada no servidor, para não existir nem
+  um instante de "sou do time e não tenho a chave".
+- **Cofre de time não passa pela migração de raiz** da conta: ela o carimbaria como "derivado da sua
+  conta", quando a chave dele é o oposto — sorteada e **compartilhada**. O carimbo errado não daria
+  erro nenhum na hora; só faria o cofre abrir com a chave errada depois.
+
+### Corrigido
+
+- **Reenvio infinito de uma senha revogada.** Quando o servidor recusava um envelope porque ele **já
+  está revogado lá**, o aplicativo não anotava nada e mandava **o mesmo pedido a cada ciclo, para
+  sempre** — bateria, tráfego e log poluído sem nenhuma chance de desfecho diferente, já que
+  revogação é caminho só de ida. Agora essa recusa é tratada como **definitiva**. A lápide local (que
+  nasce na versão seguinte) continua subindo normalmente — nada fica para trás. As recusas que o
+  servidor manda **repetir** (`concurrency.retry`, `cursor.race-retry`) seguem sendo repetidas, e a
+  anomalia `envelope.workspace-mismatch` continua **sem** ser marcada de propósito: ali o segredo
+  realmente nunca subiu, e declará-lo enviado seria escondê-lo.
 
 ### Segurança
 

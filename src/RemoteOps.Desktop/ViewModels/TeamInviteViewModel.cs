@@ -1,0 +1,286 @@
+using System;
+using System.Net;
+using System.Net.Http;
+using System.Threading.Tasks;
+
+using RemoteOps.Desktop.Account;
+using RemoteOps.Sync.Remote;
+
+namespace RemoteOps.Desktop.ViewModels;
+
+/// <summary>Os dois lados da mesma janela: quem convida e quem entra.</summary>
+public enum TeamInviteMode
+{
+    /// <summary>Dono/gerente gerando um convite.</summary>
+    Generate,
+
+    /// <summary>Convidado informando identificador + código.</summary>
+    Accept,
+}
+
+/// <summary>
+/// Janela de convite do time (Fatia 1). Não conhece cripto nem HTTP — fala com o
+/// <see cref="TeamInviteService"/> e traduz falha em recado acionável em pt-BR.
+///
+/// <para><b>O texto desta tela é parte da segurança, não decoração.</b> O convite tem DUAS metades
+/// que precisam viajar por canais diferentes: o link/identificador vai por e-mail, o CÓDIGO vai por
+/// WhatsApp, telefone ou pessoalmente. Se o operador colar o código no mesmo e-mail, qualquer caixa
+/// de entrada invadida vira acesso ao cofre do time — por isso o aviso é frase inteira, em destaque,
+/// e não uma nota de rodapé.</para>
+/// </summary>
+public sealed class TeamInviteViewModel : BaseViewModel
+{
+    /// <summary>
+    /// Aviso que NÃO pode sumir da tela do dono. Constante (e não texto solto no XAML) porque é
+    /// afirmado por teste de render: um refactor que o apague tem de ficar vermelho.
+    /// </summary>
+    public const string OutOfBandWarning =
+        "O CÓDIGO NÃO VAI NO E-MAIL — mande por outro canal (WhatsApp, telefone ou pessoalmente). "
+        + "O e-mail leva só o link do convite. São duas metades de propósito: quem tiver só o e-mail "
+        + "não abre o cofre do time.";
+
+    private readonly TeamInviteService _service;
+    private readonly string _workspaceId;
+    private readonly Action<string> _copyToClipboard;
+
+    private TeamInviteMode _mode;
+    private string _email = string.Empty;
+    private string _role = "Technician";
+    private string _inviteId = string.Empty;
+    private string _code = string.Empty;
+    private string _generatedCode = string.Empty;
+    private string _errorMessage = string.Empty;
+    private string _statusMessage = string.Empty;
+    private bool _isBusy;
+
+    public TeamInviteViewModel(
+        TeamInviteService service,
+        string workspaceId,
+        TeamInviteMode mode = TeamInviteMode.Generate,
+        Action<string>? copyToClipboard = null)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+        ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
+
+        _service = service;
+        _workspaceId = workspaceId;
+        _mode = mode;
+        _copyToClipboard = copyToClipboard ?? (text => System.Windows.Clipboard.SetText(text));
+        CopyCodeCommand = new RelayCommand(CopyCode, () => HasGeneratedCode);
+    }
+
+    /// <summary>Convite aceito — a janela fecha e quem abriu decide o que fazer com o cofre novo.</summary>
+    public event EventHandler<AcceptedTeamInvite>? Accepted;
+
+    public TeamInviteMode Mode
+    {
+        get => _mode;
+        private set
+        {
+            Set(ref _mode, value);
+            RaisePropertyChanged(nameof(IsGenerateMode));
+            RaisePropertyChanged(nameof(IsAcceptMode));
+            RaisePropertyChanged(nameof(Title));
+        }
+    }
+
+    public bool IsGenerateMode => Mode == TeamInviteMode.Generate;
+
+    public bool IsAcceptMode => Mode == TeamInviteMode.Accept;
+
+    public string Title => IsGenerateMode ? "Convidar alguém para o time" : "Entrar num time";
+
+    /// <summary>O aviso fora-de-banda, para o XAML bindar (ver <see cref="OutOfBandWarning"/>).</summary>
+    public string Warning => OutOfBandWarning;
+
+    public string Email { get => _email; set => Set(ref _email, value); }
+
+    /// <summary>Papel RBAC do convidado. O backend recusa papel mais poderoso que o de quem convida.</summary>
+    public string Role { get => _role; set => Set(ref _role, value); }
+
+    public string InviteId { get => _inviteId; set => Set(ref _inviteId, value); }
+
+    /// <summary>Código digitado pelo convidado (o que chegou pelo outro canal).</summary>
+    public string Code { get => _code; set => Set(ref _code, value); }
+
+    /// <summary>
+    /// O código recém-sorteado, para o dono ditar. É string porque a tela o exibe e o copia — como a
+    /// chave de recuperação, ele vive um diálogo e some com o GC. O servidor nunca o teve.
+    /// </summary>
+    public string GeneratedCode
+    {
+        get => _generatedCode;
+        private set
+        {
+            Set(ref _generatedCode, value);
+            RaisePropertyChanged(nameof(HasGeneratedCode));
+            CopyCodeCommand.RaiseCanExecuteChanged();
+        }
+    }
+
+    public bool HasGeneratedCode => !string.IsNullOrEmpty(GeneratedCode);
+
+    public string ErrorMessage
+    {
+        get => _errorMessage;
+        private set { Set(ref _errorMessage, value); RaisePropertyChanged(nameof(HasError)); }
+    }
+
+    public bool HasError => !string.IsNullOrEmpty(ErrorMessage);
+
+    public string StatusMessage
+    {
+        get => _statusMessage;
+        private set { Set(ref _statusMessage, value); RaisePropertyChanged(nameof(HasStatus)); }
+    }
+
+    public bool HasStatus => !string.IsNullOrEmpty(StatusMessage);
+
+    public bool IsBusy
+    {
+        get => _isBusy;
+        private set { Set(ref _isBusy, value); RaisePropertyChanged(nameof(IsIdle)); }
+    }
+
+    /// <summary>Negação de <see cref="IsBusy"/> pro XAML (IsEnabled) — evita um converter só pra isso.</summary>
+    public bool IsIdle => !IsBusy;
+
+    public RelayCommand CopyCodeCommand { get; }
+
+    /// <summary>Gera o convite e mostra o código ao dono. O código NÃO vai para o servidor.</summary>
+    public async Task GenerateAsync()
+    {
+        if (IsBusy)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(Email) || !Email.Contains('@', StringComparison.Ordinal))
+        {
+            ErrorMessage = "Informe o e-mail de quem você quer convidar.";
+            return;
+        }
+
+        ErrorMessage = string.Empty;
+        StatusMessage = string.Empty;
+        IsBusy = true;
+        try
+        {
+            GeneratedTeamInvite invite = await _service.CreateInviteAsync(
+                _workspaceId, Email.Trim(), Role.Trim());
+
+            InviteId = invite.InviteId;
+            GeneratedCode = invite.Code;
+
+            // O e-mail é CONVENIÊNCIA, não o convite. Se ele não saiu, o dono precisa SABER — senão
+            // fica esperando uma mensagem que nunca vai chegar (falha silenciosa clássica).
+            StatusMessage = invite.EmailDelivered
+                ? $"Convite criado e enviado para {invite.Email}. Expira em "
+                  + $"{invite.ExpiresAt.ToLocalTime():dd/MM/yyyy HH:mm}. Agora passe o código abaixo "
+                  + "por outro canal."
+                : $"Convite criado, mas o e-mail para {invite.Email} NÃO saiu. Passe o "
+                  + $"identificador ({invite.InviteId}) e o código abaixo direto para a pessoa. "
+                  + $"Expira em {invite.ExpiresAt.ToLocalTime():dd/MM/yyyy HH:mm}.";
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = Describe(ex);
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    /// <summary>Aceita o convite: identificador + código. A chave do time entra no cofre local aqui.</summary>
+    public async Task AcceptAsync()
+    {
+        if (IsBusy)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(InviteId))
+        {
+            ErrorMessage = "Informe o identificador do convite (ele está no e-mail que você recebeu).";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(Code))
+        {
+            ErrorMessage = "Informe o código que você recebeu por WhatsApp, telefone ou pessoalmente.";
+            return;
+        }
+
+        ErrorMessage = string.Empty;
+        StatusMessage = string.Empty;
+        IsBusy = true;
+        try
+        {
+            AcceptedTeamInvite accepted = await _service.AcceptInviteAsync(InviteId.Trim(), Code);
+
+            StatusMessage = accepted.SessionRefreshRequired
+                ? $"Você entrou no time \"{accepted.WorkspaceName}\" como {accepted.Role}. "
+                  + "Feche e abra o RemoteOps para o acesso valer — a sessão atual ainda é a antiga."
+                : $"Você entrou no time \"{accepted.WorkspaceName}\" como {accepted.Role}.";
+
+            Accepted?.Invoke(this, accepted);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = Describe(ex);
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private void CopyCode()
+    {
+        try
+        {
+            _copyToClipboard(GeneratedCode);
+            StatusMessage = "Código copiado. Cole numa conversa de WhatsApp — nunca no e-mail do convite.";
+        }
+        catch (Exception)
+        {
+            // A área de transferência pode estar travada por outro processo (COM). Não é motivo pra
+            // derrubar a tela: o código está visível e pode ser ditado.
+            StatusMessage = "Não foi possível copiar. Dite o código para a pessoa.";
+        }
+    }
+
+    /// <summary>
+    /// Falha → recado acionável em pt-BR. O <see cref="TeamInviteException"/> já vem pronto do
+    /// serviço (ele é quem sabe distinguir código torto de convite vencido); o resto é rede/servidor.
+    /// </summary>
+    private static string Describe(Exception ex) => ex switch
+    {
+        TeamInviteException invite => invite.Message,
+
+        CloudSyncException { StatusCode: HttpStatusCode.Forbidden }
+            => "Sua conta não tem permissão para convidar neste time. Peça a quem administra o time.",
+
+        CloudSyncException { StatusCode: HttpStatusCode.Conflict }
+            => "Essa pessoa já é membro deste time.",
+
+        CloudSyncException { StatusCode: HttpStatusCode.Unauthorized }
+            => "Sua sessão expirou. Feche e abra o RemoteOps para entrar de novo.",
+
+        CloudSyncException { StatusCode: >= HttpStatusCode.InternalServerError }
+            => "O servidor está fora do ar. Tente de novo em alguns minutos.",
+
+        CloudSyncException { StatusCode: { } status }
+            => $"O servidor recusou a operação (HTTP {(int)status}). "
+                + "Se persistir, confira o endereço do RemoteOps Cloud nas configurações.",
+
+        HttpRequestException
+            => "Sem conexão com o servidor. Verifique sua rede e o endereço do RemoteOps Cloud.",
+
+        TaskCanceledException or TimeoutException
+            => "O servidor demorou demais para responder. Tente de novo.",
+
+        _ => "Não foi possível concluir a operação. Tente de novo.",
+    };
+}

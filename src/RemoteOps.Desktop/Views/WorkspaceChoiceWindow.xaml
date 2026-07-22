@@ -1,0 +1,39 @@
+<Window x:Class="RemoteOps.Desktop.Views.WorkspaceChoiceWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="RemoteOps — Escolher cofre" Height="Auto" Width="460" SizeToContent="Height"
+        WindowStartupLocation="CenterScreen" ResizeMode="NoResize"
+        Background="{DynamicResource Brush.Bg.App}"
+        Foreground="{DynamicResource Brush.Text.Primary}"
+        FontFamily="{DynamicResource Font.Family.Base}"
+        FontSize="{DynamicResource Font.Size.Body}">
+    <!--
+        Escolher o cofre ao abrir (Fatia 1). Como na AccountWindow, os controles NÃO levam
+        Background/Foreground/BorderBrush locais: o tema define estilo IMPLÍCITO por TargetType, e
+        estilo local é o que produz o controle "claro do Aero2" no meio da janela escura.
+    -->
+    <StackPanel Margin="20">
+        <TextBlock x:Name="TitleText" Text="{Binding Title}"
+                   Style="{DynamicResource Text.TitleLg}" Margin="0,0,0,6"/>
+
+        <TextBlock x:Name="ExplanationText" Text="{Binding Explanation}"
+                   Style="{DynamicResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,14"/>
+
+        <ListBox x:Name="WorkspaceList" ItemsSource="{Binding Workspaces}"
+                 SelectedItem="{Binding Selected}" MaxHeight="260" Margin="0,0,0,14">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <StackPanel Margin="4,6">
+                        <TextBlock Text="{Binding Name}" Style="{DynamicResource Text.BodyStrong}"
+                                   TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding RoleLabel}" Style="{DynamicResource Text.Caption}"/>
+                    </StackPanel>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <Button x:Name="ConfirmButton" Content="Entrar neste cofre"
+                Style="{DynamicResource Button.Primary}" IsDefault="True"
+                Command="{Binding ConfirmCommand}" Padding="10,6"/>
+    </StackPanel>
+</Window>

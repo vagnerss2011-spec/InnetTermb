@@ -25,6 +25,7 @@ public sealed class VaultRootActivator : IAccountVaultActivator, IDisposable
     private readonly string _tokenRefPath;
 
     private AmkWorkspaceKeyRing? _amkKeyRing;
+    private WkWorkspaceKeyRing? _teamKeyRing;
 
     /// <param name="fileStore">O cofre em disco — é <see cref="IVaultMigrationStore"/> e key store.</param>
     /// <param name="legacyKeyRing">Raiz DPAPI atual: só serve pra ABRIR o que já está selado.</param>
@@ -49,6 +50,19 @@ public sealed class VaultRootActivator : IAccountVaultActivator, IDisposable
     /// </summary>
     public CredentialVault? Vault { get; private set; }
 
+    /// <summary>
+    /// A raiz da chave do TIME (WK aleatória compartilhada), viva enquanto a conta estiver ativa.
+    /// É por ela que o convite entra e sai: o dono sorteia a WK ao convidar, o convidado a IMPORTA
+    /// ao aceitar. <c>null</c> antes do <see cref="ActivateAsync"/> — sem AMK não há como
+    /// embrulhá-la em disco.
+    ///
+    /// <para>Ela existe separada do <see cref="Vault"/> de propósito: o cofre do app segue
+    /// AMK-rooted (a chave do banco SQLCipher é um segredo DELE, e é por máquina, não por time).
+    /// Trocar a raiz do cofre inteiro para a WK deixaria a chave do banco ilegível — o app não
+    /// abriria mais.</para>
+    /// </summary>
+    public WkWorkspaceKeyRing? TeamKeyRing => _teamKeyRing;
+
     public async Task<ITokenStore> ActivateAsync(
         ReadOnlyMemory<byte> amk,
         string syncWorkspaceId,
@@ -60,19 +74,41 @@ public sealed class VaultRootActivator : IAccountVaultActivator, IDisposable
 
         // Migra TODOS os workspaces locais antes de trocar a raiz do app. Idempotente (no-op se já
         // migrado), então roda em todo login/startup sem custo depois da primeira vez.
+        // ⚠️ Boot: a lista efetiva inclui o cofre do TIME deste workspace. Um workspace de fora da
+        // lista não degrada — trava o app na abertura (já mordeu duas vezes nesta base). Decidido
+        // AQUI, num lugar só, em cima da lista que este ativador recebeu.
         var migrator = new LocalVaultMigrator(_fileStore, _legacyKeyRing);
-        foreach (string workspaceId in vaultWorkspaceIds)
+        foreach (string workspaceId in AppRuntime.VaultWorkspacesFor(syncWorkspaceId, vaultWorkspaceIds))
         {
+            // ⚠️ Cofre de TIME não migra. A migração DPAPI→AMK carimbaria o workspace como
+            // "derivado da conta", e a chave dele é o oposto disso: aleatória e COMPARTILHADA. O
+            // carimbo errado não daria erro nenhum agora — só faria o cofre do time abrir com a
+            // chave errada depois, que é a falha silenciosa que esta fatia inteira tenta evitar.
+            // Ele também nunca teve fase DPAPI: nasce sob a WK, no aceite do convite.
+            if (AppRuntime.IsTeamVaultWorkspace(workspaceId))
+            {
+                continue;
+            }
+
             await migrator.MigrateWorkspaceAsync(workspaceId, amk, ct).ConfigureAwait(false);
         }
 
         _amkKeyRing = new AmkWorkspaceKeyRing(amk.Span);
         Vault = new CredentialVault(_fileStore, _amkKeyRing, new InMemoryVaultAuditSink());
 
+        // Criação PERMITIDA aqui: este ring é o do fluxo de convite, e convidar é justamente o ato
+        // que faz a chave de um time nascer. O ring que serve o COFRE do time (1e) roda
+        // fail-closed — ver WkWorkspaceKeyRing.allowKeyCreation.
+        _teamKeyRing = new WkWorkspaceKeyRing(_fileStore, amk.Span);
+
         return new VaultTokenStore(Vault, syncWorkspaceId, _tokenRefPath);
     }
 
-    public void Dispose() => _amkKeyRing?.Dispose();
+    public void Dispose()
+    {
+        _amkKeyRing?.Dispose();
+        _teamKeyRing?.Dispose();
+    }
 }
 
 /// <summary>

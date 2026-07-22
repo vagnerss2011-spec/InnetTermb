@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using RemoteOps.Desktop.Account;
 using RemoteOps.Desktop.Changelog;
 using RemoteOps.Desktop.Infrastructure;
 using RemoteOps.Desktop.Reporting;
@@ -51,6 +52,13 @@ public sealed class WorkspaceViewModel : BaseViewModel
     /// </summary>
     public Func<CloudResyncService?>? CloudResyncFactory { get; set; }
 
+    /// <summary>
+    /// Fábrica LAZY do convite de time (Fatia 1). Lazy pelo MESMO motivo das duas acima: precisa dos
+    /// tokens da conta E do chaveiro de time, que só existem depois da ativação. Null (ou fábrica que
+    /// devolve null) = modo local, e a seção de Equipe some das Configurações.
+    /// </summary>
+    public Func<TeamInviteContext?>? TeamInviteFactory { get; set; }
+
     public BrowserViewModel Browser { get; }
     public TabsViewModel Tabs { get; }
 
@@ -75,7 +83,8 @@ public sealed class WorkspaceViewModel : BaseViewModel
         BugReportViewModel? bugReport = _bugReportComposer is null ? null : new BugReportViewModel(_bugReportComposer);
         IMfaApi? mfaApi = MfaApiFactory?.Invoke();
         CloudResyncService? resync = CloudResyncFactory?.Invoke();
-        return new SettingsViewModel(store, _updateService, changelog, bugReport, mfaApi, resync);
+        TeamInviteContext? team = TeamInviteFactory?.Invoke();
+        return new SettingsViewModel(store, _updateService, changelog, bugReport, mfaApi, resync, team);
     }
 
     public string AppVersionText =>

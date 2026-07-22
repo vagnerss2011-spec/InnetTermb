@@ -210,20 +210,36 @@ public sealed class SecretSyncOrchestrator
             or HttpStatusCode.UnprocessableEntity;
 
     /// <summary>
-    /// "Já está no servidor?" — e só isso marca o ledger.
+    /// "Insistir neste POST pode mudar alguma coisa?" — e é ISSO que decide o ledger, não "deu
+    /// certo". A pergunta certa importa: marcar de menos é um retry infinito (bateria, tráfego e log
+    /// poluído a cada ciclo, para sempre); marcar de mais é a falha silenciosa clássica desta base —
+    /// um segredo que nunca subiu declarado como enviado.
     ///
-    /// <para><c>ok</c>: subiu agora. <c>version.conflict</c>: o servidor já tem esta versão ou uma
-    /// mais nova, então insistir seria um POST inútil por ciclo, pra sempre.</para>
+    /// <para><b>Marcam (TERMINAIS):</b></para>
+    /// <list type="bullet">
+    ///   <item><c>ok</c> — subiu agora.</item>
+    ///   <item><c>version.conflict</c> — o servidor já tem esta versão ou uma mais nova.</item>
+    ///   <item><c>envelope.revoked</c> — o servidor tem a LÁPIDE daquele id, e revogação é caminho só
+    ///   de ida: a cópia viva que este device tem na fila não vai ser aceita nunca, em ciclo nenhum.
+    ///   A marca é na VERSÃO recusada, então a lápide local (que nasce em versão+1) continua subindo
+    ///   normalmente — nada fica para trás.</item>
+    /// </list>
     ///
-    /// <para>Os OUTROS conflitos NÃO marcam de propósito: <c>cursor.race-retry</c> e
-    /// <c>concurrency.retry</c> são corridas que o servidor manda re-tentar (nesta última a linha
-    /// mudou entre a leitura e a gravação do upsert — tipicamente a lápide de revogação chegando no
-    /// meio), e <c>envelope.workspace-mismatch</c> é anomalia real (o id existe noutro workspace) —
-    /// marcar como enviado esconderia um envelope que nunca subiu.</para>
+    /// <para><b>Não marcam (RE-TENTAR):</b> <c>cursor.race-retry</c> e <c>concurrency.retry</c> são
+    /// corridas que o servidor manda repetir (na segunda, a linha mudou entre a leitura e a gravação
+    /// do upsert — tipicamente a lápide chegando no meio). E <c>envelope.workspace-mismatch</c>
+    /// continua não marcando de propósito: ali o servidor NÃO tem estado nenhum para este workspace,
+    /// ou seja, o segredo realmente nunca subiu — é a anomalia que precisa continuar visível. É essa
+    /// a diferença para o <c>envelope.revoked</c>, onde o servidor tem um estado mais novo e
+    /// definitivo para o mesmo id.</para>
+    ///
+    /// <para>Motivo desconhecido (servidor mais novo que este cliente) também não marca: re-tentar é
+    /// a postura conservadora — perde-se um POST por ciclo, não um segredo.</para>
     /// </summary>
     private static bool ShouldMarkPushed(SecretUpsertResult result) =>
         string.Equals(result.Status, "ok", StringComparison.Ordinal)
-        || string.Equals(result.Reason, "version.conflict", StringComparison.Ordinal);
+        || string.Equals(result.Reason, "version.conflict", StringComparison.Ordinal)
+        || string.Equals(result.Reason, "envelope.revoked", StringComparison.Ordinal);
 
     // PULL: baixa as páginas e grava no cofre. Opacos: nada aqui abre envelope.
     private async Task PullRemoteAsync(List<SecretSyncSkip> skipped, CancellationToken ct)

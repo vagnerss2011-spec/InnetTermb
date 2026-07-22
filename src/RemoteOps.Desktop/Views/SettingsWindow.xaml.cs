@@ -15,6 +15,7 @@ public partial class SettingsWindow : Window
         DataContext = viewModel;
         viewModel.Saved += (_, _) => Close();
         viewModel.MfaSetupRequested += OnMfaSetupRequested;
+        viewModel.TeamInviteRequested += OnTeamInviteRequested;
         // O restart vive no App (ele segura o mutex de instância única). Fechar a janela primeiro
         // não faz mal: o RestartApplication encerra o processo inteiro logo em seguida.
         viewModel.RestartRequested += (_, _) => (Application.Current as App)?.RestartApplication();
@@ -34,6 +35,25 @@ public partial class SettingsWindow : Window
         }
 
         var window = new MfaEnrollmentWindow(new MfaEnrollmentViewModel(mfaApi)) { Owner = this };
+        window.ShowDialog();
+    }
+
+    /// <summary>
+    /// Abre a janela de convite do time (modal), no modo pedido. O contexto (serviço + workspace
+    /// ativo) vem do VM — null nunca chega aqui, os comandos só disparam com <c>CanManageTeam</c>.
+    /// </summary>
+    private void OnTeamInviteRequested(object? sender, TeamInviteMode mode)
+    {
+        if (Vm.Team is not { } team)
+        {
+            return;
+        }
+
+        var window = new TeamInviteWindow(
+            new TeamInviteViewModel(team.Service, team.WorkspaceId, mode))
+        {
+            Owner = this,
+        };
         window.ShowDialog();
     }
 

@@ -29,12 +29,15 @@ public sealed class E2eeAccountAuthenticator : IAccountAuthenticator
     private readonly AccountKeyService _keys = new();
     private readonly Guid _deviceId;
     private readonly string _deviceName;
+    private readonly IWorkspaceChooser? _chooser;
 
-    public E2eeAccountAuthenticator(IAccountApi api, Guid deviceId, string deviceName)
+    public E2eeAccountAuthenticator(
+        IAccountApi api, Guid deviceId, string deviceName, IWorkspaceChooser? chooser = null)
     {
         _api = api;
         _deviceId = deviceId;
         _deviceName = deviceName;
+        _chooser = chooser;
     }
 
     public async Task<AccountSession> RegisterAsync(
@@ -116,7 +119,11 @@ public sealed class E2eeAccountAuthenticator : IAccountAuthenticator
             throw new CloudSyncException(HttpStatusCode.UnprocessableContent);
         }
 
-        // 3) Desembrulha a AMK localmente. Chamar UnwrapAmkWithPassword (e não reaproveitar a KEK do
+        // 3) QUAL cofre. Antes do unwrap de propósito: desistir da escolha não pode deixar uma AMK
+        //    viva na heap esperando o GC — aqui ela ainda nem existe.
+        AccountWorkspace chosen = await ChooseWorkspaceAsync(workspaces, ct);
+
+        // 4) Desembrulha a AMK localmente. Chamar UnwrapAmkWithPassword (e não reaproveitar a KEK do
         //    passo 2 com a primitiva UnwrapKey) roda o Argon2id uma 2ª vez — ~centenas de ms, num
         //    fluxo que acontece uma vez por device. É o preço de NÃO duplicar aqui fora o AAD
         //    "amk|pwd|v1", que é privado do núcleo: uma constante de cripto copiada é exatamente o
@@ -125,12 +132,33 @@ public sealed class E2eeAccountAuthenticator : IAccountAuthenticator
 
         return new AccountSession(
             email,
-            // Fase 1 é mono-workspace (spec §11): o primeiro é O workspace da conta. Multi-workspace
-            // na UI é fase seguinte — quando vier, a escolha passa a ser do operador.
-            workspaces[0].Id,
+            chosen.Id,
             amk,
             new TokenSet(login.AccessToken, login.RefreshToken, login.ExpiresAt),
             workspaces);
+    }
+
+    /// <summary>
+    /// O cofre em que o app vai abrir. Com UM workspace não pergunta nada — perguntar seria atrito
+    /// puro no boot diário de quem nunca vai ter time, e não há escolha a fazer. Com dois ou mais,
+    /// quem decide é o operador: cadastrar o host do cliente no cofre pessoal (ou o contrário) por
+    /// engano é exatamente o que a tela existe para impedir.
+    ///
+    /// <para>Sem chooser configurado (modo local, testes antigos), o comportamento é o de antes — o
+    /// primeiro da lista. A escolha ADICIONA um caminho, não troca o que já existia.</para>
+    /// </summary>
+    private async Task<AccountWorkspace> ChooseWorkspaceAsync(
+        IReadOnlyList<AccountWorkspace> workspaces, CancellationToken ct)
+    {
+        if (workspaces.Count == 1 || _chooser is null)
+        {
+            return workspaces[0];
+        }
+
+        // Desistir NÃO vira "abre o primeiro": abrir o cofre errado em silêncio é o defeito que esta
+        // tela veio impedir. Volta pro login, e o operador tenta de novo sabendo o que escolher.
+        return await _chooser.ChooseAsync(workspaces, ct)
+            ?? throw new WorkspaceChoiceCancelledException();
     }
 
     // ── Recuperação de senha por email (spec Fase 4) ──────────────────────────

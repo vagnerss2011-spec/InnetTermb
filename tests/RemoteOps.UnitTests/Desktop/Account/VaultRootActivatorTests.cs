@@ -199,6 +199,63 @@ public sealed class VaultRootActivatorTests : IDisposable
         Assert.Equal("ref", loaded.RefreshToken);
     }
 
+    // ── Cofre de TIME (Fatia 1) ──────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// ⚠️ O cofre do TIME entra na lista efetiva da ativação (fora dela o app trava na abertura),
+    /// mas NÃO pode ser migrado: a migração o carimbaria como "derivado da conta", e a chave dele é
+    /// o oposto — aleatória e COMPARTILHADA. O carimbo errado não daria erro nenhum agora; só faria
+    /// o cofre do time abrir com a chave errada depois.
+    /// </summary>
+    [Fact]
+    public async Task Activate_NaoMigraOCofreDoTime_EOMantemNaListaEfetiva()
+    {
+        var store = new FileVaultStore(VaultPath);
+        using var activator = new VaultRootActivator(
+            store, new WorkspaceKeyRing(store, new FakeProtector()), Path.Combine(_dir, "t.tokenref"));
+
+        const string serverWorkspace = "8f3b6f4a-0000-4000-8000-000000000001";
+        await activator.ActivateAsync(SampleAmk(), serverWorkspace, AppRuntimeMirror.VaultWorkspaces);
+
+        string teamVault = RemoteOps.Desktop.Account.AppRuntime.TeamVaultWorkspace(serverWorkspace);
+
+        // Está na lista efetiva (é o ativador que a monta) …
+        Assert.Contains(
+            teamVault,
+            RemoteOps.Desktop.Account.AppRuntime.VaultWorkspacesFor(
+                serverWorkspace, AppRuntimeMirror.VaultWorkspaces));
+
+        // … e mesmo assim NÃO foi carimbado como derivado da AMK.
+        Assert.NotEqual(VaultKeyRooting.AmkDerived, await store.LoadKeyRootingAsync(teamVault));
+
+        // Os cofres de sempre continuam migrados — a guarda do time não desligou o resto.
+        Assert.Equal(
+            VaultKeyRooting.AmkDerived,
+            await store.LoadKeyRootingAsync(AppRuntimeMirror.CredentialsWorkspace));
+        Assert.Equal(
+            VaultKeyRooting.AmkDerived,
+            await store.LoadKeyRootingAsync(AppRuntimeMirror.DbWorkspace));
+    }
+
+    /// <summary>
+    /// A ativação publica o chaveiro do TIME (é dele que o convite sai e por onde a chave entra). Sem
+    /// ele, a tela de Equipe não teria como embrulhar a WK sob a AMK — e o convite nasceria morto.
+    /// </summary>
+    [Fact]
+    public async Task Activate_PublicaOChaveiroDoTime()
+    {
+        var store = new FileVaultStore(VaultPath);
+        using var activator = new VaultRootActivator(
+            store, new WorkspaceKeyRing(store, new FakeProtector()), Path.Combine(_dir, "t.tokenref"));
+
+        Assert.Null(activator.TeamKeyRing); // antes da AMK não há como embrulhar nada
+
+        await activator.ActivateAsync(SampleAmk(), "ws-server", AppRuntimeMirror.VaultWorkspaces);
+
+        Assert.NotNull(activator.TeamKeyRing);
+        Assert.Equal(VaultAlgorithms.WkRootedV1, activator.TeamKeyRing.AlgorithmId);
+    }
+
     /// <summary>
     /// Espelho de <c>AppRuntime</c> (que é internal). Se estes valores divergirem dos reais, os
     /// testes acima param de provar o que dizem provar — por isso o assert de consistência abaixo.

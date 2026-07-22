@@ -139,6 +139,59 @@ public sealed class SecretSyncOrchestratorTests
     }
 
     /// <summary>
+    /// <c>envelope.revoked</c> é TERMINAL: o servidor já tem a lápide daquele id, e revogação é
+    /// caminho só de ida — a cópia viva que este device tem na fila NUNCA vai ser aceita. Sem a
+    /// marca no ledger, o outbox re-envia o MESMO POST a cada ciclo, para sempre: bateria, tráfego e
+    /// log poluído sem nenhuma chance de desfecho diferente.
+    ///
+    /// <para>Marcar aqui não esconde nada — e é isso que separa este caso do
+    /// <c>envelope.workspace-mismatch</c> logo acima: ali o segredo realmente nunca chegou ao
+    /// servidor, aqui o servidor tem um estado MAIS NOVO e definitivo para o mesmo id.</para>
+    /// </summary>
+    [Fact]
+    public async Task ConflitoDeRevogacao_MarcaComoEnviado_ENaoRetentaParaSempre()
+    {
+        string ws = NewServerWorkspace();
+        var api = new FakeSecretsApi();
+        api.ForcedUpsertResults.Enqueue(new SecretUpsertResult("conflict", 4, 2, "envelope.revoked"));
+
+        using var deviceA = new SecretSyncDevice("A", Amk, api, ws);
+        await deviceA.SealAsync("c1", "segredo-1");
+
+        await deviceA.Secrets.SyncOnceAsync();
+        await deviceA.Secrets.SyncOnceAsync();
+        await deviceA.Secrets.SyncOnceAsync();
+
+        Assert.Single(api.UpsertAttempts); // uma tentativa, e só: o retry infinito acabou
+    }
+
+    /// <summary>
+    /// E a marca da recusa terminal NÃO pode prender a LÁPIDE: revogar o segredo localmente gera a
+    /// versão seguinte, e essa TEM de subir. Marcar a versão viva e travar a lápide seria trocar um
+    /// retry infinito por uma senha revogada que nunca sai dos outros devices — o defeito pior.
+    /// </summary>
+    [Fact]
+    public async Task ConflitoDeRevogacao_NaoTrancaALapideLocal()
+    {
+        string ws = NewServerWorkspace();
+        var api = new FakeSecretsApi();
+        api.ForcedUpsertResults.Enqueue(new SecretUpsertResult("conflict", 4, 2, "envelope.revoked"));
+
+        using var deviceA = new SecretSyncDevice("A", Amk, api, ws);
+        SecretEnvelope envelope = await deviceA.SealAsync("c1", "segredo-1");
+
+        await deviceA.Secrets.SyncOnceAsync();
+        Assert.Single(api.UpsertAttempts);
+
+        await deviceA.Vault.RevokeAsync(
+            envelope.EnvelopeId, new VaultAccessContext { ActorUserId = "op" });
+        await deviceA.Secrets.SyncOnceAsync();
+
+        Assert.Equal(2, api.UpsertAttempts.Count); // a lápide subiu
+        Assert.Single(api.Accepted);
+    }
+
+    /// <summary>
     /// <c>version.conflict</c> é o oposto: o servidor JÁ tem esta versão (ou mais nova). Aí marcar é
     /// o certo — insistir seria um POST inútil por ciclo, pra sempre.
     /// </summary>

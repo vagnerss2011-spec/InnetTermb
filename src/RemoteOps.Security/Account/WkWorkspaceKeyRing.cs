@@ -41,6 +41,7 @@ public sealed class WkWorkspaceKeyRing : IWorkspaceKeyRing, IDisposable
 
     private readonly IWorkspaceKeyStore _store;
     private readonly byte[] _amk;
+    private readonly bool _allowKeyCreation;
 
     // WKs já desembrulhadas nesta sessão. Sem o cache, cada operação do cofre faria um GCM
     // desnecessário; com ele, o ring é ESTÁVEL — a mesma chave do começo ao fim da sessão.
@@ -50,8 +51,18 @@ public sealed class WkWorkspaceKeyRing : IWorkspaceKeyRing, IDisposable
     private bool _disposed;
 
     /// <summary>Guarda uma CÓPIA da AMK (zerada no <see cref="Dispose"/>) — o chamador segue dono da dele.</summary>
-    public WkWorkspaceKeyRing(IWorkspaceKeyStore store, ReadOnlySpan<byte> amk)
+    /// <param name="allowKeyCreation">
+    /// <c>false</c> = <b>fail-closed</b>: sem WK guardada, o ring RECUSA em vez de sortear. É como o
+    /// cofre do time roda no app, e o motivo é o defeito número um desta fatia: o
+    /// <c>CredentialVault</c> chama <see cref="GetOrCreateWorkspaceKeyAsync"/> em TODA operação, então
+    /// qualquer coisa que toque o cofre antes de o convite ser aceito ganharia uma WK ALEATÓRIA — e o
+    /// convidado passaria semanas cadastrando senhas que ninguém do time consegue abrir, sem um único
+    /// erro na tela. <c>true</c> (o padrão) é o caminho de quem CRIA o time: ali o sorteio é o ato
+    /// legítimo que faz a chave nascer.
+    /// </param>
+    public WkWorkspaceKeyRing(IWorkspaceKeyStore store, ReadOnlySpan<byte> amk, bool allowKeyCreation = true)
     {
+        _allowKeyCreation = allowKeyCreation;
         ArgumentNullException.ThrowIfNull(store);
         if (amk.Length != AmkSize)
         {
@@ -106,6 +117,17 @@ public sealed class WkWorkspaceKeyRing : IWorkspaceKeyRing, IDisposable
                 return Copy(existing);
             }
 
+            // FAIL-CLOSED. Aqui é o ponto exato em que o cofre do time bifurcaria: sortear "só desta
+            // vez" produz senhas que ninguém do time abre, e nada na tela denuncia. Recusar ALTO é a
+            // única saída que o operador enxerga — e a mensagem diz o que fazer.
+            if (!_allowKeyCreation)
+            {
+                throw new VaultException(
+                    $"O cofre do time '{workspaceId}' ainda não tem a chave neste computador. "
+                    + "Aceite o convite (identificador + código recebido por outro canal) antes de "
+                    + "cadastrar ou abrir senhas do time.");
+            }
+
             byte[] fresh = RandomNumberGenerator.GetBytes(WorkspaceKeySize);
             try
             {
@@ -125,6 +147,92 @@ public sealed class WkWorkspaceKeyRing : IWorkspaceKeyRing, IDisposable
         finally
         {
             _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Adota uma WK que veio de FORA — o convite. É a peça que o estágio 1b deixou explicitamente
+    /// para cá: sem ela o ring só sabe sortear, e sortear é exatamente o que o convidado não pode
+    /// fazer.
+    ///
+    /// <para>Devolve o embrulho sob a AMK, que é <b>o mesmo blob</b> que sobe como <c>WrappedWk</c>
+    /// da membership. Devolver daqui (em vez de deixar o chamador montar) mantém UMA definição do
+    /// AAD do embrulho: uma constante de cripto copiada para a camada de cima é o tipo de coisa que
+    /// diverge em silêncio e só aparece como "o cofre não abre" no PC do colega.</para>
+    /// </summary>
+    /// <exception cref="VaultException">
+    /// Já existe outra WK guardada para este workspace. Trocar a chave por baixo de segredos já
+    /// selados é perda de cofre disfarçada de sucesso — reimportar a MESMA, por outro lado, é no-op
+    /// (o aceite pode ser repetido depois de uma queda de rede).
+    /// </exception>
+    public async Task<byte[]> ImportWorkspaceKeyAsync(
+        string workspaceId, ReadOnlyMemory<byte> workspaceKey, CancellationToken ct = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
+        if (workspaceKey.Length != WorkspaceKeySize)
+        {
+            throw new ArgumentException(
+                $"A chave do time precisa ter {WorkspaceKeySize} bytes (recebidos {workspaceKey.Length}).",
+                nameof(workspaceKey));
+        }
+
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            byte[]? existing = await LoadAsync(workspaceId, ct).ConfigureAwait(false);
+            if (existing is not null && !CryptographicOperations.FixedTimeEquals(existing, workspaceKey.Span))
+            {
+                throw new VaultException(
+                    $"O workspace '{workspaceId}' já tem uma chave de time DIFERENTE neste "
+                    + "computador. Importar por cima deixaria os segredos já guardados ilegíveis.");
+            }
+
+            byte[] adopted = workspaceKey.ToArray();
+            byte[] wrapped = AccountKeyService.WrapKey(adopted, _amk, WrapContext(workspaceId));
+            await _store.SaveAsync(StoreKey(workspaceId), wrapped, ct).ConfigureAwait(false);
+
+            // O cache passa a ser dono do buffer adotado (o Dispose o zera). A entrada antiga, quando
+            // existe, é a MESMA chave — zere-a para não deixar duplicata de material na heap.
+            if (_unwrapped.TryGetValue(workspaceId, out byte[]? previous) && !ReferenceEquals(previous, adopted))
+            {
+                CryptographicOperations.ZeroMemory(previous);
+            }
+
+            _unwrapped[workspaceId] = adopted;
+            return wrapped;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Recoloca a WK a partir do embrulho que o SERVIDOR guarda (<c>GET /workspaces/{id}/key</c>).
+    /// É o que faz o SEGUNDO device do membro abrir o cofre do time: a AMK é portável, mas o blob
+    /// gravado em disco é local — sem isto o colega logaria em casa, sincronizaria e não abriria
+    /// nada, sem erro nenhum.
+    ///
+    /// <para>Blob de outra conta (ou adulterado) faz o tag GCM falhar e ESTOURA. Falhar aqui é
+    /// obrigatório: engolir o erro faria o ring seguir sem chave, e o cofre voltaria à situação que
+    /// o fail-closed existe para impedir.</para>
+    /// </summary>
+    public async Task RestoreWrappedWorkspaceKeyAsync(
+        string workspaceId, ReadOnlyMemory<byte> wrapped, CancellationToken ct = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
+
+        // Abre ANTES de gravar: um blob que não abre não pode substituir o que já está no disco.
+        byte[] wk = AccountKeyService.UnwrapKey(wrapped.ToArray(), _amk, WrapContext(workspaceId));
+        try
+        {
+            await ImportWorkspaceKeyAsync(workspaceId, wk, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(wk);
         }
     }
 

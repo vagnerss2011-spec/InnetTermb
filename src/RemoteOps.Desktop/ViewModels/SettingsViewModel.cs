@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using RemoteOps.Desktop.Account;
 using RemoteOps.Desktop.Infrastructure;
 using RemoteOps.Desktop.Update;
 using RemoteOps.Sync.Remote;
@@ -13,6 +14,7 @@ public sealed class SettingsViewModel : BaseViewModel
     private readonly IUpdateService? _updateService;
     private readonly IMfaApi? _mfaApi;
     private readonly CloudResyncService? _resync;
+    private readonly TeamInviteContext? _team;
     private AppSettings _settings;
     private bool _rdpEnabled;
     private bool _ndeskEnabled;
@@ -40,12 +42,14 @@ public sealed class SettingsViewModel : BaseViewModel
         ChangelogViewModel? changelog = null,
         BugReportViewModel? bugReport = null,
         IMfaApi? mfaApi = null,
-        CloudResyncService? resync = null)
+        CloudResyncService? resync = null,
+        TeamInviteContext? team = null)
     {
         _store = store;
         _updateService = updateService;
         _mfaApi = mfaApi;
         _resync = resync;
+        _team = team;
         Changelog = changelog;
         BugReport = bugReport;
         _settings = store.Load();
@@ -69,6 +73,14 @@ public sealed class SettingsViewModel : BaseViewModel
         ManageMfaCommand = new RelayCommand(
             () => MfaSetupRequested?.Invoke(this, EventArgs.Empty),
             () => _mfaApi != null);
+
+        // Equipe (Fatia 1). Só com conta na nuvem ativa: sem servidor não há convite nem membro.
+        InviteToTeamCommand = new RelayCommand(
+            () => TeamInviteRequested?.Invoke(this, TeamInviteMode.Generate),
+            () => _team != null);
+        JoinTeamCommand = new RelayCommand(
+            () => TeamInviteRequested?.Invoke(this, TeamInviteMode.Accept),
+            () => _team != null);
 
         // O botão NÃO reenvia: abre a confirmação. Reenviar o acervo inteiro por um clique acidental
         // seria a pior surpresa possível justo pra quem tem centenas de equipamentos.
@@ -254,6 +266,21 @@ public sealed class SettingsViewModel : BaseViewModel
 
     /// <summary>Pedido pra abrir a janela de 2FA (o code-behind das Configurações a abre).</summary>
     public event EventHandler? MfaSetupRequested;
+
+    // ── Equipe (Fatia 1) ─────────────────────────────────────────────────────────────────────
+
+    /// <summary>True quando há conta na nuvem ativa: habilita a seção de Equipe.</summary>
+    public bool CanManageTeam => _team != null;
+
+    /// <summary>Serviço + workspace ativo — a janela de convite os usa pra montar seu VM. Null sem conta.</summary>
+    public TeamInviteContext? Team => _team;
+
+    /// <summary>Pedido pra abrir a janela de convite, no modo escolhido (o code-behind a abre).</summary>
+    public event EventHandler<TeamInviteMode>? TeamInviteRequested;
+
+    public RelayCommand InviteToTeamCommand { get; }
+
+    public RelayCommand JoinTeamCommand { get; }
 
     /// <summary>Disparado após persistir; a janela fecha e avisa "requer reinício" se necessário.</summary>
     public event EventHandler? Saved;
