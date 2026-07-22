@@ -200,6 +200,50 @@ public sealed class WkWorkspaceKeyRingImportTests
         Assert.NotEqual(wk, blob);
     }
 
+    /// <summary>
+    /// O ring entrega o embrulho <b>como está no disco</b> — é ele que sobe no
+    /// <c>PUT /workspaces/{id}/key</c>. Sem chave guardada, devolve <c>null</c> (nada a publicar), e
+    /// o que ele devolve tem de ser o MESMO blob byte a byte: é a igualdade de bytes que faz o
+    /// servidor reconhecer uma republicação como no-op em vez de conflito.
+    /// </summary>
+    [Fact]
+    public async Task EmbrulhoGuardado_SaiComoEsta_OuNuloQuandoNaoHa()
+    {
+        var store = new InMemoryWorkspaceKeyStore();
+        using var ring = new WkWorkspaceKeyRing(store, Amk());
+
+        Assert.Null(await ring.TryGetWrappedWorkspaceKeyAsync(TeamWorkspace));
+
+        byte[] wrapped = await ring.ImportWorkspaceKeyAsync(TeamWorkspace, Wk());
+
+        Assert.Equal(wrapped, await ring.TryGetWrappedWorkspaceKeyAsync(TeamWorkspace));
+        Assert.Equal(await store.LoadAsync("wk:" + TeamWorkspace), await ring.TryGetWrappedWorkspaceKeyAsync(TeamWorkspace));
+    }
+
+    /// <summary>
+    /// <b>Restaurar guarda o blob DO SERVIDOR, byte a byte</b> — e não um re-embrulho com nonce novo.
+    /// Não é economia de CPU: é o que faz a republicação daquele device ser reconhecida como
+    /// idempotente. Re-embrulhando, o disco divergiria do servidor no primeiro boot e todo reparo
+    /// seguinte bateria em 409 — um alarme de bifurcação disparando por rotina, que é o jeito mais
+    /// rápido de ensinar o operador a ignorar o alarme de verdade.
+    /// </summary>
+    [Fact]
+    public async Task Restaurar_GuardaOBlobDoServidorInalterado()
+    {
+        byte[] amk = Amk();
+        byte[] wk = Wk();
+        using var origem = new WkWorkspaceKeyRing(new InMemoryWorkspaceKeyStore(), amk);
+        byte[] doServidor = await origem.ImportWorkspaceKeyAsync(TeamWorkspace, wk);
+
+        using var outroDevice = new WkWorkspaceKeyRing(new InMemoryWorkspaceKeyStore(), amk, allowKeyCreation: false);
+        await outroDevice.RestoreWrappedWorkspaceKeyAsync(TeamWorkspace, doServidor);
+
+        Assert.Equal(doServidor, await outroDevice.TryGetWrappedWorkspaceKeyAsync(TeamWorkspace));
+
+        using WorkspaceKey? restaurada = await outroDevice.TryGetWorkspaceKeyAsync(TeamWorkspace);
+        Assert.Equal(wk, restaurada!.Key.ToArray());
+    }
+
     /// <summary>Blob de outra conta não restaura: a AMK errada faz o tag GCM falhar, alto.</summary>
     [Fact]
     public async Task RestaurarBlobDeOutraConta_Estoura()

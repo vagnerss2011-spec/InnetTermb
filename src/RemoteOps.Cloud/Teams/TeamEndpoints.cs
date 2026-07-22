@@ -154,6 +154,56 @@ public static class TeamEndpoints
                     extensions: ctx.ProblemExtensions());
             }
         });
+
+        // ── PUT /workspaces/{id}/key ──────────────────────────────────────────
+        //
+        // O espelho de escrita do GET acima, e a peça que faltava para o DONO: sem ele, o único
+        // caminho que gravava o embrulho era o aceite do convite, e quem criava o time nunca subia
+        // o próprio — o segundo computador dele sorteava outra chave e o cofre bifurcava calado.
+        group.MapPut("/key", async (
+            Guid workspaceId,
+            [FromBody] PublishWorkspaceKeyRequest req,
+            TeamService svc,
+            HttpContext ctx,
+            CancellationToken ct) =>
+        {
+            if (!ctx.TryGetDeviceId(out var deviceId))
+                return Results.Problem("X-Device-Id header ausente ou inválido.",
+                    statusCode: 400, extensions: ctx.ProblemExtensions());
+
+            try
+            {
+                var outcome = await svc.PublishWorkspaceKeyAsync(
+                    workspaceId, req, ctx.ToPermissionContext(workspaceId, deviceId), ct);
+
+                return outcome switch
+                {
+                    // 200 nos dois casos bons, com `stored` dizendo qual foi: republicar o mesmo
+                    // blob é o caminho NORMAL do reparo de boot, e transformá-lo em erro faria o
+                    // app gritar todo dia por nada.
+                    PublishWorkspaceKeyOutcome.Stored => Results.Ok(
+                        new PublishWorkspaceKeyResponse(workspaceId.ToString(), true, req.WkVersion)),
+                    PublishWorkspaceKeyOutcome.AlreadyPublished => Results.Ok(
+                        new PublishWorkspaceKeyResponse(workspaceId.ToString(), false, req.WkVersion)),
+
+                    // 409, e não 200-ignorando: o servidor mantém o embrulho que já tinha (é ele que
+                    // os outros devices deste membro vão restaurar), mas quem publicou PRECISA saber
+                    // que a chave dele pode ser outra. Responder "ok" e descartar seria a falha
+                    // silenciosa clássica. Quem compara chave de verdade é o cliente, que tem a AMK.
+                    _ => Results.Problem(
+                        detail: "Já existe uma chave de time guardada para a sua conta neste "
+                                + "workspace, e ela é diferente da que este computador enviou. Baixe "
+                                + "a chave guardada antes de publicar — trocá-la deixaria os "
+                                + "segredos do time ilegíveis nos outros computadores.",
+                        statusCode: 409, extensions: ctx.ProblemExtensions()),
+                };
+            }
+            catch (RbacDeniedException ex)
+            {
+                return Results.Problem(detail: ex.Message, statusCode: 403,
+                    extensions: ctx.ProblemExtensions());
+            }
+        });
     }
 
     private static void MapInviteeScoped(IEndpointRouteBuilder app)

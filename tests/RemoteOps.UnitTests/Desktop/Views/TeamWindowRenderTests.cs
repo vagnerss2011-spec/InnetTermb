@@ -62,6 +62,11 @@ public sealed class TeamWindowRenderTests
         public Task<TeamWorkspaceKeyResponse?> GetWorkspaceKeyAsync(
             string workspaceId, CancellationToken ct = default)
             => Task.FromResult<TeamWorkspaceKeyResponse?>(null);
+
+        /// <summary>Aceita a publicação do embrulho — o painel de convite desta tela passa por aqui.</summary>
+        public Task<TeamKeyPublication> PublishWorkspaceKeyAsync(
+            string workspaceId, PublishTeamWorkspaceKeyRequest request, CancellationToken ct = default)
+            => Task.FromResult(TeamKeyPublication.Stored);
     }
 
     private sealed record Probe(

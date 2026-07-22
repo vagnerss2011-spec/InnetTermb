@@ -101,6 +101,35 @@ public sealed class TeamApiClient : ITeamApi
         return await CloudAuthChannel.ReadResultAsync<TeamWorkspaceKeyResponse>(resp, ct);
     }
 
+    public async Task<TeamKeyPublication> PublishWorkspaceKeyAsync(
+        string workspaceId, PublishTeamWorkspaceKeyRequest request, CancellationToken ct = default)
+    {
+        using HttpResponseMessage resp = await _channel.SendAsync(
+            () => new HttpRequestMessage(HttpMethod.Put, $"/workspaces/{workspaceId}/key")
+            {
+                Content = JsonContent.Create(request, options: CloudAuthChannel.Json),
+            },
+            ct);
+
+        // 409 é RESPOSTA do domínio, não falha de transporte: o servidor já tem um embrulho
+        // DIFERENTE para esta conta. Traduzi-lo numa exceção genérica faria a tela dizer "não foi
+        // possível" e engolir o único fato que importa — este computador pode estar com outra chave
+        // do time. Qualquer OUTRO status continua estourando: um 403 virando "publicado" deixaria o
+        // dono achando que a chave subiu quando ela nunca saiu daqui.
+        if (resp.StatusCode == HttpStatusCode.Conflict)
+        {
+            return TeamKeyPublication.Divergent;
+        }
+
+        if (!resp.IsSuccessStatusCode)
+        {
+            throw new CloudSyncException(resp.StatusCode);
+        }
+
+        var body = await CloudAuthChannel.ReadResultAsync<PublishTeamWorkspaceKeyResponse>(resp, ct);
+        return body.Stored ? TeamKeyPublication.Stored : TeamKeyPublication.AlreadyPublished;
+    }
+
     public async Task<TeamMembersResponse> GetMembersAsync(
         string workspaceId, CancellationToken ct = default)
     {

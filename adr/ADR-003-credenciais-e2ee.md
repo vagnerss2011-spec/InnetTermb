@@ -76,6 +76,19 @@ O acréscimo de `credentialId` e `algorithm` responde a um achado da revisão de
 
 O wrap da CEK segue `wdk|{workspaceId}` nas três raízes: ele já prende o embrulho ao workspace, e o esquema é autenticado no AAD do payload.
 
+#### Custódia do embrulho da WK no servidor (`PUT /workspaces/{id}/key`)
+
+A AMK é **portável entre devices**; o embrulho da WK gravado em disco **não é**. Sem uma cópia do embrulho no servidor, o segundo computador da mesma conta não tem o que restaurar — e o `WkWorkspaceKeyRing` com criação permitida **sortearia outra WK**, bifurcando o cofre do time em silêncio. Por isso cada membership guarda o `WrappedWk` **daquele membro** (blob sob a AMK **dele**, AAD `wk|{workspaceId}`), e cada conta só lê e só escreve o **próprio**.
+
+Até a Fatia 1e esse campo só era escrito no **aceite do convite** — logo, quem **criava** o time nunca tinha embrulho guardado. O `PUT` fecha isso sem acoplar a custódia da chave ao ato de convidar.
+
+Regra de gravação, e por que ela é o máximo que o servidor pode fazer **sem quebrar o E2EE**:
+
+- **Ausente → grava.** Primeira publicação vence.
+- **Byte a byte igual → no-op** (200, `stored:false`). É o caminho normal: o app republica a cada abertura, e o blob publicado é o **guardado em disco** (não um re-embrulho), então a igualdade se sustenta. Pelo mesmo motivo, restaurar do servidor guarda o blob **verbatim**.
+- **Diferente → 409, e o blob guardado NÃO muda.** O servidor não tem AMK nenhuma: dois blobs diferentes tanto podem ser a mesma WK com nonce novo quanto WKs diferentes. Distinguir os dois casos exigiria o servidor **conhecer a chave** — exatamente o que este ADR proíbe. Então a detecção possível é por **presença e igualdade de bytes**, nunca por comparação de chave.
+- **Quem compara chave é o cliente.** No 409 ele baixa o embrulho guardado e o abre com a própria AMK: mesma chave → no-op silencioso; chave diferente → erro alto em pt-BR. Recusar (em vez de ignorar em silêncio) é o que devolve a ambiguidade ao único lado capaz de resolvê-la.
+
 ### Proteção da chave local (DPAPI)
 
 - Via P/Invoke a `crypt32.dll` (`CryptProtectData`/`CryptUnprotectData`) — **sem pacote NuGet externo**, honrando a restrição "sem libs externas sem ADR".

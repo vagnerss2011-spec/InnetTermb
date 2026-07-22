@@ -821,6 +821,56 @@ public partial class App : Application
             team is null
                 ? null
                 : ct => team.Service.IsTeamWorkspaceAsync(team.WorkspaceId, ct));
+
+        if (team is not null)
+        {
+            _ = PublishTeamKeyAsync(team);
+        }
+    }
+
+    /// <summary>
+    /// ⚠️ <b>Reparo do embrulho da chave do time, no boot.</b> Se esta máquina tem a chave do time e
+    /// o servidor ainda não guarda o embrulho desta conta, ele sobe agora.
+    ///
+    /// <para><b>Quem isso conserta:</b> o dono que criou o time numa versão anterior a esta. Ali,
+    /// só o ACEITE do convite gravava embrulho, então quem CRIAVA o time nunca tinha chave guardada
+    /// — o segundo computador dele não achava nada para restaurar, o chaveiro sorteava outra WK e o
+    /// cofre do time bifurcava em silêncio. Sem este reparo, a única saída para ele seria convidar
+    /// mais alguém, que é uma instrução absurda de dar a um operador.</para>
+    ///
+    /// <para><b>Por que separado do indicador de cofre:</b> a pergunta "é workspace de time?" é
+    /// respondida pelo DISCO quando há chave local, e vale offline — que é a condição normal de
+    /// campo. Se o reparo morasse dentro dela, uma falha de rede derrubaria uma resposta que não
+    /// depende de rede, e o operador sem sinal perderia justo o aviso de que está no workspace do
+    /// time. Aqui o desfecho vai para o painel de Logs: sem chave local ou já publicado, silêncio
+    /// (é o caso de todo boot); publicou ou falhou, fica ESCRITO. Nada some.</para>
+    ///
+    /// <para>Não é aguardado pelo mesmo motivo do indicador (ADR-002, boot não espera rede), e é
+    /// opportunista de propósito: o caminho que NÃO pode depender dele — gerar convite — publica o
+    /// embrulho por conta própria, antes do POST, e falha alto se não conseguir.</para>
+    /// </summary>
+    private async Task PublishTeamKeyAsync(TeamContext team)
+    {
+        IUiLogSink? log = _serviceProvider?.GetService<IUiLogSink>();
+        try
+        {
+            if (await team.Service.PublishOwnWrappedKeyAsync(team.WorkspaceId) == TeamKeyUpload.Published)
+            {
+                log?.Emit(
+                    "[time] A chave deste time foi registrada na sua conta. Agora ela pode ser "
+                    + "recuperada nos seus outros computadores.");
+            }
+        }
+        catch (Exception ex)
+        {
+            // Sem detalhe técnico e sem blob (ADR-013): o texto é para o operador. Engolir calado
+            // seria pior — este é o aviso de que o segundo computador dele pode não abrir o cofre
+            // do time, ou de que a chave daqui não é a mesma da conta.
+            log?.Emit(
+                "[time] Não foi possível registrar a chave deste time na sua conta agora"
+                + (ex is TeamInviteException ? $": {ex.Message}" : " (servidor fora de alcance).")
+                + " O RemoteOps tenta de novo na próxima abertura.");
+        }
     }
 
     /// <summary>

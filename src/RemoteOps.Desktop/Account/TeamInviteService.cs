@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 
 using RemoteOps.Security.Account;
 using RemoteOps.Security.Crypto;
+using RemoteOps.Security.Vault;
 using RemoteOps.Sync.Remote;
 
 namespace RemoteOps.Desktop.Account;
@@ -52,6 +53,25 @@ public sealed record GeneratedTeamInvite(
     string Code,
     DateTimeOffset ExpiresAt,
     bool EmailDelivered);
+
+/// <summary>
+/// Desfecho de publicar o embrulho da chave do time desta conta.
+///
+/// <para>Existe separado do <see cref="TeamKeyPublication"/> (que é a resposta do SERVIDOR) porque
+/// <see cref="NoLocalKey"/> é uma decisão que acontece <b>antes</b> de qualquer rede: sem chave de
+/// time neste computador não há o que publicar, e o servidor nem é incomodado.</para>
+/// </summary>
+public enum TeamKeyUpload
+{
+    /// <summary>Não há chave de time neste computador — nada a publicar, e nenhuma ida à rede.</summary>
+    NoLocalKey,
+
+    /// <summary>O servidor não tinha embrulho para esta conta e passou a ter.</summary>
+    Published,
+
+    /// <summary>O servidor já tinha o embrulho desta conta (republicação idempotente).</summary>
+    AlreadyOnServer,
+}
 
 /// <summary>Convite aceito: o time que a conta acabou de ganhar e o cofre local dele.</summary>
 /// <param name="SessionRefreshRequired">
@@ -138,6 +158,17 @@ public sealed class TeamInviteService
         using WorkspaceKey wk = await _keyRing
             .GetOrCreateWorkspaceKeyAsync(vaultWorkspaceId, ct)
             .ConfigureAwait(false);
+
+        // ⚠️ O EMBRULHO DO DONO SOBE AQUI, ANTES DO CONVITE. A WK do time NASCE nesta linha acima, e
+        // até esta correção nada gravava o embrulho de quem CRIA o time — só o aceite do convidado
+        // gravava o dele. Resultado: `GET /workspaces/{id}/key` devolvia 404 para o dono, o segundo
+        // computador dele não tinha o que restaurar, o chaveiro sorteava uma WK₂ e o cofre do time
+        // bifurcava — com o indicador ainda dizendo "cofre pessoal" para ele.
+        //
+        // Antes do POST, e não depois, de propósito: se o embrulho não entrar, o convite não pode
+        // existir. Um convite gerado com uma chave que o próprio dono não recupera no outro PC é o
+        // pior desfecho possível — ele já teria ditado o código por telefone.
+        await PublishOwnWrappedKeyAsync(workspaceId, ct).ConfigureAwait(false);
 
         var request = new CreateTeamInviteRequest(
             email.Trim(),
@@ -280,6 +311,92 @@ public sealed class TeamInviteService
     }
 
     /// <summary>
+    /// Publica no servidor o embrulho da chave do time <b>desta conta</b> — o <c>WrappedWk</c> da
+    /// própria membership. Idempotente: republicar o mesmo blob não grava nada.
+    ///
+    /// <para><b>Por que existe:</b> até esta correção, o único caminho que gravava o embrulho era o
+    /// ACEITE do convite. Quem CRIA o time nunca subia o dele, então o servidor respondia 404 para o
+    /// dono e o segundo computador dele sorteava outra chave. Chamada em dois momentos: quando a WK
+    /// nasce neste device (<see cref="CreateInviteAsync"/>) e no boot, como reparo de quem já tinha
+    /// o time criado antes.</para>
+    ///
+    /// <para><b>Por que um endpoint próprio, e não um campo opcional no convite:</b> pendurar o
+    /// embrulho no convite amarraria a guarda da chave ao ato social de convidar. O dono que criou o
+    /// time e não convidou mais ninguém — ou cujo convite falhou DEPOIS de a chave nascer — ficaria
+    /// exposto até convidar de novo, e o reparo de boot não teria em que pegar carona (fabricar um
+    /// convite para consertar a própria chave mandaria e-mail para um estranho). Fora que criar
+    /// convite exige <c>user.invite</c>: um membro sem essa permissão nunca conseguiria republicar o
+    /// PRÓPRIO embrulho. Um endpoint dedicado tem um dono só para este campo — e esta base já
+    /// aprendeu, mais de uma vez, o preço de dois escritores para a mesma verdade.</para>
+    /// </summary>
+    /// <exception cref="TeamInviteException">
+    /// O servidor já guarda um embrulho e a reconciliação mostrou que a chave deste computador é
+    /// OUTRA. É bifurcação — e o recado é alto de propósito: o servidor não troca o blob guardado
+    /// (é ele que os outros computadores desta conta vão restaurar), e um "ok" aqui deixaria este
+    /// device cadastrando senhas que ninguém do time abre.
+    /// </exception>
+    public async Task<TeamKeyUpload> PublishOwnWrappedKeyAsync(
+        string workspaceId, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
+
+        // Sem chave de time aqui não há o que publicar — e a rede nem é tocada. É o caso de todo
+        // mundo que só tem cofre pessoal: o reparo de boot não pode custar round-trip a quem nunca
+        // vai ter time.
+        byte[]? wrapped = await _keyRing
+            .TryGetWrappedWorkspaceKeyAsync(AppRuntime.TeamVaultWorkspace(workspaceId), ct)
+            .ConfigureAwait(false);
+        if (wrapped is null)
+        {
+            return TeamKeyUpload.NoLocalKey;
+        }
+
+        TeamKeyPublication outcome = await _api.PublishWorkspaceKeyAsync(
+            workspaceId,
+            new PublishTeamWorkspaceKeyRequest(Convert.ToBase64String(wrapped), WkVersionV1),
+            ct).ConfigureAwait(false);
+
+        if (outcome is TeamKeyPublication.Stored)
+        {
+            return TeamKeyUpload.Published;
+        }
+
+        if (outcome is TeamKeyPublication.AlreadyPublished)
+        {
+            return TeamKeyUpload.AlreadyOnServer;
+        }
+
+        // 409: o servidor já tem um embrulho DIFERENTE para esta conta. Ele não sabe (nem pode
+        // saber — não tem AMK nenhuma) se é a mesma chave com nonce novo ou outra chave; quem sabe
+        // isso é este cliente. Então baixamos o embrulho guardado e o ABRIMOS: se a chave for a
+        // mesma, o RestoreWrapped… é no-op e está tudo certo; se for outra, ele estoura, que é
+        // exatamente o alarme que a bifurcação merece. É por isso que a checagem do servidor pode
+        // ser só por presença/igualdade de bytes sem enfraquecer nada.
+        try
+        {
+            if (!await TryRestoreTeamKeyAsync(workspaceId, ct).ConfigureAwait(false))
+            {
+                // O servidor disse "já tenho uma" e, um instante depois, "não tenho nenhuma". Não dá
+                // para afirmar nada; tentar de novo é honesto, inventar um desfecho não é.
+                throw new TeamInviteException(
+                    "Não foi possível confirmar a chave deste time com o servidor. Tente de novo em "
+                    + "instantes.");
+            }
+        }
+        catch (VaultException ex)
+        {
+            throw new TeamInviteException(
+                "Este computador tem uma chave deste time DIFERENTE da que está guardada na sua "
+                + "conta. Nada foi alterado no servidor. Não cadastre senhas do time por aqui até "
+                + "resolver: entre em contato com quem administra o time — as senhas guardadas por "
+                + "este computador podem não abrir para os colegas.",
+                ex);
+        }
+
+        return TeamKeyUpload.AlreadyOnServer;
+    }
+
+    /// <summary>
     /// Este workspace é de TIME (chave aleatória, compartilhada) ou PESSOAL (chave derivada da AMK)?
     /// É a pergunta que alimenta o indicador de cofre do shell.
     ///
@@ -293,6 +410,13 @@ public sealed class TeamInviteService
     /// indicador afirmar "cofre pessoal" com toda a confiança quando o app simplesmente não
     /// perguntou — e o operador cadastraria o cliente sem ver o aviso. A exceção sobe; quem chama
     /// transforma isso em "não confirmado", visível na tela.</para>
+    ///
+    /// <para><b>E por que o reparo do embrulho NÃO mora aqui:</b> esta pergunta é respondida pelo
+    /// disco quando há chave local, e essa resposta vale offline — que é a condição normal de campo.
+    /// Enfiar o <see cref="PublishOwnWrappedKeyAsync"/> neste caminho faria uma falha de rede
+    /// derrubar uma resposta que não depende de rede: o operador sem sinal perderia justamente o
+    /// aviso de que está no workspace do time. O reparo é chamado ao lado, no boot, com o desfecho
+    /// dele indo para o log visível do app em vez de sequestrar o indicador.</para>
     /// </summary>
     public async Task<bool> IsTeamWorkspaceAsync(string workspaceId, CancellationToken ct = default)
     {

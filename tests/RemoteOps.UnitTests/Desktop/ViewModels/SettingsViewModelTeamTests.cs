@@ -38,9 +38,15 @@ public sealed class SettingsViewModelTeamTests
         public void Save(AppSettings settings) => _current = settings;
     }
 
-    /// <summary>Servidor de time mínimo: aceita o convite e nunca tem chave guardada (404 no /key).</summary>
+    /// <summary>
+    /// Servidor de time mínimo: aceita o convite e não tem chave guardada até alguém publicar a
+    /// dela. O <c>/key</c> só passa a responder depois do <c>PUT</c> — como no backend real, onde o
+    /// dono do time recém-criado ainda não tem embrulho nenhum.
+    /// </summary>
     private sealed class FakeTeamApi : ITeamApi
     {
+        private TeamWorkspaceKeyResponse? _key;
+
         public bool KeyEndpointOffline { get; set; }
 
         public Task<CreateTeamInviteResponse> CreateInviteAsync(
@@ -53,7 +59,27 @@ public sealed class SettingsViewModelTeamTests
             string workspaceId, CancellationToken ct = default)
             => KeyEndpointOffline
                 ? throw new HttpRequestException("rede fora (teste)")
-                : Task.FromResult<TeamWorkspaceKeyResponse?>(null);
+                : Task.FromResult(_key);
+
+        public Task<TeamKeyPublication> PublishWorkspaceKeyAsync(
+            string workspaceId, PublishTeamWorkspaceKeyRequest request, CancellationToken ct = default)
+        {
+            if (KeyEndpointOffline)
+            {
+                throw new HttpRequestException("rede fora (teste)");
+            }
+
+            if (_key is { } guardado)
+            {
+                return Task.FromResult(
+                    string.Equals(guardado.WrappedWk, request.WrappedWk, StringComparison.Ordinal)
+                        ? TeamKeyPublication.AlreadyPublished
+                        : TeamKeyPublication.Divergent);
+            }
+
+            _key = new TeamWorkspaceKeyResponse(workspaceId, request.WrappedWk, request.WkVersion);
+            return Task.FromResult(TeamKeyPublication.Stored);
+        }
 
         public Task<TeamInviteContextResponse> GetInviteContextAsync(
             string inviteId, string codeHash, CancellationToken ct = default)

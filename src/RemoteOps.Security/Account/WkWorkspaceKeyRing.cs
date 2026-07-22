@@ -165,8 +165,87 @@ public sealed class WkWorkspaceKeyRing : IWorkspaceKeyRing, IDisposable
     /// selados é perda de cofre disfarçada de sucesso — reimportar a MESMA, por outro lado, é no-op
     /// (o aceite pode ser repetido depois de uma queda de rede).
     /// </exception>
-    public async Task<byte[]> ImportWorkspaceKeyAsync(
+    public Task<byte[]> ImportWorkspaceKeyAsync(
         string workspaceId, ReadOnlyMemory<byte> workspaceKey, CancellationToken ct = default)
+        => AdoptAsync(workspaceId, workspaceKey, preWrapped: null, ct);
+
+    /// <summary>
+    /// O embrulho <b>como está no disco</b>, ou <c>null</c> quando não há chave de time guardada
+    /// aqui. É este blob que sobe no <c>PUT /workspaces/{id}/key</c>.
+    ///
+    /// <para><b>Por que os bytes guardados, e não um embrulho novo:</b> o servidor não tem AMK
+    /// nenhuma, então a única coisa que ele consegue comparar é BYTE. Publicar um re-embrulho (nonce
+    /// novo a cada vez) faria toda republicação parecer uma chave diferente — e o conflito, que
+    /// existe para denunciar bifurcação, viraria rotina diária até ninguém mais olhar para ele.</para>
+    ///
+    /// <para>O blob é <b>validado</b> antes de sair: se ele não abre com esta AMK, estoura. Publicar
+    /// às cegas plantaria na conta um embrulho que nem o próprio dono consegue abrir depois.</para>
+    /// </summary>
+    public async Task<byte[]?> TryGetWrappedWorkspaceKeyAsync(
+        string workspaceId, CancellationToken ct = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
+
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            // Passa pelo LoadAsync de propósito: é ele que ABRE o blob (e estoura com AMK errada).
+            if (await LoadAsync(workspaceId, ct).ConfigureAwait(false) is null)
+            {
+                return null;
+            }
+
+            return await _store.LoadAsync(StoreKey(workspaceId), ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Recoloca a WK a partir do embrulho que o SERVIDOR guarda (<c>GET /workspaces/{id}/key</c>).
+    /// É o que faz o SEGUNDO device do membro abrir o cofre do time: a AMK é portável, mas o blob
+    /// gravado em disco é local — sem isto o colega logaria em casa, sincronizaria e não abriria
+    /// nada, sem erro nenhum.
+    ///
+    /// <para>Blob de outra conta (ou adulterado) faz o tag GCM falhar e ESTOURA. Falhar aqui é
+    /// obrigatório: engolir o erro faria o ring seguir sem chave, e o cofre voltaria à situação que
+    /// o fail-closed existe para impedir.</para>
+    ///
+    /// <para><b>O blob do servidor é guardado como veio</b>, sem re-embrulhar. Não é economia de
+    /// CPU: é o que mantém disco e servidor byte a byte iguais, e portanto o que faz a republicação
+    /// deste device ser reconhecida como no-op em vez de conflito.</para>
+    /// </summary>
+    public async Task RestoreWrappedWorkspaceKeyAsync(
+        string workspaceId, ReadOnlyMemory<byte> wrapped, CancellationToken ct = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
+
+        // Abre ANTES de gravar: um blob que não abre não pode substituir o que já está no disco.
+        byte[] wk = AccountKeyService.UnwrapKey(wrapped.ToArray(), _amk, WrapContext(workspaceId));
+        try
+        {
+            await AdoptAsync(workspaceId, wk, wrapped.ToArray(), ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(wk);
+        }
+    }
+
+    /// <summary>
+    /// O núcleo da adoção de uma WK vinda de fora, comum ao convite e à restauração.
+    /// </summary>
+    /// <param name="preWrapped">
+    /// O embrulho a gravar. <c>null</c> = embrulhe agora sob esta AMK (caminho do convite, em que só
+    /// existe a chave crua). Quando ele vem pronto (caminho da restauração), é gravado <b>como
+    /// está</b> — ver <see cref="RestoreWrappedWorkspaceKeyAsync"/>.
+    /// </param>
+    private async Task<byte[]> AdoptAsync(
+        string workspaceId, ReadOnlyMemory<byte> workspaceKey, byte[]? preWrapped, CancellationToken ct)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
@@ -189,7 +268,7 @@ public sealed class WkWorkspaceKeyRing : IWorkspaceKeyRing, IDisposable
             }
 
             byte[] adopted = workspaceKey.ToArray();
-            byte[] wrapped = AccountKeyService.WrapKey(adopted, _amk, WrapContext(workspaceId));
+            byte[] wrapped = preWrapped ?? AccountKeyService.WrapKey(adopted, _amk, WrapContext(workspaceId));
             await _store.SaveAsync(StoreKey(workspaceId), wrapped, ct).ConfigureAwait(false);
 
             // O cache passa a ser dono do buffer adotado (o Dispose o zera). A entrada antiga, quando
@@ -205,34 +284,6 @@ public sealed class WkWorkspaceKeyRing : IWorkspaceKeyRing, IDisposable
         finally
         {
             _gate.Release();
-        }
-    }
-
-    /// <summary>
-    /// Recoloca a WK a partir do embrulho que o SERVIDOR guarda (<c>GET /workspaces/{id}/key</c>).
-    /// É o que faz o SEGUNDO device do membro abrir o cofre do time: a AMK é portável, mas o blob
-    /// gravado em disco é local — sem isto o colega logaria em casa, sincronizaria e não abriria
-    /// nada, sem erro nenhum.
-    ///
-    /// <para>Blob de outra conta (ou adulterado) faz o tag GCM falhar e ESTOURA. Falhar aqui é
-    /// obrigatório: engolir o erro faria o ring seguir sem chave, e o cofre voltaria à situação que
-    /// o fail-closed existe para impedir.</para>
-    /// </summary>
-    public async Task RestoreWrappedWorkspaceKeyAsync(
-        string workspaceId, ReadOnlyMemory<byte> wrapped, CancellationToken ct = default)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        ArgumentException.ThrowIfNullOrWhiteSpace(workspaceId);
-
-        // Abre ANTES de gravar: um blob que não abre não pode substituir o que já está no disco.
-        byte[] wk = AccountKeyService.UnwrapKey(wrapped.ToArray(), _amk, WrapContext(workspaceId));
-        try
-        {
-            await ImportWorkspaceKeyAsync(workspaceId, wk, ct).ConfigureAwait(false);
-        }
-        finally
-        {
-            CryptographicOperations.ZeroMemory(wk);
         }
     }
 

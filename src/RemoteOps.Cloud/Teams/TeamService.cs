@@ -6,6 +6,22 @@ using RemoteOps.Cloud.Sync;
 
 namespace RemoteOps.Cloud.Teams;
 
+/// <summary>Desfecho da publicação do embrulho da chave — cada um vira um status diferente.</summary>
+public enum PublishWorkspaceKeyOutcome
+{
+    /// <summary>Não havia embrulho para este membro; agora há.</summary>
+    Stored,
+
+    /// <summary>Já havia EXATAMENTE este blob — nada foi escrito (republicação idempotente).</summary>
+    AlreadyPublished,
+
+    /// <summary>
+    /// Já havia um embrulho DIFERENTE. O servidor não sabe (e não pode saber) se é a mesma chave com
+    /// nonce novo ou outra chave; sabe que uma segunda gravação divergente é sinal de bifurcação.
+    /// </summary>
+    Divergent,
+}
+
 /// <summary>Desfecho da remoção de membro — cada um vira um status diferente no endpoint.</summary>
 public enum RemoveMemberOutcome
 {
@@ -159,6 +175,91 @@ public sealed class TeamService(
 
         return new WorkspaceKeyResponse(
             workspaceId.ToString(), Convert.ToBase64String(membership.WrappedWk), membership.WkVersion);
+    }
+
+    // ── PUT /workspaces/{id}/key ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Publica o embrulho da chave do time <b>de quem chama</b> — e de mais ninguém: não existe
+    /// usuário-alvo no pedido, o alvo é sempre <c>permCtx.UserId</c>. Exige
+    /// <see cref="Permissions.SyncPull"/>, a mesma do <see cref="GetWorkspaceKeyAsync"/>: quem pode
+    /// baixar o cofre precisa da chave que o abre, e é dele o embrulho que sobe.
+    ///
+    /// <para><b>O buraco que isto fecha:</b> até aqui, só o ACEITE do convite escrevia
+    /// <c>WrappedWk</c>. Quem CRIA o time nunca subia o próprio embrulho, então o <c>GET</c> devolvia
+    /// 404 para o dono — no segundo computador dele não havia o que restaurar, o chaveiro sorteava
+    /// outra WK e o cofre do time bifurcava, com o indicador ainda dizendo "cofre pessoal".</para>
+    ///
+    /// <para><b>Primeira gravação vence; a segunda divergente é RECUSADA (não ignorada).</b> O
+    /// servidor não tem AMK nenhuma, então ele não consegue — e não pode passar a conseguir, sob
+    /// pena de matar o E2EE — distinguir "mesma chave, nonce novo" de "outra chave". O que ele
+    /// consegue é comparar BYTES: iguais = republicação (no-op idempotente, o caso do reparo de
+    /// boot); diferentes = ambíguo. Entre recusar e ignorar, recusar é o único desfecho honesto:
+    /// ignorar responderia "tudo certo" para um device que talvez esteja com a chave errada, e essa
+    /// é justamente a falha silenciosa que esta fatia inteira existe para matar. Com o 409, a
+    /// ambiguidade volta para quem TEM como resolvê-la — o cliente, que baixa o embrulho guardado,
+    /// abre com a própria AMK e compara as chaves de verdade. Trocar em silêncio nunca é opção: o
+    /// blob antigo é o que os OUTROS devices daquele membro vão restaurar.</para>
+    /// </summary>
+    public async Task<PublishWorkspaceKeyOutcome> PublishWorkspaceKeyAsync(
+        Guid workspaceId, PublishWorkspaceKeyRequest req, PermissionContext permCtx, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(req);
+        await RequireAsync(permCtx, Permissions.SyncPull, workspaceId, "workspace key publish", ct);
+
+        var wrapped = WrappedKeyBlob.Decode(req.WrappedWk, nameof(req.WrappedWk));
+
+        // Versão desde o dia 1 (mesma regra do convite): zero significa "membership sem chave", e
+        // gravar um embrulho carimbado assim tornaria uma rotação futura indetectável.
+        if (req.WkVersion < 1)
+            throw new ArgumentException("wkVersion deve ser >= 1.");
+
+        var membership = await db.Memberships
+            .FirstOrDefaultAsync(m => m.WorkspaceId == workspaceId && m.UserId == permCtx.UserId, ct);
+
+        // O RBAC já recusa quem não é membro (membership.missing). Se chegou aqui sem linha, o
+        // modelo está inconsistente — melhor 403 do que criar membership por um PUT de chave.
+        if (membership is null)
+            throw new RbacDeniedException("membership.missing");
+
+        if (membership.WrappedWk is { } existing)
+        {
+            // Comparação simples, e não em tempo constante de propósito: o blob não é segredo para
+            // o servidor (ele o guarda e o devolve no GET) e quem chama acabou de mandá-lo. O que é
+            // segredo — o código do convite — esse sim é comparado em tempo constante, no
+            // InviteService.
+            if (existing.AsSpan().SequenceEqual(wrapped) && membership.WkVersion == req.WkVersion)
+            {
+                return PublishWorkspaceKeyOutcome.AlreadyPublished;
+            }
+
+            logger.LogWarning(
+                "Workspace key publish REFUSED for user {UserId} in workspace {WorkspaceId}: a "
+                + "different wrap is already stored (stored v{StoredVersion}, offered v{OfferedVersion}). "
+                + "Possible vault fork — the client must reconcile against the stored wrap.",
+                permCtx.UserId, workspaceId, membership.WkVersion, req.WkVersion);
+            return PublishWorkspaceKeyOutcome.Divergent;
+        }
+
+        membership.WrappedWk = wrapped;
+        membership.WkVersion = req.WkVersion;
+        await db.SaveChangesAsync(ct);
+
+        await audit.RecordAsync(new AuditRecord(
+            WorkspaceId: workspaceId,
+            ActorUserId: permCtx.UserId,
+            Action: "workspace.key-published",
+            TargetType: "Membership",
+            TargetId: permCtx.UserId,
+            DeviceId: permCtx.DeviceId,
+            // Só metadado: nada aqui reconstrói o embrulho, e o embrulho não abre sem a AMK (ADR-013).
+            Metadata: new Dictionary<string, object?> { ["wkVersion"] = req.WkVersion }), ct);
+
+        logger.LogInformation(
+            "Workspace key published by user {UserId} in workspace {WorkspaceId} (wkVersion {Version})",
+            permCtx.UserId, workspaceId, req.WkVersion);
+
+        return PublishWorkspaceKeyOutcome.Stored;
     }
 
     private async Task RequireAsync(

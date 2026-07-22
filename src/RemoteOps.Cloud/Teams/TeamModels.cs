@@ -93,3 +93,26 @@ public sealed record TeamMembersResponse(IReadOnlyList<TeamMember> Members);
 /// o segundo device do membro abrir o cofre — a AMK é portável, mas o blob guardado em disco é local.
 /// </summary>
 public sealed record WorkspaceKeyResponse(string WorkspaceId, string WrappedWk, int WkVersion);
+
+/// <summary>
+/// <c>PUT /workspaces/{id}/key</c>: o membro publica o PRÓPRIO embrulho da chave do time. Não há
+/// campo de usuário-alvo de propósito — quem grava é sempre quem está autenticado, e um blob só
+/// serve a quem tem a AMK que o abre.
+///
+/// <para><b>Por que este endpoint existe separado do convite:</b> até a Fatia 1e, o único caminho
+/// que gravava o embrulho era o ACEITE. Quem CRIA o time nunca subia o dele, e o
+/// <c>GET /workspaces/{id}/key</c> devolvia 404 <b>para o dono</b> — no segundo computador dele não
+/// havia o que restaurar, o chaveiro sorteava outra chave e o cofre do time bifurcava em silêncio.
+/// Pendurar o embrulho num campo opcional do convite não resolveria: a chave só subiria junto com um
+/// convite, então o dono que criou o time e não convidou ninguém (ou cujo convite falhou depois de a
+/// chave nascer) seguiria exposto, e o reparo no boot não teria em que pegar carona.</para>
+/// </summary>
+public sealed record PublishWorkspaceKeyRequest(string WrappedWk, int WkVersion);
+
+/// <summary>Desfecho da publicação.</summary>
+/// <param name="Stored">
+/// <c>true</c> = o servidor não tinha embrulho para este membro e passou a ter. <c>false</c> = já
+/// tinha <b>exatamente este</b> e nada foi escrito — é o caso normal do reparo de boot, que roda
+/// todo dia. O conflito (embrulho DIFERENTE já guardado) não chega aqui: vira 409.
+/// </param>
+public sealed record PublishWorkspaceKeyResponse(string WorkspaceId, bool Stored, int WkVersion);

@@ -120,6 +120,34 @@ public sealed class TeamInviteServiceTests
             return Task.FromResult(WorkspaceKey);
         }
 
+        /// <summary>
+        /// Mesma regra do backend real (<c>TeamService.PublishWorkspaceKeyAsync</c>): a primeira
+        /// gravação vence, o MESMO blob de novo é no-op e um blob DIFERENTE é conflito. O servidor
+        /// compara BYTES porque é só o que ele pode fazer — ele não tem AMK nenhuma para saber se
+        /// dois embrulhos guardam a mesma chave.
+        /// </summary>
+        public Task<TeamKeyPublication> PublishWorkspaceKeyAsync(
+            string workspaceId, PublishTeamWorkspaceKeyRequest request, CancellationToken ct = default)
+        {
+            Calls.Add("publish");
+            BodyStrings.Add(request.WrappedWk);
+            if (KeyEndpointOffline)
+            {
+                throw new HttpRequestException("rede indisponível (teste)");
+            }
+
+            if (WorkspaceKey is { } guardado)
+            {
+                return Task.FromResult(
+                    string.Equals(guardado.WrappedWk, request.WrappedWk, StringComparison.Ordinal)
+                        ? TeamKeyPublication.AlreadyPublished
+                        : TeamKeyPublication.Divergent);
+            }
+
+            WorkspaceKey = new TeamWorkspaceKeyResponse(workspaceId, request.WrappedWk, request.WkVersion);
+            return Task.FromResult(TeamKeyPublication.Stored);
+        }
+
         // Membros: fora do escopo destes testes (o alvo aqui é a cripto do convite).
         public Task<TeamMembersResponse> GetMembersAsync(
             string workspaceId, CancellationToken ct = default)
@@ -208,6 +236,45 @@ public sealed class TeamInviteServiceTests
     }
 
     /// <summary>
+    /// <b>O bloqueante da revisão adversarial.</b> Até aqui, o único caminho que gravava
+    /// <c>Membership.WrappedWk</c> era o ACEITE do convite: quem CRIAVA o time nunca subia o próprio
+    /// embrulho, e <c>GET /workspaces/{id}/key</c> devolvia 404 <b>para o dono</b>. Não era caso de
+    /// borda — era o caminho normal dele.
+    ///
+    /// <para>Agora o embrulho do dono sobe no instante em que a WK do time NASCE neste computador,
+    /// sem depender de ninguém aceitar nada. E ele é o embrulho sob a AMK DELE: o segundo computador
+    /// da mesma conta abre com ele.</para>
+    /// </summary>
+    [Fact]
+    public async Task Dono_AoCriarOTime_SobeOProprioEmbrulho_SemNinguemAceitar()
+    {
+        var api = new FakeTeamApi();
+        Side dono = NewSide(api);
+        using WkWorkspaceKeyRing ring = dono.Ring;
+        string vaultWorkspace = AppRuntimeTeamMirror.TeamVaultWorkspace(Workspace);
+
+        await dono.Service.CreateInviteAsync(Workspace, "colega@innet.tec.br", "Manager");
+
+        // O servidor tem a chave DO DONO guardada — e ninguém aceitou convite nenhum.
+        Assert.NotNull(api.WorkspaceKey);
+        Assert.DoesNotContain("accept", api.Calls);
+
+        // ...e ela sobe ANTES do convite: se o embrulho não entrasse, o convite não podia existir,
+        // senão o time nasceria com uma chave que o próprio dono não recupera no outro PC.
+        Assert.Equal("publish", api.Calls[api.Calls.IndexOf("create") - 1]);
+
+        // É o embrulho sob a AMK DELE: o segundo computador da mesma conta o abre e chega na MESMA WK.
+        using var segundoDevice = new WkWorkspaceKeyRing(
+            new InMemoryWorkspaceKeyStore(), dono.Amk, allowKeyCreation: false);
+        await segundoDevice.RestoreWrappedWorkspaceKeyAsync(
+            vaultWorkspace, Convert.FromBase64String(api.WorkspaceKey.WrappedWk));
+
+        using WorkspaceKey? aqui = await ring.TryGetWorkspaceKeyAsync(vaultWorkspace);
+        using WorkspaceKey? la = await segundoDevice.TryGetWorkspaceKeyAsync(vaultWorkspace);
+        Assert.Equal(aqui!.Key.ToArray(), la!.Key.ToArray());
+    }
+
+    /// <summary>
     /// <b>A bifurcação do segundo device.</b> Quem convida de um PC NOVO (ring vazio) com o time já
     /// existindo no servidor NÃO pode sortear outra WK — o convite levaria uma chave nova e o
     /// convidado entraria num "time" que não abre nada dos outros, sem erro nenhum. O caminho certo:
@@ -258,6 +325,133 @@ public sealed class TeamInviteServiceTests
 
         Assert.Null(await ring.TryGetWorkspaceKeyAsync(
             AppRuntimeTeamMirror.TeamVaultWorkspace(Workspace)));
+    }
+
+    /// <summary>
+    /// <b>O segundo computador do dono RESTAURA em vez de sortear.</b> O operador tem dois PCs de
+    /// verdade. Sem o embrulho do dono no servidor, o PC novo respondia "não é time" (404) e o
+    /// chaveiro sorteava uma WK₂ — o cofre do time bifurcava de forma determinística, e o indicador
+    /// ainda dizia "cofre pessoal" para ele.
+    /// </summary>
+    [Fact]
+    public async Task SegundoDeviceDoDono_RESTAURA_AMesmaChave_EmVezDeSortear()
+    {
+        var api = new FakeTeamApi();
+        Side dono = NewSide(api);
+        using WkWorkspaceKeyRing primeiro = dono.Ring;
+        string vaultWorkspace = AppRuntimeTeamMirror.TeamVaultWorkspace(Workspace);
+
+        await dono.Service.CreateInviteAsync(Workspace, "colega@innet.tec.br", "Manager");
+        using WorkspaceKey wkOriginal = (await primeiro.TryGetWorkspaceKeyAsync(vaultWorkspace))!;
+
+        // O SEGUNDO PC do dono: mesma conta (mesma AMK), disco limpo.
+        using var segundo = new WkWorkspaceKeyRing(new InMemoryWorkspaceKeyStore(), dono.Amk);
+        var servico = new TeamInviteService(api, segundo);
+
+        // O indicador não pode dizer "cofre pessoal" aqui — e a mesma pergunta traz a chave de volta.
+        Assert.True(await servico.IsTeamWorkspaceAsync(Workspace));
+
+        using WorkspaceKey? restaurada = await segundo.TryGetWorkspaceKeyAsync(vaultWorkspace);
+        Assert.NotNull(restaurada);
+        Assert.Equal(wkOriginal.Key.ToArray(), restaurada.Key.ToArray());
+    }
+
+    // ── Publicação do embrulho (o bloqueante) ────────────────────────────────────────────
+
+    /// <summary>
+    /// O reparo de boot: chave no disco, servidor sem nada guardado para mim → sobe. É o caminho de
+    /// quem já tinha o time criado antes desta correção existir, e o único jeito de fechar aquele
+    /// buraco sem obrigar o operador a convidar alguém só para consertar o segundo PC.
+    /// </summary>
+    [Fact]
+    public async Task Boot_ComChaveLocal_ESemNadaNoServidor_PublicaOEmbrulho()
+    {
+        var api = new FakeTeamApi();
+        Side conta = NewSide(api);
+        using WkWorkspaceKeyRing ring = conta.Ring;
+        string vaultWorkspace = AppRuntimeTeamMirror.TeamVaultWorkspace(Workspace);
+
+        // Chave do time no disco (como ficaria depois de um convite gerado por uma versão antiga),
+        // e nenhum embrulho no servidor.
+        byte[] wk = RandomNumberGenerator.GetBytes(32);
+        await ring.ImportWorkspaceKeyAsync(vaultWorkspace, wk);
+        Assert.Null(api.WorkspaceKey);
+
+        Assert.Equal(TeamKeyUpload.Published, await conta.Service.PublishOwnWrappedKeyAsync(Workspace));
+
+        Assert.NotNull(api.WorkspaceKey);
+        using var outroPc = new WkWorkspaceKeyRing(
+            new InMemoryWorkspaceKeyStore(), conta.Amk, allowKeyCreation: false);
+        await outroPc.RestoreWrappedWorkspaceKeyAsync(
+            vaultWorkspace, Convert.FromBase64String(api.WorkspaceKey.WrappedWk));
+        using WorkspaceKey? la = await outroPc.TryGetWorkspaceKeyAsync(vaultWorkspace);
+        Assert.Equal(wk, la!.Key.ToArray());
+    }
+
+    /// <summary>
+    /// Republicar é no-op, e é o caso NORMAL: o reparo roda a cada boot. Se cada boot gravasse de
+    /// novo (ou virasse conflito), o alarme de bifurcação tocaria todo dia e ninguém mais o ouviria.
+    /// </summary>
+    [Fact]
+    public async Task Republicar_OMesmoEmbrulho_NaoRegrava()
+    {
+        var api = new FakeTeamApi();
+        Side conta = NewSide(api);
+        using WkWorkspaceKeyRing ring = conta.Ring;
+
+        await ring.ImportWorkspaceKeyAsync(
+            AppRuntimeTeamMirror.TeamVaultWorkspace(Workspace), RandomNumberGenerator.GetBytes(32));
+
+        Assert.Equal(TeamKeyUpload.Published, await conta.Service.PublishOwnWrappedKeyAsync(Workspace));
+        Assert.Equal(TeamKeyUpload.AlreadyOnServer, await conta.Service.PublishOwnWrappedKeyAsync(Workspace));
+        Assert.Equal(TeamKeyUpload.AlreadyOnServer, await conta.Service.PublishOwnWrappedKeyAsync(Workspace));
+    }
+
+    /// <summary>
+    /// <b>Gravação dupla divergente NÃO troca em silêncio.</b> O servidor recusa (409, blobs opacos:
+    /// ele só sabe que já tem um embrulho DIFERENTE) e o cliente — que TEM a AMK — baixa o embrulho
+    /// guardado e compara as chaves de verdade. Chaves diferentes = bifurcação, e isso vira recado
+    /// alto em pt-BR. O que não pode acontecer é a troca calada: o blob guardado é o que os OUTROS
+    /// computadores desta conta vão restaurar.
+    /// </summary>
+    [Fact]
+    public async Task Publicar_ComChaveDiferenteDaGuardada_RECUSA_ENaoTrocaOQueEstaNoServidor()
+    {
+        var api = new FakeTeamApi();
+        byte[] amk = Amk();
+        string vaultWorkspace = AppRuntimeTeamMirror.TeamVaultWorkspace(Workspace);
+
+        // PC nº 1 publica a chave DE VERDADE do time.
+        using var pc1 = new WkWorkspaceKeyRing(new InMemoryWorkspaceKeyStore(), amk);
+        await pc1.ImportWorkspaceKeyAsync(vaultWorkspace, RandomNumberGenerator.GetBytes(32));
+        await new TeamInviteService(api, pc1).PublishOwnWrappedKeyAsync(Workspace);
+        string guardadoAntes = api.WorkspaceKey!.WrappedWk;
+
+        // PC nº 2, mesma conta, com OUTRA chave no disco (a bifurcação já aconteceu neste device).
+        using var pc2 = new WkWorkspaceKeyRing(new InMemoryWorkspaceKeyStore(), amk);
+        await pc2.ImportWorkspaceKeyAsync(vaultWorkspace, RandomNumberGenerator.GetBytes(32));
+
+        var erro = await Assert.ThrowsAsync<TeamInviteException>(
+            () => new TeamInviteService(api, pc2).PublishOwnWrappedKeyAsync(Workspace));
+
+        Assert.Contains("chave", erro.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(guardadoAntes, api.WorkspaceKey!.WrappedWk);
+    }
+
+    /// <summary>
+    /// Sem chave de time neste computador não há nada a publicar — e, principalmente, <b>não se vai
+    /// à rede</b>. É o caso de todo mundo que só tem cofre pessoal: o reparo de boot não pode custar
+    /// um round-trip para quem nunca vai ter time.
+    /// </summary>
+    [Fact]
+    public async Task Publicar_SemChaveLocal_NaoFazNada_ENemBateNoServidor()
+    {
+        var api = new FakeTeamApi();
+        Side conta = NewSide(api);
+        using WkWorkspaceKeyRing ring = conta.Ring;
+
+        Assert.Equal(TeamKeyUpload.NoLocalKey, await conta.Service.PublishOwnWrappedKeyAsync(Workspace));
+        Assert.Empty(api.Calls);
     }
 
     // ── Lado do CONVIDADO ────────────────────────────────────────────────────────────────

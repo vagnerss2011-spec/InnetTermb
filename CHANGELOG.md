@@ -31,8 +31,8 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   chegar, um estado misto (um membro na chave v1, outro na v2) seria **indetectável** e viraria erro
   mudo no PC do colega.
 - **Endpoints de equipe:** criar convite (exige a permissão `user.invite`), abrir convite, aceitar,
-  listar membros, remover membro e baixar a **própria** chave do workspace. RBAC pelo avaliador de
-  permissões que já protege o `/sync` e o `/secrets`.
+  listar membros, remover membro, baixar a **própria** chave do workspace e **publicar a própria
+  chave** do workspace. RBAC pelo avaliador de permissões que já protege o `/sync` e o `/secrets`.
   - **Remover membro corta o acesso do próximo pedido em diante** — provado em teste: pull e push do
     ex-membro passam a ser negados. O que ele já baixou **continua na máquina dele**, e nenhum
     servidor desfaz isso; a resposta completa é trocar as senhas nos equipamentos.
@@ -119,6 +119,34 @@ Este projeto segue uma variação de [Keep a Changelog](https://keepachangelog.c
   realmente nunca subiu, e declará-lo enviado seria escondê-lo.
 
 ### Segurança
+
+- **A chave do time de quem CRIA o time passou a ser guardada na conta — o segundo computador do dono
+  não sorteia mais uma chave diferente.** Até aqui, o único momento em que a chave do time ficava
+  registrada na conta de alguém era **quando essa pessoa aceitava um convite**. Quem *criava* o time
+  nunca passava por esse momento: a chave nascia no computador dele e ficava **só ali**. No segundo
+  computador — o operador tem dois, de verdade — o RemoteOps não achava nada para recuperar, criava
+  **outra** chave para o mesmo time e seguia em frente **sem erro nenhum**, ainda dizendo "cofre
+  pessoal" na barra. O resultado seria o pior possível: dois cofres do "mesmo" time, cada máquina
+  cadastrando senhas que a outra não abre, e ninguém descobrindo até um colega dizer que não consegue
+  entrar no equipamento.
+  - Agora o embrulho da chave **sobe no instante em que a chave do time nasce** naquele computador —
+    antes de o convite ser criado. Se ele não subir, **o convite não é gerado**: um convite feito com
+    uma chave que o próprio dono não recupera depois seria pior que erro, porque o código já teria
+    sido ditado por telefone.
+  - E **na abertura do aplicativo**, quem já tem a chave do time neste computador e ainda não a tem
+    registrada na conta a registra ali mesmo — é o conserto de quem criou o time numa versão anterior
+    a esta. O aviso de sucesso e o de falha vão para o painel de Logs; a alternativa (registrar só
+    junto de um convite novo) obrigaria o operador a **convidar alguém** para consertar o próprio
+    segundo computador.
+  - **Quem só usa cofre pessoal não paga nada:** sem chave de time no computador, o aplicativo nem
+    pergunta ao servidor.
+  - **Gravar por cima, nunca em silêncio.** Se a conta já tem uma chave de time guardada e este
+    computador oferece outra, o servidor **recusa** e mantém a que já estava (é ela que os outros
+    computadores vão recuperar). O aplicativo então **baixa a guardada e compara de verdade**: se for
+    a mesma chave, segue sem barulho; se for outra, aparece um recado alto dizendo para **não
+    cadastrar senhas do time ali** até resolver. O servidor continua sem conseguir distinguir uma
+    chave de outra — ele só compara bytes, porque é tudo o que ele tem; quem compara chave é o
+    aplicativo, que é o único lado que as possui. A criptografia ponta a ponta fica intacta.
 
 - **Upsert de segredo ganhou token de concorrência** — era o pré-requisito registrado na v1.4.7 como
   *"não mergear a Fatia 1 sem isso"*. O upsert lia o envelope e só depois gravava; se a **lápide de

@@ -77,6 +77,53 @@ public sealed record AcceptTeamInviteResponse(
 public sealed record TeamWorkspaceKeyResponse(string WorkspaceId, string WrappedWk, int WkVersion);
 
 /// <summary>
+/// <c>PUT /workspaces/{id}/key</c>: o membro publica o PRÓPRIO embrulho da chave do time.
+///
+/// <para><b>Repare no que NÃO existe aqui: usuário-alvo.</b> Quem grava é sempre a conta
+/// autenticada — um blob só serve a quem tem a AMK que o abre, e um campo de alvo abriria a porta
+/// para um membro sobrescrever a chave do outro.</para>
+///
+/// <para><b>Por que este pedido existe:</b> até a Fatia 1e o embrulho só subia no ACEITE do convite,
+/// então quem CRIAVA o time nunca tinha chave guardada no servidor. No segundo computador do dono
+/// não havia o que restaurar, o chaveiro sorteava outra WK e o cofre do time bifurcava — sem erro,
+/// com o indicador ainda dizendo "cofre pessoal".</para>
+/// </summary>
+public sealed record PublishTeamWorkspaceKeyRequest(string WrappedWk, int WkVersion);
+
+/// <summary>Resposta da publicação.</summary>
+/// <param name="Stored">
+/// <c>true</c> = o servidor não tinha embrulho e passou a ter. <c>false</c> = já tinha EXATAMENTE
+/// este e nada foi escrito — o caso normal do reparo de boot.
+/// </param>
+public sealed record PublishTeamWorkspaceKeyResponse(string WorkspaceId, bool Stored, int WkVersion);
+
+/// <summary>
+/// Desfecho de <c>PUT /workspaces/{id}/key</c>.
+///
+/// <para><b>Por que enum e não exceção</b> (mesma razão do <see cref="TeamMemberRemoval"/>): os três
+/// desfechos vêm no STATUS (200 com <c>stored</c> / 409) e pedem ações diferentes. O
+/// <see cref="Divergent"/>, principalmente, NÃO é "deu erro, tente de novo": é o sinal de que este
+/// computador pode estar com uma chave de time diferente da que a conta guarda, e a única saída é
+/// reconciliar contra o embrulho guardado.</para>
+/// </summary>
+public enum TeamKeyPublication
+{
+    /// <summary>O servidor não tinha embrulho para esta conta; agora tem.</summary>
+    Stored,
+
+    /// <summary>Já havia exatamente este embrulho — nada mudou (republicação idempotente).</summary>
+    AlreadyPublished,
+
+    /// <summary>
+    /// Já havia um embrulho DIFERENTE guardado. O servidor não tem como saber se é a mesma chave
+    /// com nonce novo ou outra chave (blobs opacos, sem AMK) — e não pode passar a ter, sob pena de
+    /// matar o E2EE. Quem compara chave de verdade é o cliente, que baixa o embrulho guardado e o
+    /// abre com a própria AMK.
+    /// </summary>
+    Divergent,
+}
+
+/// <summary>
 /// <c>GET /workspaces/{id}/members</c> — uma pessoa do time.
 ///
 /// <para>Repare no que NÃO vem: o embrulho da WK. O de cada membro só abre com a AMK DELE, então

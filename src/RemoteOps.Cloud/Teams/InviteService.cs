@@ -45,14 +45,6 @@ public sealed class InviteService(
     /// <summary>SHA-256 em hex: 64 caracteres, sempre.</summary>
     private const int CodeHashLength = 64;
 
-    /// <summary>
-    /// Limites do blob opaco. O servidor NÃO interpreta o conteúdo (não tem <c>K_invite</c>); só
-    /// recusa o que obviamente não é um embrulho AES-GCM — nonce(12)+tag(16)+chave(32) = 60 bytes.
-    /// O piso existe para um blob truncado falhar AQUI, e não meses depois na máquina do colega.
-    /// </summary>
-    private const int MinWrappedBytes = 28;
-    private const int MaxWrappedBytes = 1024;
-
     /// <summary>Seam de teste do relógio (expiração). Por padrão é o real.</summary>
     internal Func<DateTimeOffset> UtcNow { get; init; } = () => DateTimeOffset.UtcNow;
 
@@ -92,7 +84,7 @@ public sealed class InviteService(
             throw new ArgumentException("Você não pode convidar alguém com mais poder que o seu papel.");
 
         var codeHash = NormalizeCodeHash(req.CodeHash);
-        var wrapped = DecodeBlob(req.WrappedWkByInvite, nameof(req.WrappedWkByInvite));
+        var wrapped = WrappedKeyBlob.Decode(req.WrappedWkByInvite, nameof(req.WrappedWkByInvite));
 
         // Versão da WK desde o dia 1: sem ela, uma rotação futura produz estado misto INDETECTÁVEL.
         if (req.WkVersion < 1)
@@ -224,7 +216,7 @@ public sealed class InviteService(
 
         // Material inválido LANÇA (400): é erro do cliente, não recusa de convite, e gravar uma
         // membership com blob quebrado deixaria o colega dentro do time sem conseguir abrir nada.
-        var wrappedWk = DecodeBlob(req.WrappedWk, nameof(req.WrappedWk));
+        var wrappedWk = WrappedKeyBlob.Decode(req.WrappedWk, nameof(req.WrappedWk));
 
         var now = UtcNow();
         invite.AcceptedAt = now;
@@ -387,21 +379,6 @@ public sealed class InviteService(
 
         normalized = trimmed.ToLowerInvariant();
         return true;
-    }
-
-    private static byte[] DecodeBlob(string? b64, string field)
-    {
-        if (string.IsNullOrWhiteSpace(b64))
-            throw new ArgumentException($"{field} é obrigatório.");
-
-        byte[] bytes;
-        try { bytes = Convert.FromBase64String(b64); }
-        catch (FormatException) { throw new ArgumentException($"{field} não é base64 válido."); }
-
-        if (bytes.Length is < MinWrappedBytes or > MaxWrappedBytes)
-            throw new ArgumentException($"{field} não tem tamanho de chave embrulhada.");
-
-        return bytes;
     }
 
     /// <summary>

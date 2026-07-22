@@ -53,6 +53,11 @@ public sealed class TeamInviteWindowRenderTests
             string workspaceId, CancellationToken ct = default)
             => Task.FromResult<TeamWorkspaceKeyResponse?>(null);
 
+        /// <summary>Aceita a publicação do embrulho do dono — é o que o convite faz antes de subir.</summary>
+        public Task<TeamKeyPublication> PublishWorkspaceKeyAsync(
+            string workspaceId, PublishTeamWorkspaceKeyRequest request, CancellationToken ct = default)
+            => Task.FromResult(TeamKeyPublication.Stored);
+
         // A janela de convite não lista nem remove ninguém: quem faz isso é a TeamWindow (1e).
         public Task<TeamMembersResponse> GetMembersAsync(
             string workspaceId, CancellationToken ct = default)

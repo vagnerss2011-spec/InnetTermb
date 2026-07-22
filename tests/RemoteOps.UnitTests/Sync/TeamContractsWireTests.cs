@@ -41,6 +41,10 @@ public sealed class TeamContractsWireTests
 
     private sealed record ServerWorkspaceKeyResponse(string WorkspaceId, string WrappedWk, int WkVersion);
 
+    private sealed record ServerPublishWorkspaceKeyRequest(string WrappedWk, int WkVersion);
+
+    private sealed record ServerPublishWorkspaceKeyResponse(string WorkspaceId, bool Stored, int WkVersion);
+
     private sealed record ServerTeamMember(
         string UserId, string Email, string DisplayName, string Role, bool HasWk, int WkVersion);
 
@@ -155,6 +159,62 @@ public sealed class TeamContractsWireTests
         Assert.NotNull(client);
         Assert.Equal(server.WorkspaceId, client.WorkspaceId);
         Assert.Equal(server.WrappedWk, client.WrappedWk);
+        Assert.Equal(server.WkVersion, client.WkVersion);
+    }
+
+    // ── PUT /workspaces/{id}/key ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// O corpo da publicação cai inteiro na forma do servidor. É o pedido que faz o embrulho do DONO
+    /// existir no servidor sem depender de convite nenhum — se um campo se perder na travessia, o
+    /// dono volta a ficar sem chave guardada e o segundo computador dele sorteia outra.
+    /// </summary>
+    [Fact]
+    public void PublicarChave_CaiInteiroNaFormaDoServidor()
+    {
+        var client = new PublishTeamWorkspaceKeyRequest("YmxvYmJsb2JibG9i", 1);
+
+        var server = JsonSerializer.Deserialize<ServerPublishWorkspaceKeyRequest>(
+            JsonSerializer.Serialize(client, s_web), s_web);
+
+        Assert.NotNull(server);
+        Assert.Equal(client.WrappedWk, server.WrappedWk);
+        Assert.Equal(client.WkVersion, server.WkVersion);
+    }
+
+    /// <summary>
+    /// <b>O pedido não tem usuário-alvo.</b> Guarda de contrato com peso de segurança: um campo
+    /// "userId" aqui um dia significaria um membro gravando o embrulho de OUTRO — e o colega
+    /// deixaria de abrir o cofre no próximo computador dele, sem nada na tela.
+    /// </summary>
+    [Fact]
+    public void CorpoDaPublicacao_NaoTemUsuarioAlvo()
+    {
+        string json = JsonSerializer.Serialize(new PublishTeamWorkspaceKeyRequest("YmxvYmJsb2JibG9i", 1), s_web);
+
+        using JsonDocument doc = JsonDocument.Parse(json);
+        Assert.False(doc.RootElement.TryGetProperty("userId", out _));
+        Assert.False(doc.RootElement.TryGetProperty("targetUserId", out _));
+        Assert.True(doc.RootElement.TryGetProperty("wrappedWk", out _));
+    }
+
+    /// <summary>
+    /// A resposta é lida pelo cliente, com <c>stored</c> inteiro: <c>false</c> é o caminho normal do
+    /// reparo de boot (já estava lá) e <c>true</c> é a primeira publicação. Perder esse bit faria o
+    /// app não distinguir "acabei de fechar o buraco" de "não tinha nada a fazer".
+    /// </summary>
+    [Fact]
+    public void RespostaDaPublicacao_EhLidaPeloCliente()
+    {
+        var server = new ServerPublishWorkspaceKeyResponse(
+            "8f3b6f4a-0000-4000-8000-000000000001", Stored: true, 1);
+
+        var client = JsonSerializer.Deserialize<PublishTeamWorkspaceKeyResponse>(
+            JsonSerializer.Serialize(server, s_web), s_web);
+
+        Assert.NotNull(client);
+        Assert.Equal(server.WorkspaceId, client.WorkspaceId);
+        Assert.True(client.Stored);
         Assert.Equal(server.WkVersion, client.WkVersion);
     }
 

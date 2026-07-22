@@ -31,6 +31,14 @@ public interface ITeamApi
         string workspaceId, CancellationToken ct = default);
 
     /// <summary>
+    /// Publica o embrulho da chave do time DESTA conta. Idempotente: republicar o mesmo blob é
+    /// no-op. É o que faz o dono do time — que nunca aceitou convite nenhum — ter chave guardada no
+    /// servidor, e portanto o que faz o segundo computador dele RESTAURAR em vez de sortear outra.
+    /// </summary>
+    Task<TeamKeyPublication> PublishWorkspaceKeyAsync(
+        string workspaceId, PublishTeamWorkspaceKeyRequest request, CancellationToken ct = default);
+
+    /// <summary>
     /// Quem está no time. Falha de rede/permissão ESTOURA: uma lista vazia devolvida em silêncio
     /// diria ao operador "você está sozinho no time" — a mentira mais cara que esta tela pode contar.
     /// </summary>

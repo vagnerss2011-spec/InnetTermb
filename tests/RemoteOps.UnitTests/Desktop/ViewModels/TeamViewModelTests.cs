@@ -101,6 +101,12 @@ public sealed class TeamViewModelTests
         public Task<TeamWorkspaceKeyResponse?> GetWorkspaceKeyAsync(
             string workspaceId, CancellationToken ct = default)
             => Task.FromResult<TeamWorkspaceKeyResponse?>(null);
+
+        // A tela de membros não publica chave nenhuma — quem publica é o fluxo de convite e o
+        // reparo de boot. Se um dia ela passar a chamar, é melhor estourar aqui do que fingir.
+        public Task<TeamKeyPublication> PublishWorkspaceKeyAsync(
+            string workspaceId, PublishTeamWorkspaceKeyRequest request, CancellationToken ct = default)
+            => throw new NotSupportedException();
     }
 
     private static (TeamViewModel Vm, FakeTeamApi Api) New(params TeamMemberDto[] members)
