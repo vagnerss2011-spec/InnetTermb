@@ -207,6 +207,59 @@ public sealed class TeamInviteServiceTests
         Assert.Equal(primeira!.Key.ToArray(), segunda!.Key.ToArray());
     }
 
+    /// <summary>
+    /// <b>A bifurcação do segundo device.</b> Quem convida de um PC NOVO (ring vazio) com o time já
+    /// existindo no servidor NÃO pode sortear outra WK — o convite levaria uma chave nova e o
+    /// convidado entraria num "time" que não abre nada dos outros, sem erro nenhum. O caminho certo:
+    /// restaurar a WK do servidor e embrulhar ELA no convite.
+    /// </summary>
+    [Fact]
+    public async Task Convidar_NoSegundoDevice_UsaAChaveDoServidor_NaoSorteiaOutra()
+    {
+        var api = new FakeTeamApi();
+        Side dono = NewSide(api);
+        using WkWorkspaceKeyRing ringPrimeiro = dono.Ring;
+        string vaultWorkspace = AppRuntimeTeamMirror.TeamVaultWorkspace(Workspace);
+
+        await dono.Service.CreateInviteAsync(Workspace, "a@innet.tec.br", "Manager");
+        using WorkspaceKey wkOriginal = (await ringPrimeiro.TryGetWorkspaceKeyAsync(vaultWorkspace))!;
+
+        // O servidor guarda o embrulho da conta (o mesmo blob da membership).
+        byte[] wrapped = await ringPrimeiro.ImportWorkspaceKeyAsync(
+            vaultWorkspace, wkOriginal.Key.ToArray());
+        api.WorkspaceKey = new TeamWorkspaceKeyResponse(Workspace, Convert.ToBase64String(wrapped), 1);
+
+        // Mesma conta (mesma AMK), device novo: ring vazio.
+        using var ringNovo = new WkWorkspaceKeyRing(new InMemoryWorkspaceKeyStore(), dono.Amk);
+        var servicoNovo = new TeamInviteService(api, ringNovo);
+        GeneratedTeamInvite invite = await servicoNovo.CreateInviteAsync(
+            Workspace, "b@innet.tec.br", "Manager");
+
+        byte[] doConvite = TeamInviteCrypto.UnwrapWorkspaceKey(
+            Convert.FromBase64String(api.Created!.WrappedWkByInvite), invite.Code);
+        Assert.Equal(wkOriginal.Key.ToArray(), doConvite);
+        CryptographicOperations.ZeroMemory(doConvite);
+    }
+
+    /// <summary>
+    /// Sem conseguir perguntar ao servidor se o time já tem chave, convidar de um ring vazio NÃO
+    /// sorteia: "não sei" não pode virar "pode sortear". A falha sobe (o POST do convite exigiria a
+    /// mesma rede logo em seguida) e o ring continua sem chave — nada nasceu no escuro.
+    /// </summary>
+    [Fact]
+    public async Task Convidar_SemConseguirPerguntarAoServidor_NaoSorteiaChave()
+    {
+        var api = new FakeTeamApi { KeyEndpointOffline = true };
+        Side dono = NewSide(api);
+        using WkWorkspaceKeyRing ring = dono.Ring;
+
+        await Assert.ThrowsAsync<HttpRequestException>(
+            () => dono.Service.CreateInviteAsync(Workspace, "a@innet.tec.br", "Manager"));
+
+        Assert.Null(await ring.TryGetWorkspaceKeyAsync(
+            AppRuntimeTeamMirror.TeamVaultWorkspace(Workspace)));
+    }
+
     // ── Lado do CONVIDADO ────────────────────────────────────────────────────────────────
 
     /// <summary>Código certo: a WK do time chega inteira na máquina do convidado.</summary>

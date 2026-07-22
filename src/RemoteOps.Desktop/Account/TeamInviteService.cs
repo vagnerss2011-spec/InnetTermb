@@ -116,6 +116,22 @@ public sealed class TeamInviteService
         string code = TeamInviteCrypto.GenerateCode();
         string vaultWorkspaceId = AppRuntime.TeamVaultWorkspace(workspaceId);
 
+        // ANTES de qualquer sorteio: sem WK neste device, pergunte ao SERVIDOR se o time já tem uma
+        // (é o membro — ou o dono — convidando do segundo PC, ou depois de reinstalar). Sortear aqui
+        // com a chave do time já existindo lá é a bifurcação silenciosa que esta fatia inteira
+        // combate: o convite levaria uma WK nova e o convidado entraria num "time" que não abre nada
+        // dos outros. Só o 404 (null) autoriza o sorteio; falha de rede SOBE — "não sei" não pode
+        // virar "pode sortear" (e o POST do convite exigiria a mesma rede logo em seguida).
+        using (WorkspaceKey? local = await _keyRing
+            .TryGetWorkspaceKeyAsync(vaultWorkspaceId, ct)
+            .ConfigureAwait(false))
+        {
+            if (local is null)
+            {
+                await TryRestoreTeamKeyAsync(workspaceId, ct).ConfigureAwait(false);
+            }
+        }
+
         // GetOrCreate, e não Create: convidar a segunda pessoa NÃO pode sortear outra chave — isso
         // deixaria a primeira com um cofre que ninguém mais abre. Este é o único caminho do app em
         // que a WK de um time pode nascer (é o ato de compartilhar que cria o time).
